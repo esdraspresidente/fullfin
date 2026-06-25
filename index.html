@@ -1186,11 +1186,14 @@ function renderCarteiras(){
 }
 
 async function deleteCarteira(cid){
-  openConfirm('Desativar carteira?','Ela ficará oculta mas os lançamentos são mantidos.',async()=>{
-    const{error}=await sb.from('fin_carteiras').update({ativo:false}).eq('id',cid);
-    if(error){showToast('Erro.','err');return;}
-    await loadAll(); renderCarteiras(); showToast('Carteira desativada.','info');
-  },'Desativar');
+  closeSheet();
+  setTimeout(()=>{
+    openConfirm('Desativar carteira?','Ela ficará oculta mas os lançamentos são mantidos.',async()=>{
+      const{error}=await sb.from('fin_carteiras').update({ativo:false}).eq('id',cid);
+      if(error){showToast('Erro ao desativar.','err');return;}
+      await loadAll(); renderCarteiras(); showToast('Carteira desativada.','info');
+    },'Desativar');
+  },300);
 }
 
 function openSheetCarteira(cid){
@@ -1339,7 +1342,6 @@ async function initImportar(){
   // Só aparece o que for desta data em diante. Configurável aqui:
   const DATA_CORTE = localStorage.getItem('fullfin_data_corte') || new Date().toISOString().split('T')[0];
 
-  // Chaves já importadas — usa "origem:id" para nunca confundir tipos diferentes
   const importados=new Set(
     movimentacoes
       .filter(m=>m.diligencia_id!=null)
@@ -1352,14 +1354,12 @@ async function initImportar(){
     sb.from('pm_parcelas').select('*'),
   ]);
 
-  // Diligências pagas, de hoje em diante, ainda não importadas
   importDiligData=(rDilig.data||[]).filter(d=>{
     if(d.status!=='pago') return false;
     const dataRef=(d.data||'').split('T')[0];
     if(dataRef < DATA_CORTE) return false;
     return !importados.has('diligencia:'+String(d.id));
   });
-  // PreviMater recebidas, de hoje em diante, ainda não importadas
   importPreviData=(rParc.data||[]).filter(p=>{
     if(p.status!=='recebido') return false;
     const dataRef=(p.data_pagamento||p.data_vencimento||'').split('T')[0];
@@ -1387,9 +1387,10 @@ function renderImportList(){
     updateImportBtn(); return;
   }
   $('imp-list').innerHTML=items.map((item,i)=>{
-    const sel=importSelected.has(item.id);
+    const sid=String(item.id);
+    const sel=importSelected.has(sid);
     if(importTab==='diligencias'){
-      return`<div class="import-item${sel?' selected':''}" onclick="toggleImportItem('${item.id}')">
+      return`<div class="import-item${sel?' selected':''}" data-import-id="${sid}" onclick="toggleImportItem('${sid}')">
         <div class="import-checkbox">${sel?'✓':''}</div>
         <div class="import-item-body">
           <div class="import-item-title">${item.descricao||'Diligência'}</div>
@@ -1398,7 +1399,7 @@ function renderImportList(){
         <div class="import-item-value">+${fmt(item.valor)}</div>
       </div>`;
     } else {
-      return`<div class="import-item${sel?' selected':''}" onclick="toggleImportItem('${item.id}')">
+      return`<div class="import-item${sel?' selected':''}" data-import-id="${sid}" onclick="toggleImportItem('${sid}')">
         <div class="import-checkbox">${sel?'✓':''}</div>
         <div class="import-item-body">
           <div class="import-item-title">${item.cliente_nome||'Cliente'}</div>
@@ -1412,12 +1413,12 @@ function renderImportList(){
 }
 
 function toggleImportItem(id){
-  if(importSelected.has(id)) importSelected.delete(id);
-  else importSelected.add(id);
-  // Atualiza só o item clicado sem re-renderizar tudo
-  const el=document.querySelector(`.import-item[onclick="toggleImportItem('${id}')"]`);
+  const sid=String(id);
+  if(importSelected.has(sid)) importSelected.delete(sid);
+  else importSelected.add(sid);
+  const el=document.querySelector(`[data-import-id="${sid}"]`);
   if(el){
-    const sel=importSelected.has(id);
+    const sel=importSelected.has(sid);
     el.classList.toggle('selected',sel);
     const chk=el.querySelector('.import-checkbox');
     if(chk) chk.textContent=sel?'✓':'';
@@ -1426,7 +1427,7 @@ function toggleImportItem(id){
 }
 function toggleSelectAll(){
   const chk=$('imp-select-all');
-  if(chk.checked) importItems.forEach(i=>importSelected.add(i.id));
+  if(chk.checked) importItems.forEach(i=>importSelected.add(String(i.id)));
   else importSelected.clear();
   renderImportList();
 }
@@ -1446,7 +1447,7 @@ async function executarImport(){
   const btn=$('imp-btn'); btn.textContent='Importando…'; btn.disabled=true;
   let erros=0, count=0;
 
-  const selecionados=importItems.filter(i=>importSelected.has(i.id));
+  const selecionados=importItems.filter(i=>importSelected.has(String(i.id)));
   for(const item of selecionados){
     let payload;
     if(importTab==='diligencias'){

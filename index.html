@@ -499,7 +499,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v2.3 · Naiarha</div>
+        <div class="sb-version">v2.4 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -692,6 +692,7 @@
         <button id="btn-gerar-mes" onclick="gerarLancamentosDoMes()" style="width:100%;padding:14px;border-radius:12px;background:linear-gradient(135deg,#10B981,#064E3B);color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:16px">
           ⚡ Gerar lançamentos pendentes de <span id="rec-mes-label">...</span>
         </button>
+        <div id="rec-filtros" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
         <div id="recorrentes-lista"></div>
       </div>
 
@@ -837,6 +838,7 @@ let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos =
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
 let cartoes = [], cartaoAtual = null;
 let dividas = [], veiculos = [], abastecimentos = [], recorrentes = [], dividaParcelas = [];
+let recFiltro = 'todos';
 let confirmCallback = null;
 // import state
 let importTab = 'diligencias', importItems = [], importSelected = new Set();
@@ -2098,44 +2100,108 @@ async function salvarAbastecimento(vid, ultimoKm){
 // ════════════════════════════════════════════════
 //  CUSTOS FIXOS RECORRENTES
 // ════════════════════════════════════════════════
+// Cores por centro para custos fixos
+const REC_CENTRO_CORES = {
+  'PreviMater':   { bg:'#EFF6FF', border:'#BFDBFE', text:'#1D4ED8' },
+  'NAIARHA ADV':  { bg:'#F5F3FF', border:'#DDD6FE', text:'#6D28D9' },
+  'Casa':         { bg:'#FFF7ED', border:'#FED7AA', text:'#C2410C' },
+  'Geral':        { bg:'#F9FAFB', border:'#E5E7EB', text:'#6B7280' },
+};
+function recCentroCor(nome){
+  const key=Object.keys(REC_CENTRO_CORES).find(k=>nome?.toLowerCase().includes(k.toLowerCase()));
+  return REC_CENTRO_CORES[key]||REC_CENTRO_CORES['Geral'];
+}
+
+function setRecFiltro(f){
+  recFiltro=f;
+  renderRecorrentes();
+}
+
 function renderRecorrentes(){
   const mesISO=isoMes(mesAtual);
   const[y,m]=mesISO.split('-');
   if($('rec-mes-label')) $('rec-mes-label').textContent=MESES[parseInt(m)-1]+' '+y;
   const el=$('recorrentes-lista'); if(!el) return;
   const ativos=recorrentes.filter(r=>r.ativo!==false);
+
+  // Monta filtros dinâmicos baseados nos centros existentes nos recorrentes
+  const centrosUsados=['todos',...new Set(ativos.map(r=>{
+    const c=centros.find(x=>x.id===r.centro_id);
+    return c?.nome||'Geral';
+  }))];
+  const filtrosEl=$('rec-filtros');
+  if(filtrosEl){
+    filtrosEl.innerHTML=centrosUsados.map(f=>{
+      const cor=f==='todos'?{bg:'var(--accent)',border:'var(--accent)',text:'#fff'}:recCentroCor(f);
+      const isActive=recFiltro===f;
+      return`<button onclick="setRecFiltro('${f}')" style="padding:5px 14px;border-radius:20px;border:1.5px solid ${isActive?(f==='todos'?'var(--accent)':cor.border):cor.border};background:${isActive?(f==='todos'?'var(--accent)':cor.bg):'transparent'};color:${isActive?(f==='todos'?'#fff':cor.text):cor.text};font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;transition:all .15s">${f==='todos'?'Todos':f}</button>`;
+    }).join('');
+  }
+
   if(!ativos.length){
     el.innerHTML=`<div class="empty"><div class="empty-icon">🔄</div><div class="empty-title">Nenhum custo fixo cadastrado</div><div class="empty-sub">Adicione contas que se repetem todo mês</div></div>`;return;
   }
+
+  // Filtra por centro selecionado
+  const filtrados=recFiltro==='todos'?ativos:ativos.filter(r=>{
+    const c=centros.find(x=>x.id===r.centro_id);
+    return (c?.nome||'Geral')===recFiltro;
+  });
+
   // Verifica quais já foram gerados este mês
   const geradosIds=new Set(
     movimentacoes
-      .filter(m=>m.origem==='recorrente'&&(m.data||'').startsWith(mesISO))
-      .map(m=>m.observacao?.replace('recorrente:',''))
+      .filter(mv=>mv.origem==='recorrente'&&(mv.data||'').startsWith(mesISO))
+      .map(mv=>mv.observacao?.replace('recorrente:',''))
   );
-  el.innerHTML=ativos.map(r=>{
-    const gerado=geradosIds.has(r.id);
-    const cat=categorias.find(c=>c.id===r.categoria_id);
-    const centro=centros.find(c=>c.id===r.centro_id);
-    const carteira=carteiras.find(c=>c.id===r.carteira_id);
-    return`<div class="card pad-sm" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px;${gerado?'opacity:.65':''}">
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="width:34px;height:34px;border-radius:9px;background:${r.tipo==='entrada'?'var(--accent-bg)':'#FEE2E2'};display:flex;align-items:center;justify-content:center;font-size:15px">${cat?.icone||'📌'}</div>
-        <div>
-          <div style="font-size:13px;font-weight:700;color:var(--text)">${r.descricao}</div>
-          <div style="font-size:10px;color:var(--gray)">Dia ${r.dia_vencimento||'—'} · ${centro?.nome||'Geral'} ${carteira?'· '+carteira.nome:''}</div>
+
+  // Agrupa por centro
+  const grupos={};
+  filtrados.forEach(r=>{
+    const c=centros.find(x=>x.id===r.centro_id);
+    const nome=c?.nome||'Geral';
+    if(!grupos[nome]) grupos[nome]=[];
+    grupos[nome].push(r);
+  });
+
+  if(!filtrados.length){
+    el.innerHTML=`<div class="empty"><div class="empty-icon">🔍</div><div class="empty-title">Nenhum custo fixo neste centro</div></div>`;return;
+  }
+
+  el.innerHTML=Object.entries(grupos).map(([grupoNome,lista])=>{
+    const cor=recCentroCor(grupoNome);
+    const totalMes=lista.reduce((s,r)=>s+(r.tipo==='saida'?parseFloat(r.valor||0):0),0);
+    const cards=lista.map(r=>{
+      const gerado=geradosIds.has(r.id);
+      const cat=categorias.find(c=>c.id===r.categoria_id);
+      const carteira=carteiras.find(c=>c.id===r.carteira_id);
+      return`<div class="card pad-sm" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px;${gerado?'opacity:.6':''}">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div style="width:34px;height:34px;border-radius:9px;background:${r.tipo==='entrada'?'var(--accent-bg)':'#FEE2E2'};display:flex;align-items:center;justify-content:center;font-size:15px">${cat?.icone||'📌'}</div>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:var(--text)">${r.descricao}</div>
+            <div style="font-size:10px;color:var(--gray);margin-top:2px">
+              Dia ${r.dia_vencimento||'—'}${carteira?' · '+carteira.nome:''}${r.forma_pagamento?' · '+r.forma_pagamento:''}
+            </div>
+          </div>
         </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
-        ${gerado?`<span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-bg);padding:3px 8px;border-radius:20px">✓ Gerado</span>`:''}
-        <div style="text-align:right">
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+          ${gerado?`<span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-bg);padding:3px 8px;border-radius:20px">✓ Gerado</span>`:''}
           <div style="font-size:14px;font-weight:800;color:${r.tipo==='entrada'?'var(--accent)':'var(--red)'}">
             ${r.tipo==='entrada'?'+':'-'}${fmt(r.valor)}
           </div>
+          <button class="btn btn-secondary" style="padding:5px 8px;font-size:11px" onclick="openSheetRecorrente('${r.id}')">✏️</button>
+          <button class="btn btn-danger" style="padding:5px 8px;font-size:11px" onclick="deleteRecorrente('${r.id}')">🗑</button>
         </div>
-        <button class="btn btn-secondary" style="padding:5px 8px;font-size:11px" onclick="openSheetRecorrente('${r.id}')">✏️</button>
-        <button class="btn btn-danger" style="padding:5px 8px;font-size:11px" onclick="deleteRecorrente('${r.id}')">🗑</button>
+      </div>`;
+    }).join('');
+
+    return`<div style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;background:${cor.bg};border:1.5px solid ${cor.border};border-radius:10px;padding:8px 14px;margin-bottom:8px">
+        <span style="font-size:12px;font-weight:800;color:${cor.text}">${grupoNome}</span>
+        <span style="font-size:12px;font-weight:700;color:${cor.text}">${lista.length} item(s) · ${totalMes>0?'-'+fmt(totalMes):fmt(0)}/mês</span>
       </div>
+      ${cards}
     </div>`;
   }).join('');
 }

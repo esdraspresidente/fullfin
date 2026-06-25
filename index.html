@@ -499,7 +499,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v2.2 · Naiarha</div>
+        <div class="sb-version">v2.3 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1078,7 +1078,7 @@ function renderMovs(containerId, list, compact=false){
     return;
   }
   const movsHtml=list.map(m=>{
-    const stBadge=m.status==='pago'?'<span class="badge-pago">Pago</span>':m.status==='pendente'?'<span class="badge-pendente">Pendente</span>':'<span class="badge-agendado">Agendado</span>';
+    const stBadge=m.status==='pago'?(m.tipo==='entrada'?'<span class="badge-pago">Recebido</span>':'<span class="badge-pago">Pago</span>'):m.status==='pendente'?'<span class="badge-pendente">Pendente</span>':'<span class="badge-agendado">Agendado</span>';
     const parcLabel=m.total_parcelas?` · ${m.parcela_atual}/${m.total_parcelas}`:'';
     const iconBg=m.tipo==='entrada'?'var(--accent-bg)':m.tipo==='saida'?'#FEE2E2':'var(--blue-bg)';
     const metaLine=[fmtDate(m.data)+parcLabel, m.forma_pagamento, getWName(m.carteira_id), getCName(m.centro_id)].filter(Boolean).join(' · ');
@@ -1142,7 +1142,7 @@ function buildSheetFormEdicao(m){
     <div class="form-mb field"><label>Observação</label><textarea id="sh-obs" rows="2">${m.observacao||''}</textarea></div>
     <div style="display:flex;gap:8px;margin-top:8px">
       <button class="btn btn-danger" style="flex:1" onclick="pedirRemocaoMov('${m.id}')">🗑 Remover</button>
-      ${isPendente?`<button class="btn btn-primary" style="flex:1;background:#059669" onclick="marcarPagoSheet('${m.id}')">✅ Pago</button>`:''}
+      ${isPendente?`<button class="btn btn-primary" style="flex:1;background:#059669" onclick="abrirConfirmPagamento('${m.id}','${m.tipo||'saida'}')">✅ ${m.tipo==='entrada'?'Recebido':'Pago'}</button>`:''}
       <button class="btn btn-primary" style="flex:2" onclick="salvarEdicaoMov('${m.id}')">💾 Salvar</button>
     </div>
   `;
@@ -1154,12 +1154,63 @@ function setSheetTipoEd(t,mid){
   if(m) buildSheetFormEdicao({...m,tipo:t});
 }
 
-async function marcarPagoSheet(mid){
-  closeSheet();
+function abrirConfirmPagamento(mid, tipo){
+  const m=movimentacoes.find(x=>x.id===mid); if(!m) return;
+  const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}"${m.carteira_id===w.id?' selected':''}>${w.nome}</option>`).join('');
+  const formas=['Pix','Boleto','Débito','Débito Automático','Transferência','Cartão de Crédito','Dinheiro'];
+  const formaOpts=formas.map(f=>`<option value="${f}"${m.forma_pagamento===f?' selected':''}>${f}</option>`).join('');
   const hoje=new Date().toISOString().split('T')[0];
-  const{error}=await sb.from('fin_movimentacoes').update({status:'pago',data:hoje}).eq('id',mid);
-  if(error){showToast('Erro ao salvar.','err');return;}
-  await loadAll(); renderAll(); showToast('Marcado como pago!','ok');
+  const labelAcao = tipo==='entrada' ? 'Recebimento' : 'Pagamento';
+  $('sheet-title').textContent = `Confirmar ${labelAcao}`;
+  $('sheet-body').innerHTML=`
+    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:12px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:#065F46">${m.descricao}</div>
+      <div style="font-size:20px;font-weight:800;color:var(--accent);margin-top:4px">${fmt(m.valor)}</div>
+    </div>
+    <div class="form-grid-2" style="margin-bottom:12px">
+      <div class="field"><label>Valor ${labelAcao==='Recebimento'?'recebido':'pago'} (R$)</label>
+        <input type="number" id="cpag-valor" value="${m.valor}" step="0.01" inputmode="decimal"/>
+      </div>
+      <div class="field"><label>Data do ${labelAcao}</label>
+        <input type="date" id="cpag-data" value="${hoje}"/>
+      </div>
+    </div>
+    <div class="form-grid-2" style="margin-bottom:12px">
+      <div class="field"><label>Conta</label>
+        <select id="cpag-carteira"><option value="">Sem vínculo</option>${wOpts}</select>
+      </div>
+      <div class="field"><label>Forma de pagamento</label>
+        <select id="cpag-forma">
+          <option value="">Selecione…</option>
+          ${formaOpts}
+        </select>
+      </div>
+    </div>
+    <div class="form-mb field"><label>Observação</label>
+      <textarea id="cpag-obs" rows="2" placeholder="Opcional…">${m.observacao||''}</textarea>
+    </div>
+    <button class="btn btn-primary" style="width:100%;background:#059669;padding:14px;font-size:15px" onclick="confirmarPagamento('${mid}')">
+      ✅ Confirmar ${labelAcao}
+    </button>
+  `;
+}
+
+async function confirmarPagamento(mid){
+  const valor=parseFloat($('cpag-valor')?.value);
+  const data=$('cpag-data')?.value;
+  if(!data){showToast('Informe a data.','err');return;}
+  const btn=document.querySelector('[onclick*="confirmarPagamento"]');
+  if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+  const{error}=await sb.from('fin_movimentacoes').update({
+    status:'pago',
+    valor: valor||undefined,
+    data,
+    carteira_id:$('cpag-carteira')?.value||null,
+    forma_pagamento:$('cpag-forma')?.value||null,
+    observacao:$('cpag-obs')?.value||null
+  }).eq('id',mid);
+  if(error){showToast('Erro ao salvar.','err');if(btn){btn.textContent='✅ Confirmar';btn.disabled=false;}return;}
+  await loadAll(); renderAll(); closeSheet(); showToast('Registrado com sucesso! ✓','ok');
 }
 
 async function salvarEdicaoMov(mid){

@@ -499,7 +499,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v1.1 · Naiarha</div>
+        <div class="sb-version">v1.8 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -991,19 +991,23 @@ function setRelCentro(id){relCentro=id;renderCentroPills();renderRelatorio();}
 // ════════════════════════════════════════════════
 //  CÁLCULOS
 // ════════════════════════════════════════════════
+// Filtra registros fantasma [ANTIGO] de todos os cálculos e exibições
+const movsVisiveis = () => movimentacoes.filter(m => m.descricao !== '[ANTIGO]' && m.origem !== 'ignorado');
+
 function calcMes(){
   const mesISO=isoMes(mesAtual);
+  const movs=movsVisiveis();
   const fl=m=>(centroAtual==='GERAL'||m.centro_id===centroAtual)&&(m.data||'').startsWith(mesISO);
-  const movs=movimentacoes.filter(fl);
-  const ent=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const sai=movs.filter(m=>m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const aRec=movs.filter(m=>m.tipo==='entrada'&&m.status!=='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const aPag=movs.filter(m=>m.tipo==='saida'  &&m.status!=='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  return{ent,sai,aRec,aPag,saldo:ent-sai,mesISO,movs};
+  const movsFil=movs.filter(fl);
+  const ent=movsFil.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const aRec=movsFil.filter(m=>m.tipo==='entrada'&&m.status!=='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const aPag=movsFil.filter(m=>m.tipo==='saida'  &&m.status!=='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  return{ent,sai,aRec,aPag,saldo:ent-sai,mesISO,movs:movsFil};
 }
 
 function calcLucroReal(mesISO){
-  const movs=movimentacoes.filter(m=>(m.data||'').startsWith(mesISO));
+  const movs=movsVisiveis().filter(m=>(m.data||'').startsWith(mesISO));
   const receita=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const custos =movs.filter(m=>m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const lucro=receita-custos;
@@ -1017,7 +1021,7 @@ function calcLucroReal(mesISO){
 
 function calcSaldoCarteira(cid){
   const crt=carteiras.find(c=>c.id===cid); if(!crt) return 0;
-  const movs=movimentacoes.filter(m=>m.carteira_id===cid&&m.status==='pago');
+  const movs=movsVisiveis().filter(m=>m.carteira_id===cid&&m.status==='pago');
   const ent=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const sai=movs.filter(m=>m.tipo==='saida'  ).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   return parseFloat(crt.saldo_inicial||0)+ent-sai;
@@ -1046,8 +1050,9 @@ function renderHome(){
     const s=calcSaldoCarteira(c.id); const cor=s<0?'var(--red)':'var(--accent)';
     return`<div class="carteira-chip"><div class="carteira-chip-name">${c.icone||'🏦'} ${c.nome}</div><div class="carteira-chip-banco">${c.banco||''}</div><div class="carteira-chip-saldo" style="color:${cor}">${fmt(s)}</div></div>`;
   }).join('')+`<button class="carteira-chip-add" onclick="openSheetCarteira()"><span>+</span><span>Nova carteira</span></button>`;
-  // Recentes
-  renderMovs('home-recent', movs.slice(0,10), true);
+  // Recentes — sem fantasmas
+  const recent = movsVisiveis().filter(m=>(m.data||'').startsWith(mesISO)).slice(0,10);
+  renderMovs('home-recent', recent, true);
 }
 
 // ════════════════════════════════════════════════
@@ -1110,7 +1115,7 @@ function renderLancamentos(){
   const filtros=[{id:'todos',l:'Todos'},{id:'entrada',l:'▲ Entradas'},{id:'saida',l:'▼ Saídas'},{id:'pendente',l:'⏰ Pendentes'}];
   $('lance-filters').innerHTML=filtros.map(f=>`<button class="fpill${filterTipo===f.id?' active':''}" onclick="setFilter('${f.id}')">${f.l}</button>`).join('');
   const mesISO=isoMes(mesAtual);
-  let lista=movimentacoes.filter(m=>(m.data||'').startsWith(mesISO));
+  let lista=movsVisiveis().filter(m=>(m.data||'').startsWith(mesISO));
   if(filterTipo==='entrada') lista=lista.filter(m=>m.tipo==='entrada');
   else if(filterTipo==='saida') lista=lista.filter(m=>m.tipo==='saida');
   else if(filterTipo==='pendente') lista=lista.filter(m=>m.status!=='pago');
@@ -1171,45 +1176,52 @@ function renderCarteiras(){
       </div>
       <div style="text-align:right">
         <div style="font-size:17px;font-weight:800;color:${cor}">${fmt(s)}</div>
-        <button class="btn btn-danger" style="padding:4px 10px;font-size:11px;margin-top:4px" onclick="deleteCarteira('${c.id}')">Remover</button>
+        <div style="display:flex;gap:6px;margin-top:4px">
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="openSheetCarteira('${c.id}')">Editar</button>
+          <button class="btn btn-danger" style="padding:4px 10px;font-size:11px" onclick="deleteCarteira('${c.id}')">Desativar</button>
+        </div>
       </div>
     </div>`;
   }).join('');
 }
 
 async function deleteCarteira(cid){
-  openConfirm('Remover carteira?','Lançamentos vinculados continuam existindo.',async()=>{
-    const{error}=await sb.from('fin_carteiras').delete().eq('id',cid);
+  openConfirm('Desativar carteira?','Ela ficará oculta mas os lançamentos são mantidos.',async()=>{
+    const{error}=await sb.from('fin_carteiras').update({ativo:false}).eq('id',cid);
     if(error){showToast('Erro.','err');return;}
-    await loadAll(); renderCarteiras(); showToast('Removida.','info');
-  },'Remover');
+    await loadAll(); renderCarteiras(); showToast('Carteira desativada.','info');
+  },'Desativar');
 }
 
-function openSheetCarteira(){
-  $('sheet-title').textContent='Nova carteira';
-  const centroOpts=centros.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
+function openSheetCarteira(cid){
+  const c=cid?carteiras.find(x=>x.id===cid):null;
+  $('sheet-title').textContent=c?'Editar Carteira':'Nova Carteira';
+  const centroOpts=centros.map(x=>`<option value="${x.id}"${c?.centro_id===x.id?' selected':''}>${x.icone} ${x.nome}</option>`).join('');
   $('sheet-body').innerHTML=`
-    <div class="form-mb field"><label>Nome *</label><input type="text" id="crt-nome" placeholder="Ex: C6 Naiarha"/></div>
-    <div class="form-mb field"><label>Banco / Descrição</label><input type="text" id="crt-banco" placeholder="Ex: C6 Bank, Nubank…"/></div>
-    <div class="form-mb field"><label>Saldo inicial (R$)</label><input type="number" id="crt-saldo" placeholder="0,00" step="0.01"/></div>
+    <div class="form-mb field"><label>Nome *</label><input type="text" id="crt-nome" placeholder="Ex: C6 Naiarha" value="${c?.nome||''}"/></div>
+    <div class="form-mb field"><label>Banco / Descrição</label><input type="text" id="crt-banco" placeholder="Ex: C6 Bank, Nubank…" value="${c?.banco||''}"/></div>
+    <div class="form-mb field"><label>Saldo inicial (R$)</label><input type="number" id="crt-saldo" placeholder="0,00" step="0.01" value="${c?.saldo_inicial||''}"/></div>
     <div class="form-mb field"><label>Centro de custo</label>
       <select id="crt-centro"><option value="">Geral (sem centro específico)</option>${centroOpts}</select>
     </div>
     <div class="form-grid-2">
-      <div class="field"><label>Ícone</label><input type="text" id="crt-icone" placeholder="🏦" maxlength="2"/></div>
-      <div class="field"><label>Cor</label><input type="color" id="crt-cor" value="#D1FAE5"/></div>
+      <div class="field"><label>Ícone</label><input type="text" id="crt-icone" placeholder="🏦" maxlength="2" value="${c?.icone||''}"/></div>
+      <div class="field"><label>Cor</label><input type="color" id="crt-cor" value="${c?.cor||'#D1FAE5'}"/></div>
     </div>
-    <button class="salvar-btn entrada" style="margin-top:16px" onclick="salvarCarteira()">Salvar carteira</button>
+    <button class="salvar-btn entrada" style="margin-top:16px" onclick="salvarCarteira('${cid||''}')">Salvar carteira</button>
+    ${c?`<button onclick="deleteCarteira('${c.id}')" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;background:#FEE2E2;color:#DC2626;border:none;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">Desativar carteira</button>`:''}
   `;
   openSheetRaw();
 }
 
-async function salvarCarteira(){
+async function salvarCarteira(cid){
   const nome=$('crt-nome')?.value.trim(); if(!nome){showToast('Informe o nome.','err');return;}
-  const payload={nome,banco:$('crt-banco').value||null,saldo_inicial:parseFloat($('crt-saldo').value)||0,centro_id:$('crt-centro').value||null,icone:$('crt-icone').value||'🏦',cor:$('crt-cor').value||'#D1FAE5'};
-  const{error}=await sb.from('fin_carteiras').insert([payload]);
+  const payload={nome,banco:$('crt-banco').value||null,saldo_inicial:parseFloat($('crt-saldo').value)||0,centro_id:$('crt-centro').value||null,icone:$('crt-icone').value||'🏦',cor:$('crt-cor').value||'#D1FAE5',ativo:true};
+  let error;
+  if(cid){({error}=await sb.from('fin_carteiras').update(payload).eq('id',cid));}
+  else{({error}=await sb.from('fin_carteiras').insert([payload]));}
   if(error){showToast('Erro ao salvar.','err');return;}
-  await loadAll(); renderCarteiras(); closeSheet(); showToast('Carteira adicionada!');
+  await loadAll(); renderCarteiras(); closeSheet(); showToast(cid?'Carteira atualizada!':'Carteira adicionada!');
 }
 
 // ════════════════════════════════════════════════
@@ -1400,8 +1412,17 @@ function renderImportList(){
 }
 
 function toggleImportItem(id){
-  if(importSelected.has(id)) importSelected.delete(id); else importSelected.add(id);
-  renderImportList();
+  if(importSelected.has(id)) importSelected.delete(id);
+  else importSelected.add(id);
+  // Atualiza só o item clicado sem re-renderizar tudo
+  const el=document.querySelector(`.import-item[onclick="toggleImportItem('${id}')"]`);
+  if(el){
+    const sel=importSelected.has(id);
+    el.classList.toggle('selected',sel);
+    const chk=el.querySelector('.import-checkbox');
+    if(chk) chk.textContent=sel?'✓':'';
+  }
+  updateImportBtn();
 }
 function toggleSelectAll(){
   const chk=$('imp-select-all');

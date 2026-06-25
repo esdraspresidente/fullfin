@@ -368,6 +368,26 @@
     .import-empty-icon{font-size:36px;margin-bottom:8px;}
     .import-empty-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;}
 
+    /* ── CARTÕES ── */
+    .cartao-card{background:linear-gradient(135deg,#1A1A2E,#16213E);border-radius:var(--radius);padding:20px;margin-bottom:12px;color:#fff;position:relative;overflow:hidden;cursor:pointer;}
+    .cartao-card::after{content:'';position:absolute;top:-20px;right:-20px;width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,.04);}
+    .cartao-bandeira{font-size:10px;font-weight:700;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}
+    .cartao-nome{font-size:18px;font-weight:800;color:#fff;letter-spacing:-0.3px;margin-bottom:14px;}
+    .cartao-stats{display:flex;gap:16px;}
+    .cartao-stat-label{font-size:10px;color:rgba(255,255,255,.5);font-weight:600;text-transform:uppercase;letter-spacing:.5px;}
+    .cartao-stat-value{font-size:15px;font-weight:700;color:#fff;margin-top:2px;}
+    .cartao-stat-value.disponivel{color:#6EE7B7;}
+    .cartao-stat-value.fatura{color:#FCA5A5;}
+    .cartao-actions{display:flex;gap:8px;margin-top:14px;padding-top:14px;border-top:1px solid rgba(255,255,255,.1);}
+    .cartao-action-btn{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;text-align:center;transition:all .12s;}
+    .cartao-action-btn:hover{background:rgba(255,255,255,.15);}
+    .parcela-edit-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff;}
+    .parcela-num{font-size:11px;font-weight:700;color:var(--gray);min-width:20px;}
+    .parcela-edit-input{flex:1;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;color:var(--text);}
+    .parcela-date-input{width:130px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;color:var(--text);}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:flex-end;justify-content:center;}
+    .modal-overlay.hidden{display:none!important;}
+
     /* ── RELATÓRIO ── */
     .bar-track{background:#F3F4F6;border-radius:4px;height:5px;overflow:hidden;margin-top:4px;}
     .bar-fill{height:100%;border-radius:4px;transition:width .4s ease;}
@@ -490,6 +510,10 @@
     <button class="nav-item" id="nav-importar" onclick="goPage('importar')"><span class="nav-icon">📥</span> Importar dados</button>
     <div class="sb-section">Configurar</div>
     <button class="nav-item" id="nav-carteiras" onclick="goPage('carteiras')"><span class="nav-icon">🏦</span> Carteiras</button>
+    <button class="nav-item" id="nav-cartoes" onclick="goPage('cartoes')"><span class="nav-icon">💳</span> Cartões</button>
+    <button class="nav-item" id="nav-dividas" onclick="goPage('dividas')"><span class="nav-icon">📉</span> Dívidas</button>
+    <button class="nav-item" id="nav-veiculos" onclick="goPage('veiculos')"><span class="nav-icon">🚗</span> Veículos</button>
+    <button class="nav-item" id="nav-recorrentes" onclick="goPage('recorrentes')"><span class="nav-icon">🔄</span> Custos Fixos</button>
     <button class="nav-item" id="nav-dizimo" onclick="goPage('dizimo')"><span class="nav-icon">🙏</span> Dízimo & Oferta</button>
     <div class="sb-footer">
       <div class="sb-user">
@@ -640,6 +664,46 @@
         <div style="font-size:11px;color:var(--gray);text-align:center;margin-top:8px">Itens já importados não aparecem nesta lista</div>
       </div>
 
+      <!-- ══ DÍVIDAS ══ -->
+      <div id="page-dividas" class="page">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div><div class="page-title">📉 Dívidas & Financiamentos</div><div class="page-sub">Empréstimos, saldo devedor e juros</div></div>
+          <button class="btn btn-primary" onclick="openSheetDivida()">+ Nova Dívida</button>
+        </div>
+        <div id="dividas-resumo" style="margin-bottom:16px"></div>
+        <div id="dividas-lista"></div>
+      </div>
+
+      <!-- ══ VEÍCULOS ══ -->
+      <div id="page-veiculos" class="page">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div><div class="page-title">🚗 Veículos</div><div class="page-sub">Abastecimentos, custo por km e despesas</div></div>
+          <button class="btn btn-primary" onclick="openSheetVeiculo()">+ Novo Veículo</button>
+        </div>
+        <div id="veiculos-lista"></div>
+      </div>
+
+      <!-- ══ RECORRENTES ══ -->
+      <div id="page-recorrentes" class="page">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+          <div><div class="page-title">🔄 Custos Fixos</div><div class="page-sub">Despesas que se repetem todo mês</div></div>
+          <button class="btn btn-primary" onclick="openSheetRecorrente()">+ Novo</button>
+        </div>
+        <button id="btn-gerar-mes" onclick="gerarLancamentosDoMes()" style="width:100%;padding:14px;border-radius:12px;background:linear-gradient(135deg,#10B981,#064E3B);color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:16px">
+          ⚡ Gerar lançamentos pendentes de <span id="rec-mes-label">...</span>
+        </button>
+        <div id="recorrentes-lista"></div>
+      </div>
+
+      <!-- ══ CARTÕES ══ -->
+      <div id="page-cartoes" class="page">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
+          <div><div class="page-title">💳 Cartões de Crédito</div><div class="page-sub">Faturas, compras e parcelamentos</div></div>
+          <button class="btn btn-primary" onclick="openSheetCartao()">+ Novo Cartão</button>
+        </div>
+        <div id="cartoes-lista"></div>
+      </div>
+
       <!-- ══ CARTEIRAS ══ -->
       <div id="page-carteiras" class="page">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;flex-wrap:wrap;gap:10px">
@@ -689,7 +753,7 @@
     <button class="bnav-item active" id="bnav-home" onclick="goPage('home')"><span class="bnav-icon">🏠</span><span class="bnav-label">Início</span></button>
     <button class="bnav-item" id="bnav-lancamentos" onclick="goPage('lancamentos')"><span class="bnav-icon">💸</span><span class="bnav-label">Lançamentos</span></button>
     <div class="bnav-spacer"></div>
-    <button class="bnav-item" id="bnav-importar" onclick="goPage('importar')"><span class="bnav-icon">📥</span><span class="bnav-label">Importar</span></button>
+    <button class="bnav-item" id="bnav-cartoes" onclick="goPage('cartoes')"><span class="bnav-icon">💳</span><span class="bnav-label">Cartões</span></button>
     <button class="bnav-item" id="bnav-relatorio" onclick="goPage('relatorio')"><span class="bnav-icon">📊</span><span class="bnav-label">Relatório</span></button>
   </nav>
 
@@ -700,6 +764,52 @@
 
 <div id="toast"></div>
 <div id="sheet-overlay" onclick="closeSheet()"></div>
+
+<!-- MODAL PARCELAR FATURA -->
+<div id="modal-parcelar" class="modal-overlay hidden" style="align-items:center;padding:16px;">
+  <div class="modal-box" style="border-radius:20px;max-height:90vh;overflow-y:auto;padding-bottom:20px;">
+    <div style="font-size:16px;font-weight:800;color:var(--text);margin-bottom:4px" id="mpar-title">Parcelar Fatura</div>
+    <div style="font-size:12px;color:var(--gray);margin-bottom:16px" id="mpar-sub">Divida a fatura em parcelas mensais</div>
+
+    <div class="form-grid-2" style="margin-bottom:10px">
+      <div class="field"><label>Valor total da fatura (R$)</label><input type="number" id="mpar-total" placeholder="0,00" step="0.01" oninput="mparCalc()"/></div>
+      <div class="field"><label>Nº total de parcelas</label><input type="number" id="mpar-n" placeholder="Ex: 10" min="2" max="60" oninput="mparCalc()"/></div>
+    </div>
+    <div class="form-grid-2" style="margin-bottom:10px">
+      <div class="field"><label>Valor da entrada (1ª parcela)</label><input type="number" id="mpar-entrada" placeholder="0,00" step="0.01" oninput="mparCalc()"/></div>
+      <div class="field"><label>📆 Data da 1ª parcela</label><input type="date" id="mpar-data1"/></div>
+    </div>
+    <div class="form-grid-2" style="margin-bottom:10px">
+      <div class="field"><label>Valor das demais parcelas (R$)</label><input type="number" id="mpar-demais" placeholder="0,00" step="0.01" oninput="mparRenderParcelas()"/></div>
+      <div class="field"></div>
+    </div>
+    <div class="form-grid-2" style="margin-bottom:10px">
+      <div class="field"><label>De qual conta (carteira)</label><select id="mpar-carteira"><option value="">Selecione…</option></select></div>
+      <div class="field"><label>Forma de pagamento</label>
+        <select id="mpar-forma">
+          <option value="Pix">💸 Pix</option>
+          <option value="Boleto">📄 Boleto</option>
+          <option value="Débito">💳 Débito</option>
+          <option value="Débito Automático">🔄 Débito Automático</option>
+          <option value="Transferência">↔️ Transferência</option>
+          <option value="Dinheiro">💵 Dinheiro</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Preview parcelas -->
+    <div id="mpar-preview" style="display:none;margin-bottom:14px">
+      <div class="section-label">Parcelas geradas</div>
+      <div id="mpar-parcelas-lista"></div>
+      <div style="background:var(--accent-bg);border-radius:8px;padding:10px 12px;margin-top:8px;font-size:12px;color:var(--accent);font-weight:700" id="mpar-resumo"></div>
+    </div>
+
+    <div class="modal-btns">
+      <button class="btn btn-secondary" style="flex:1" onclick="closeModalParcelar()">Cancelar</button>
+      <button class="btn btn-primary" style="flex:1" id="mpar-confirmar" onclick="confirmarParcelamento()" disabled>✓ Confirmar parcelamento</button>
+    </div>
+  </div>
+</div>
 <div id="sheet">
   <div class="sheet-handle"></div>
   <div class="sheet-title" id="sheet-title">Novo lançamento</div>
@@ -725,6 +835,8 @@ const $ = id => document.getElementById(id);
 let currentUser = null;
 let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos = [];
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
+let cartoes = [], cartaoAtual = null;
+let dividas = [], veiculos = [], abastecimentos = [], recorrentes = [], dividaParcelas = [];
 let confirmCallback = null;
 // import state
 let importTab = 'diligencias', importItems = [], importSelected = new Set();
@@ -792,18 +904,30 @@ sb.auth.onAuthStateChange(async(event,session)=>{
 //  CARGA
 // ════════════════════════════════════════════════
 async function loadAll(){
-  const [r1,r2,r3,r4,r5]=await Promise.all([
+  const [r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11]=await Promise.all([
     sb.from('fin_centros').select().order('created_at',{ascending:true}),
     sb.from('fin_carteiras').select().order('created_at',{ascending:true}),
     sb.from('fin_categorias').select().order('nome',{ascending:true}),
     sb.from('fin_movimentacoes').select().order('data',{ascending:false}),
     sb.from('fin_dizimos').select().order('periodo_referencia',{ascending:false}),
+    sb.from('fin_cartoes').select().order('created_at',{ascending:true}),
+    sb.from('fin_dividas').select().order('created_at',{ascending:false}),
+    sb.from('fin_veiculos').select().order('nome',{ascending:true}),
+    sb.from('fin_abastecimentos').select().order('data',{ascending:false}),
+    sb.from('fin_recorrentes').select().order('descricao',{ascending:true}),
+    sb.from('fin_divida_parcelas').select().order('num_parcela',{ascending:true}),
   ]);
   if(!r1.error) centros=r1.data||[];
   if(!r2.error) carteiras=r2.data||[];
   if(!r3.error) categorias=r3.data||[];
   if(!r4.error) movimentacoes=r4.data||[];
   if(!r5.error) dizimos=r5.data||[];
+  if(!r6.error) cartoes=r6.data||[];
+  if(!r7.error) dividas=r7.data||[];
+  if(!r8.error) veiculos=r8.data||[];
+  if(!r9.error) abastecimentos=r9.data||[];
+  if(!r10.error) recorrentes=r10.data||[];
+  if(!r11.error) dividaParcelas=r11.data||[];
 }
 
 // ════════════════════════════════════════════════
@@ -825,6 +949,10 @@ function goPage(page){
   if(page==='relatorio') renderRelatorio();
   if(page==='importar') initImportar();
   if(page==='carteiras') renderCarteiras();
+  if(page==='cartoes') renderCartoes();
+  if(page==='dividas') renderDividas();
+  if(page==='veiculos') renderVeiculos();
+  if(page==='recorrentes') renderRecorrentes();
   if(page==='dizimo'){$('lr-mes').value=mesAtualISO();renderLucroReal();renderDizimoHistorico();}
 }
 
@@ -945,7 +1073,7 @@ function renderMovs(containerId, list, compact=false){
     const stBadge=m.status==='pago'?'<span class="badge-pago">Pago</span>':m.status==='pendente'?'<span class="badge-pendente">Pendente</span>':'<span class="badge-agendado">Agendado</span>';
     const parcLabel=m.total_parcelas?` · ${m.parcela_atual}/${m.total_parcelas}`:'';
     const iconBg=m.tipo==='entrada'?'var(--accent-bg)':m.tipo==='saida'?'#FEE2E2':'var(--blue-bg)';
-    const metaLine=[fmtDate(m.data)+parcLabel, getWName(m.carteira_id), getCName(m.centro_id)].filter(Boolean).join(' · ');
+    const metaLine=[fmtDate(m.data)+parcLabel, m.forma_pagamento, getWName(m.carteira_id), getCName(m.centro_id)].filter(Boolean).join(' · ');
     return`<div class="mov-item" onclick="abreDetalhe('${m.id}')">
       <div class="mov-icon-wrap" style="background:${iconBg}">${getCatIcon(m.categoria_id)}</div>
       <div class="mov-body">
@@ -1087,13 +1215,14 @@ async function salvarCarteira(){
 // ════════════════════════════════════════════════
 //  SHEET LANÇAMENTO
 // ════════════════════════════════════════════════
-function openSheet(){ sheetTipo='saida'; sheetStatus='pago'; $('sheet-title').textContent='Novo lançamento'; buildSheetForm(); openSheetRaw(); }
+function openSheet(){ sheetTipo='saida'; sheetStatus='pago'; $('sheet-title').textContent='Novo lançamento'; buildSheetForm(null); openSheetRaw(); }
 function openSheetRaw(){ $('sheet-overlay').classList.add('open'); $('sheet').classList.add('open'); document.body.style.overflow='hidden'; }
 function closeSheet(){ $('sheet-overlay').classList.remove('open'); $('sheet').classList.remove('open'); document.body.style.overflow=''; }
 
-function buildSheetForm(){
+function buildSheetForm(preCartaoId){
   const centroOpts=centros.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   const wOpts=carteiras.length?carteiras.map(c=>`<option value="${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join(''):'<option value="">Cadastre uma carteira</option>';
+  const ctOpts=cartoes.length?cartoes.map(c=>`<option value="${c.id}"${c.id===preCartaoId?' selected':''}>${c.nome}</option>`).join(''):'<option value="">Sem cartões cadastrados</option>';
   const cats=sheetTipo==='entrada'?categorias.filter(c=>c.tipo==='entrada'||c.tipo==='ambos'):categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos');
   const catOpts=cats.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   $('sheet-body').innerHTML=`
@@ -1106,12 +1235,26 @@ function buildSheetForm(){
     <div class="form-mb field"><label>Descrição *</label><input type="text" id="sh-desc" placeholder="Ex: Conta de luz…"/></div>
     <div class="form-mb field"><label>Categoria</label><select id="sh-cat"><option value="">Sem categoria</option>${catOpts}</select></div>
     <div class="form-grid-2">
-      <div class="field"><label>Centro</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
-      <div class="field"><label>Carteira</label><select id="sh-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
+      <div class="field"><label>Forma de pagamento</label>
+        <select id="sh-forma">
+          <option value="">Selecione…</option>
+          <option value="Pix">💸 Pix</option>
+          <option value="Boleto">📄 Boleto / Código de barras</option>
+          <option value="Débito">💳 Débito</option>
+          <option value="Débito Automático">🔄 Débito Automático</option>
+          <option value="Transferência">↔️ Transferência</option>
+          <option value="Cartão de Crédito">💳 Cartão de Crédito</option>
+          <option value="Dinheiro">💵 Dinheiro</option>
+        </select>
+      </div>
+      <div class="field"><label>De qual conta</label><select id="sh-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
+    </div>
+    <div class="form-mb field"><label>💳 Lançar no cartão (opcional)</label>
+      <select id="sh-cartao"><option value="">Não — débito direto</option>${ctOpts}</select>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
       <div class="field"><label>Data *</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/></div>
-      <div class="field"><label>Vencimento</label><input type="date" id="sh-venc"/></div>
+      <div class="field"><label>Centro de custo</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
     </div>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
       <input type="checkbox" id="sh-parc-chk" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer" onchange="toggleParcelas()"/>
@@ -1148,8 +1291,11 @@ async function salvarLancamento(){
     const dt=new Date(data+'T12:00:00'); dt.setMonth(dt.getMonth()+(i-1));
     const{error}=await sb.from('fin_movimentacoes').insert([{
       descricao:desc, valor, tipo:sheetTipo, data:dt.toISOString().split('T')[0],
-      data_vencimento:$('sh-venc')?.value||null, status:nParc===1?sheetStatus:(i===1?sheetStatus:'agendado'),
-      carteira_id:$('sh-carteira')?.value||null, categoria_id:$('sh-cat')?.value||null,
+      data_vencimento:null, status:nParc===1?sheetStatus:(i===1?sheetStatus:'agendado'),
+      carteira_id:$('sh-carteira')?.value||null, cartao_id:$('sh-cartao')?.value||null,
+      categoria_id:$('sh-cat')?.value||null,
+      centro_id:$('sh-centro')?.value||null,
+      forma_pagamento:$('sh-forma')?.value||null,
       centro_id:$('sh-centro')?.value||null,
       parcela_atual:nParc>1?i:null, total_parcelas:nParc>1?nParc:null, grupo_parcelas:grupoId,
       observacao:$('sh-obs')?.value||null, origem:'manual'
@@ -1373,6 +1519,789 @@ async function deleteDizimo(did){
     if(error){showToast('Erro.','err');return;}
     await loadAll(); renderDizimoHistorico(); showToast('Removido.','info');
   },'Remover');
+}
+
+// ════════════════════════════════════════════════
+//  DÍVIDAS & FINANCIAMENTOS
+// ════════════════════════════════════════════════
+function renderDividas(){
+  const el=$('dividas-lista'); if(!el) return;
+  const resumoEl=$('dividas-resumo');
+  const ativas=dividas.filter(d=>d.ativo!==false);
+
+  const totalDevendo=ativas.reduce((s,d)=>{
+    const pagas=dividaParcelas.filter(p=>p.divida_id===d.id);
+    const numsPagos=new Set(pagas.map(p=>p.num_parcela));
+    const restantes=Array.from({length:d.n_parcelas},(_,i)=>i+1).filter(n=>!numsPagos.has(n));
+    return s+(restantes.length*parseFloat(d.valor_parcela||0));
+  },0);
+  const economiasTotal=ativas.reduce((s,d)=>{
+    const pagas=dividaParcelas.filter(p=>p.divida_id===d.id);
+    return s+pagas.reduce((ss,p)=>ss+(parseFloat(p.valor_original||0)-parseFloat(p.valor_pago||0)),0);
+  },0);
+
+  if(resumoEl) resumoEl.innerHTML=`
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-label">💸 Total devendo</div><div class="stat-value vermelho">${fmt(totalDevendo)}</div></div>
+      <div class="stat-card"><div class="stat-label">💚 Economizado com antecipações</div><div class="stat-value verde">${fmt(economiasTotal)}</div></div>
+    </div>`;
+
+  if(!ativas.length){el.innerHTML=`<div class="empty"><div class="empty-icon">📉</div><div class="empty-title">Nenhuma dívida cadastrada</div></div>`;return;}
+
+  el.innerHTML=ativas.map(d=>{
+    const pagas=dividaParcelas.filter(p=>p.divida_id===d.id);
+    const numsPagos=new Set(pagas.map(p=>p.num_parcela));
+    const totalPago=pagas.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
+    const economia=pagas.reduce((s,p)=>s+(parseFloat(p.valor_original||0)-parseFloat(p.valor_pago||0)),0);
+    const restantes=Array.from({length:d.n_parcelas},(_,i)=>i+1).filter(n=>!numsPagos.has(n));
+    const saldoDevedor=restantes.length*parseFloat(d.valor_parcela||0);
+    const pct=d.n_parcelas?(pagas.length/d.n_parcelas*100).toFixed(0):0;
+    const tipoIcon={'emprestimo':'🤝','financiamento':'🏠','cartao_parcelado':'💳'}[d.tipo]||'📉';
+
+    // Grade de parcelas — max 48 visível
+    const gridParcelas=Array.from({length:d.n_parcelas},(_,i)=>{
+      const n=i+1;
+      const p=pagas.find(x=>x.num_parcela===n);
+      const cor=p?(parseFloat(p.valor_pago)<parseFloat(p.valor_original)?'#FEF3C7':'#D1FAE5'):'#F3F4F6';
+      const textCor=p?(parseFloat(p.valor_pago)<parseFloat(p.valor_original)?'#92400E':'#065F46'):'#9CA3AF';
+      const title=p?`Parcela ${n}: pago ${fmt(p.valor_pago)} (original ${fmt(p.valor_original)})${parseFloat(p.valor_pago)<parseFloat(p.valor_original)?' ⚡ amortizada':''}`:  `Parcela ${n}: pendente`;
+      return`<div onclick="verParcela('${d.id}',${n})" title="${title}" style="width:28px;height:28px;border-radius:6px;background:${cor};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:${textCor};cursor:pointer;flex-shrink:0">${n}</div>`;
+    }).join('');
+
+    return`<div class="card pad" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+        <div>
+          <div style="font-size:15px;font-weight:800;color:var(--text)">${tipoIcon} ${d.descricao}</div>
+          <div style="font-size:11px;color:var(--gray);margin-top:2px">${d.tipo==='emprestimo'?'Empréstimo':d.tipo==='financiamento'?'Financiamento':'Cartão parcelado'} · desde ${fmtDate(d.data_inicio)}</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:18px;font-weight:800;color:var(--red)">${fmt(saldoDevedor)}</div>
+          <div style="font-size:10px;color:var(--gray)">saldo devedor</div>
+        </div>
+      </div>
+
+      <div class="stats-grid" style="margin-bottom:12px">
+        <div class="stat-card"><div class="stat-label">💳 Parcela original</div><div class="stat-value">${fmt(d.valor_parcela)}</div></div>
+        <div class="stat-card"><div class="stat-label">✅ Pagas</div><div class="stat-value verde">${pagas.length}/${d.n_parcelas} (${pct}%)</div></div>
+        <div class="stat-card"><div class="stat-label">💰 Total pago</div><div class="stat-value">${fmt(totalPago)}</div></div>
+        ${economia>0?`<div class="stat-card"><div class="stat-label">⚡ Economizado</div><div class="stat-value verde">${fmt(economia)}</div></div>`:`<div class="stat-card"><div class="stat-label">⏳ Restantes</div><div class="stat-value amarelo">${restantes.length} parcelas</div></div>`}
+      </div>
+
+      <div style="background:#F9FAFB;border-radius:10px;padding:10px;margin-bottom:12px">
+        <div style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
+          Grade de parcelas
+          <span style="font-weight:400;margin-left:8px">🟡 amortizada &nbsp; 🟢 paga &nbsp; ⬜ pendente</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${gridParcelas}</div>
+      </div>
+
+      <div style="background:#F9FAFB;border-radius:8px;height:6px;overflow:hidden;margin-bottom:12px">
+        <div style="width:${pct}%;height:100%;background:var(--accent);border-radius:8px;transition:width .4s"></div>
+      </div>
+
+      <div style="display:flex;gap:8px">
+        ${restantes.length>0?`<button class="btn btn-primary" style="flex:1;padding:9px;font-size:13px" onclick="registrarPagamentoDivida('${d.id}')">💰 Registrar pagamento</button>`:`<span style="font-size:12px;color:var(--accent);font-weight:700;padding:9px">✅ Quitada!</span>`}
+        <button class="btn btn-secondary" style="padding:9px;font-size:12px" onclick="openSheetDivida('${d.id}')">✏️</button>
+        <button class="btn btn-danger" style="padding:9px;font-size:12px" onclick="deleteDivida('${d.id}')">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function verParcela(did, num){
+  const p=dividaParcelas.find(x=>x.divida_id===did&&x.num_parcela===num);
+  const d=dividas.find(x=>x.id===did);
+  if(!p){showToast(`Parcela ${num} ainda não paga`,'info');return;}
+  const economia=parseFloat(p.valor_original||0)-parseFloat(p.valor_pago||0);
+  const carteira=carteiras.find(c=>c.id===p.carteira_id);
+  openConfirm(
+    `Parcela ${num}/${d?.n_parcelas} — ${d?.descricao}`,
+    `📅 Paga em: ${fmtDate(p.data_pagamento)}\n💳 Original: ${fmt(p.valor_original)}\n💰 Pago: ${fmt(p.valor_pago)}${economia>0?`\n⚡ Economizado: ${fmt(economia)}`:''}${carteira?`\n🏦 Via: ${carteira.nome}`:''}${p.forma_pagamento?` (${p.forma_pagamento})`:''}${p.observacao?`\n📝 ${p.observacao}`:''}`,
+    async()=>{
+      if(!confirm(`Remover registro da parcela ${num}?`)) return;
+      await sb.from('fin_divida_parcelas').delete().eq('id',p.id);
+      await loadAll(); renderDividas(); showToast('Removido.','info');
+    }, '🗑 Remover'
+  );
+}
+
+function openSheetDivida(did){
+  const d=did?dividas.find(x=>x.id===did):null;
+  $('sheet-title').textContent=d?'Editar Dívida':'Nova Dívida';
+  const centroOpts=centros.map(c=>`<option value="${c.id}"${d?.centro_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
+  const wOpts=carteiras.map(c=>`<option value="${c.id}"${d?.carteira_id===c.id?' selected':''}>${c.icone||'🏦'} ${c.nome}</option>`).join('');
+  $('sheet-body').innerHTML=`
+    <div class="form-mb field"><label>Descrição *</label><input type="text" id="div-desc" placeholder="Ex: Empréstimo Nubank" value="${d?.descricao||''}"/></div>
+    <div class="form-mb field"><label>Tipo</label>
+      <select id="div-tipo">
+        <option value="emprestimo"${d?.tipo==='emprestimo'?' selected':''}>🤝 Empréstimo</option>
+        <option value="financiamento"${d?.tipo==='financiamento'?' selected':''}>🏠 Financiamento</option>
+        <option value="cartao_parcelado"${d?.tipo==='cartao_parcelado'?' selected':''}>💳 Cartão parcelado</option>
+      </select>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Valor da parcela (R$) *</label><input type="number" id="div-parcela" placeholder="0,00" step="0.01" value="${d?.valor_parcela||''}"/></div>
+      <div class="field"><label>Nº de parcelas *</label><input type="number" id="div-n" placeholder="Ex: 24" value="${d?.n_parcelas||''}"/></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Parcelas já pagas</label><input type="number" id="div-pagas" placeholder="0" value="${d?.parcelas_pagas||0}"/></div>
+      <div class="field"><label>Data de início *</label><input type="date" id="div-inicio" value="${d?.data_inicio?.split('T')[0]||''}"/></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Centro</label><select id="div-centro"><option value="">Geral</option>${centroOpts}</select></div>
+      <div class="field"><label>Carteira</label><select id="div-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
+    </div>
+    <button class="salvar-btn saida" style="margin-top:16px" onclick="salvarDivida('${did||''}')">Salvar</button>
+  `;
+  openSheetRaw();
+}
+
+async function salvarDivida(did){
+  const desc=$('div-desc')?.value.trim(); if(!desc){showToast('Informe a descrição.','err');return;}
+  const inicio=$('div-inicio')?.value; if(!inicio){showToast('Informe a data de início.','err');return;}
+  const payload={
+    descricao:desc, tipo:$('div-tipo').value,
+    valor_total:null,
+    valor_parcela:parseFloat($('div-parcela').value)||0,
+    n_parcelas:parseInt($('div-n').value)||1,
+    parcelas_pagas:parseInt($('div-pagas').value)||0,
+    taxa_juros:0,
+    data_inicio:inicio,
+    centro_id:$('div-centro').value||null,
+    carteira_id:$('div-carteira').value||null
+  };
+  let error;
+  if(did){({error}=await sb.from('fin_dividas').update(payload).eq('id',did));}
+  else{({error}=await sb.from('fin_dividas').insert([payload]));}
+  if(error){showToast('Erro ao salvar.','err');return;}
+  await loadAll(); renderDividas(); closeSheet(); showToast(did?'Atualizado!':'Dívida adicionada!');
+}
+
+async function registrarPagamentoDivida(did){
+  const d=dividas.find(x=>x.id===did); if(!d) return;
+  const pagas=dividaParcelas.filter(p=>p.divida_id===did);
+  const numsPagos=new Set(pagas.map(p=>p.num_parcela));
+  const pendentes=Array.from({length:d.n_parcelas},(_,i)=>i+1).filter(n=>!numsPagos.has(n));
+  const wOpts=carteiras.map(c=>`<option value="${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join('');
+  const parOpts=pendentes.map(n=>`<option value="${n}">Parcela ${n} de ${d.n_parcelas}</option>`).join('');
+
+  $('sheet-title').textContent='Registrar Pagamento';
+  $('sheet-body').innerHTML=`
+    <div style="background:var(--accent-bg);border-radius:10px;padding:12px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--text)">${d.descricao}</div>
+      <div style="font-size:11px;color:var(--gray);margin-top:3px">Parcela original: ${fmt(d.valor_parcela)} · ${pagas.length} de ${d.n_parcelas} pagas</div>
+    </div>
+
+    <div class="form-mb field">
+      <label>Qual parcela está pagando? *</label>
+      <select id="dpag-num">${parOpts}</select>
+      <div style="font-size:10px;color:var(--gray);margin-top:4px">Pode pagar qualquer parcela, em qualquer ordem</div>
+    </div>
+
+    <div class="form-grid-2">
+      <div class="field">
+        <label>Valor pago (R$) *</label>
+        <input type="number" id="dpag-valor" value="${d.valor_parcela}" step="0.01" oninput="dpagCalcEconomia('${d.id}')"/>
+      </div>
+      <div class="field">
+        <label>Valor original</label>
+        <input type="number" id="dpag-original" value="${d.valor_parcela}" step="0.01" readonly style="background:#F3F4F6;font-weight:700"/>
+      </div>
+    </div>
+
+    <div id="dpag-economia-wrap" style="display:none;background:#D1FAE5;border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;color:#065F46;font-weight:700"></div>
+
+    <div class="form-mb field"><label>Data do pagamento *</label><input type="date" id="dpag-data" value="${new Date().toISOString().split('T')[0]}"/></div>
+    <div class="form-mb field"><label>De qual conta</label><select id="dpag-carteira"><option value="">Selecione…</option>${wOpts}</select></div>
+    <div class="form-mb field"><label>Forma de pagamento</label>
+      <select id="dpag-forma">
+        <option value="Pix">💸 Pix</option>
+        <option value="Boleto">📄 Boleto</option>
+        <option value="Débito">💳 Débito</option>
+        <option value="Débito Automático">🔄 Débito Automático</option>
+        <option value="Transferência">↔️ Transferência</option>
+      </select>
+    </div>
+    <div class="form-mb field"><label>Observação</label><input type="text" id="dpag-obs" placeholder="Ex: antecipei com desconto"/></div>
+    <button class="salvar-btn saida" onclick="confirmarPagamentoDivida('${did}')">Confirmar pagamento</button>
+  `;
+  openSheetRaw();
+}
+
+function dpagCalcEconomia(did){
+  const d=dividas.find(x=>x.id===did); if(!d) return;
+  const pago=parseFloat($('dpag-valor')?.value)||0;
+  const original=parseFloat(d.valor_parcela)||0;
+  const economia=original-pago;
+  const wrap=$('dpag-economia-wrap');
+  if(!wrap) return;
+  if(economia>0){
+    wrap.style.display='block';
+    wrap.innerHTML=`⚡ Amortização detectada! Você economizou <b>${fmt(economia)}</b> nesta parcela.`;
+  } else if(economia<0){
+    wrap.style.display='block';
+    wrap.style.background='#FEF3C7'; wrap.style.color='#92400E';
+    wrap.innerHTML=`📌 Pagamento acima do valor original (+${fmt(Math.abs(economia))})`;
+  } else {
+    wrap.style.display='none';
+  }
+}
+
+async function confirmarPagamentoDivida(did){
+  const d=dividas.find(x=>x.id===did); if(!d) return;
+  const numParcela=parseInt($('dpag-num')?.value);
+  const valorPago=parseFloat($('dpag-valor')?.value)||0;
+  const valorOriginal=parseFloat(d.valor_parcela)||0;
+  const data=$('dpag-data')?.value||new Date().toISOString().split('T')[0];
+  if(!numParcela){showToast('Selecione a parcela.','err');return;}
+  if(!valorPago){showToast('Informe o valor pago.','err');return;}
+
+  // Salva na tabela de parcelas
+  const{error:e1}=await sb.from('fin_divida_parcelas').insert([{
+    divida_id:did, num_parcela:numParcela,
+    valor_original:valorOriginal, valor_pago:valorPago,
+    data_pagamento:data,
+    carteira_id:$('dpag-carteira')?.value||null,
+    forma_pagamento:$('dpag-forma')?.value||null,
+    observacao:$('dpag-obs')?.value||null
+  }]);
+
+  // Também cria movimentação de saída
+  const{error:e2}=await sb.from('fin_movimentacoes').insert([{
+    descricao:`${d.descricao} — Parcela ${numParcela}/${d.n_parcelas}`,
+    valor:valorPago, tipo:'saida', data, status:'pago',
+    carteira_id:$('dpag-carteira')?.value||null,
+    centro_id:d.centro_id||null,
+    forma_pagamento:$('dpag-forma')?.value||null,
+    origem:'manual'
+  }]);
+
+  if(e1||e2){showToast('Erro ao registrar.','err');return;}
+
+  // Atualiza parcelas_pagas na dívida (para compatibilidade)
+  const pagas=dividaParcelas.filter(p=>p.divida_id===did).length+1;
+  await sb.from('fin_dividas').update({parcelas_pagas:pagas,ativo:pagas<d.n_parcelas}).eq('id',did);
+
+  await loadAll(); renderDividas(); closeSheet();
+  const economia=valorOriginal-valorPago;
+  showToast(economia>0?`✅ Pago! Você economizou ${fmt(economia)}`:'✅ Pagamento registrado!');
+}
+
+async function deleteDivida(did){
+  openConfirm('Remover dívida?','Lançamentos de pagamento não serão removidos.',async()=>{
+    await sb.from('fin_dividas').delete().eq('id',did);
+    await loadAll(); renderDividas(); showToast('Removida.','info');
+  },'Remover');
+}
+
+// ════════════════════════════════════════════════
+//  VEÍCULOS
+// ════════════════════════════════════════════════
+function renderVeiculos(){
+  const el=$('veiculos-lista'); if(!el) return;
+  if(!veiculos.length){
+    el.innerHTML=`<div class="empty"><div class="empty-icon">🚗</div><div class="empty-title">Nenhum veículo cadastrado</div><div class="empty-sub">Adicione seus veículos acima</div><button class="btn btn-primary" style="margin-top:12px" onclick="openSheetVeiculo()">+ Novo Veículo</button></div>`;return;
+  }
+  el.innerHTML=veiculos.map(v=>{
+    const abasts=abastecimentos.filter(a=>a.veiculo_id===v.id);
+    const gastoTotal=abasts.reduce((s,a)=>s+parseFloat(a.valor_total||0),0);
+    const kmTotal=abasts.reduce((s,a)=>s+parseFloat(a.km_rodados||0),0);
+    const custoPorKm=kmTotal>0?(gastoTotal/kmTotal).toFixed(2):null;
+    const consumoReal=abasts.filter(a=>a.km_rodados&&a.litros).reduce((acc,a,_,arr)=>{
+      const c=parseFloat(a.km_rodados||0)/parseFloat(a.litros||1);
+      return acc+(c/arr.length);
+    },0);
+    const ultimos=abasts.slice(0,3);
+    return`<div class="card pad" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+        <div>
+          <div style="font-size:16px;font-weight:800;color:var(--text)">${v.icone||'🚗'} ${v.nome}</div>
+          <div style="font-size:11px;color:var(--gray)">${v.placa||''} · Consumo esperado: ${v.consumo_medio||'—'} km/L</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-primary" style="padding:7px 12px;font-size:12px" onclick="openSheetAbastecimento('${v.id}')">⛽ Abastecer</button>
+          <button class="btn btn-secondary" style="padding:7px 10px;font-size:12px" onclick="openSheetVeiculo('${v.id}')">✏️</button>
+        </div>
+      </div>
+      <div class="stats-grid" style="margin-bottom:12px">
+        <div class="stat-card"><div class="stat-label">💸 Gasto total</div><div class="stat-value vermelho">${fmt(gastoTotal)}</div></div>
+        <div class="stat-card"><div class="stat-label">📍 Km registrado</div><div class="stat-value">${kmTotal.toFixed(0)} km</div></div>
+        <div class="stat-card"><div class="stat-label">⛽ Custo/km</div><div class="stat-value amarelo">${custoPorKm?'R$ '+custoPorKm:'—'}</div></div>
+        <div class="stat-card"><div class="stat-label">🔢 Consumo real</div><div class="stat-value verde">${consumoReal>0?consumoReal.toFixed(1)+' km/L':'—'}</div></div>
+      </div>
+      ${ultimos.length?`
+        <div class="section-label">Últimos abastecimentos</div>
+        ${ultimos.map(a=>`<div class="mov-item">
+          <div class="mov-icon-wrap" style="background:#FEF3C7">⛽</div>
+          <div class="mov-body">
+            <div class="mov-desc">${a.posto||'Posto'}</div>
+            <div class="mov-meta">${fmtDate(a.data)} · ${a.litros?a.litros+'L':'—'} · ${a.km_rodados?a.km_rodados.toFixed(0)+' km rodados':'—'}</div>
+          </div>
+          <div class="mov-right">
+            <div class="mov-value saida">${fmt(a.valor_total)}</div>
+            ${a.custo_por_km?`<div style="font-size:10px;color:var(--gray)">R$ ${parseFloat(a.custo_por_km).toFixed(2)}/km</div>`:''}
+          </div>
+        </div>`).join('')}
+      `:''}
+    </div>`;
+  }).join('');
+}
+
+function openSheetVeiculo(vid){
+  const v=vid?veiculos.find(x=>x.id===vid):null;
+  const centroOpts=centros.map(c=>`<option value="${c.id}"${v?.centro_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
+  $('sheet-title').textContent=v?'Editar Veículo':'Novo Veículo';
+  $('sheet-body').innerHTML=`
+    <div class="form-grid-2">
+      <div class="field"><label>Nome *</label><input type="text" id="vei-nome" placeholder="Ex: Captur" value="${v?.nome||''}"/></div>
+      <div class="field"><label>Tipo</label>
+        <select id="vei-tipo">
+          <option value="carro"${v?.tipo==='carro'?' selected':''}>🚗 Carro</option>
+          <option value="moto"${v?.tipo==='moto'?' selected':''}>🏍️ Moto</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Consumo médio (km/L)</label><input type="number" id="vei-consumo" placeholder="Ex: 10.5" step="0.1" value="${v?.consumo_medio||''}"/></div>
+      <div class="field"><label>Placa</label><input type="text" id="vei-placa" placeholder="ABC-1234" value="${v?.placa||''}"/></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Ícone</label><input type="text" id="vei-icone" placeholder="🚗" maxlength="2" value="${v?.icone||''}"/></div>
+      <div class="field"><label>Centro de custo</label><select id="vei-centro"><option value="">Geral</option>${centroOpts}</select></div>
+    </div>
+    <button class="salvar-btn entrada" style="margin-top:16px" onclick="salvarVeiculo('${vid||''}')">Salvar veículo</button>
+  `;
+  openSheetRaw();
+}
+
+async function salvarVeiculo(vid){
+  const nome=$('vei-nome')?.value.trim(); if(!nome){showToast('Informe o nome.','err');return;}
+  const payload={nome,tipo:$('vei-tipo').value,consumo_medio:parseFloat($('vei-consumo').value)||null,placa:$('vei-placa').value||null,icone:$('vei-icone').value||($('vei-tipo').value==='moto'?'🏍️':'🚗'),centro_id:$('vei-centro').value||null};
+  let error;
+  if(vid){({error}=await sb.from('fin_veiculos').update(payload).eq('id',vid));}
+  else{({error}=await sb.from('fin_veiculos').insert([payload]));}
+  if(error){showToast('Erro.','err');return;}
+  await loadAll(); renderVeiculos(); closeSheet(); showToast('Veículo salvo!');
+}
+
+function openSheetAbastecimento(vid){
+  const v=veiculos.find(x=>x.id===vid); if(!v) return;
+  const ultimos=abastecimentos.filter(a=>a.veiculo_id===vid);
+  const ultimoKm=ultimos.length?parseFloat(ultimos[0].km_odometro||0):0;
+  $('sheet-title').textContent=`⛽ Abastecer — ${v.nome}`;
+  $('sheet-body').innerHTML=`
+    <div class="form-grid-2">
+      <div class="field"><label>Data *</label><input type="date" id="ab-data" value="${new Date().toISOString().split('T')[0]}"/></div>
+      <div class="field"><label>Km odômetro atual</label><input type="number" id="ab-km" placeholder="Ex: 45320" value="" oninput="abCalc()"/></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Litros abastecidos</label><input type="number" id="ab-litros" placeholder="0,00" step="0.01" oninput="abCalc()"/></div>
+      <div class="field"><label>Preço por litro (R$)</label><input type="number" id="ab-preco" placeholder="6,99" step="0.01" oninput="abCalc()"/></div>
+    </div>
+    <div class="form-mb field"><label>Valor total (R$)</label><input type="number" id="ab-total" placeholder="0,00" step="0.01"/></div>
+    <div class="form-mb field"><label>Posto</label><input type="text" id="ab-posto" placeholder="Nome do posto (opcional)"/></div>
+    ${ultimoKm?`<div style="font-size:11px;color:var(--gray);margin-bottom:8px">Último km registrado: ${ultimoKm.toLocaleString('pt-BR')}</div>`:''}
+    <div id="ab-preview" style="display:none;background:var(--accent-bg);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--text)"></div>
+    <button class="salvar-btn entrada" onclick="salvarAbastecimento('${vid}','${ultimoKm}')">Salvar abastecimento</button>
+  `;
+  openSheetRaw();
+}
+
+function abCalc(){
+  const litros=parseFloat($('ab-litros')?.value)||0;
+  const preco=parseFloat($('ab-preco')?.value)||0;
+  if(litros&&preco) $('ab-total').value=(litros*preco).toFixed(2);
+  const km=parseFloat($('ab-km')?.value)||0;
+  const prev=$('ab-preview');
+  if(prev&&km) prev.style.display='block';
+}
+
+async function salvarAbastecimento(vid, ultimoKm){
+  const data=$('ab-data')?.value; if(!data){showToast('Informe a data.','err');return;}
+  const total=parseFloat($('ab-total')?.value)||0; if(!total){showToast('Informe o valor.','err');return;}
+  const kmAtual=parseFloat($('ab-km')?.value)||null;
+  const litros=parseFloat($('ab-litros')?.value)||null;
+  const preco=parseFloat($('ab-preco')?.value)||null;
+  const kmRodados=kmAtual&&ultimoKm?(kmAtual-parseFloat(ultimoKm)):null;
+  const custoPorKm=kmRodados&&kmRodados>0?(total/kmRodados):null;
+  const payload={veiculo_id:vid,data,litros,valor_total:total,preco_litro:preco,km_odometro:kmAtual,km_rodados:kmRodados,custo_por_km:custoPorKm,posto:$('ab-posto')?.value||null,centro_id:veiculos.find(v=>v.id===vid)?.centro_id||null};
+  const{error}=await sb.from('fin_abastecimentos').insert([payload]);
+  if(error){showToast('Erro ao salvar.','err');return;}
+  // Também salva como movimentação de saída
+  const v=veiculos.find(x=>x.id===vid);
+  await sb.from('fin_movimentacoes').insert([{descricao:`Abastecimento — ${v?.nome||'Veículo'}`,valor:total,tipo:'saida',data,status:'pago',centro_id:v?.centro_id||null,origem:'manual'}]);
+  await loadAll(); renderVeiculos(); closeSheet(); showToast('Abastecimento registrado!');
+}
+
+// ════════════════════════════════════════════════
+//  CUSTOS FIXOS RECORRENTES
+// ════════════════════════════════════════════════
+function renderRecorrentes(){
+  const mesISO=isoMes(mesAtual);
+  const[y,m]=mesISO.split('-');
+  if($('rec-mes-label')) $('rec-mes-label').textContent=MESES[parseInt(m)-1]+' '+y;
+  const el=$('recorrentes-lista'); if(!el) return;
+  const ativos=recorrentes.filter(r=>r.ativo!==false);
+  if(!ativos.length){
+    el.innerHTML=`<div class="empty"><div class="empty-icon">🔄</div><div class="empty-title">Nenhum custo fixo cadastrado</div><div class="empty-sub">Adicione contas que se repetem todo mês</div></div>`;return;
+  }
+  // Verifica quais já foram gerados este mês
+  const geradosIds=new Set(
+    movimentacoes
+      .filter(m=>m.origem==='recorrente'&&(m.data||'').startsWith(mesISO))
+      .map(m=>m.observacao?.replace('recorrente:',''))
+  );
+  el.innerHTML=ativos.map(r=>{
+    const gerado=geradosIds.has(r.id);
+    const cat=categorias.find(c=>c.id===r.categoria_id);
+    const centro=centros.find(c=>c.id===r.centro_id);
+    const carteira=carteiras.find(c=>c.id===r.carteira_id);
+    return`<div class="card pad-sm" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px;${gerado?'opacity:.65':''}">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:34px;height:34px;border-radius:9px;background:${r.tipo==='entrada'?'var(--accent-bg)':'#FEE2E2'};display:flex;align-items:center;justify-content:center;font-size:15px">${cat?.icone||'📌'}</div>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--text)">${r.descricao}</div>
+          <div style="font-size:10px;color:var(--gray)">Dia ${r.dia_vencimento||'—'} · ${centro?.nome||'Geral'} ${carteira?'· '+carteira.nome:''}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+        ${gerado?`<span style="font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-bg);padding:3px 8px;border-radius:20px">✓ Gerado</span>`:''}
+        <div style="text-align:right">
+          <div style="font-size:14px;font-weight:800;color:${r.tipo==='entrada'?'var(--accent)':'var(--red)'}">
+            ${r.tipo==='entrada'?'+':'-'}${fmt(r.valor)}
+          </div>
+        </div>
+        <button class="btn btn-secondary" style="padding:5px 8px;font-size:11px" onclick="openSheetRecorrente('${r.id}')">✏️</button>
+        <button class="btn btn-danger" style="padding:5px 8px;font-size:11px" onclick="deleteRecorrente('${r.id}')">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openSheetRecorrente(rid){
+  const r=rid?recorrentes.find(x=>x.id===rid):null;
+  const centroOpts=centros.map(c=>`<option value="${c.id}"${r?.centro_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
+  const wOpts=carteiras.map(c=>`<option value="${c.id}"${r?.carteira_id===c.id?' selected':''}>${c.icone||'🏦'} ${c.nome}</option>`).join('');
+  const catSai=categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos').map(c=>`<option value="${c.id}"${r?.categoria_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
+  const catEnt=categorias.filter(c=>c.tipo==='entrada'||c.tipo==='ambos').map(c=>`<option value="${c.id}"${r?.categoria_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
+  $('sheet-title').textContent=r?'Editar Custo Fixo':'Novo Custo Fixo';
+  $('sheet-body').innerHTML=`
+    <div class="form-mb field"><label>Descrição *</label><input type="text" id="rec-desc" placeholder="Ex: Conta de Luz" value="${r?.descricao||''}"/></div>
+    <div class="form-grid-2">
+      <div class="field"><label>Tipo</label>
+        <select id="rec-tipo" onchange="this.nextElementSibling&&document.getElementById('rec-cat').innerHTML=this.value==='entrada'?'<option value=&quot;&quot;>Sem categoria</option>${catEnt.replace(/"/g,"'")}':'<option value=&quot;&quot;>Sem categoria</option>${catSai.replace(/"/g,"'")}'"}>
+          <option value="saida"${r?.tipo==='saida'?' selected':''}>▼ Saída</option>
+          <option value="entrada"${r?.tipo==='entrada'?' selected':''}>▲ Entrada</option>
+        </select>
+      </div>
+      <div class="field"><label>Valor (R$)</label><input type="number" id="rec-valor" placeholder="0,00" step="0.01" value="${r?.valor||''}"/></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Dia vencimento</label><input type="number" id="rec-dia" placeholder="Ex: 10" min="1" max="31" value="${r?.dia_vencimento||''}"/></div>
+      <div class="field"><label>Categoria</label><select id="rec-cat"><option value="">Sem categoria</option>${catSai}</select></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Centro</label><select id="rec-centro"><option value="">Geral</option>${centroOpts}</select></div>
+      <div class="field"><label>Carteira</label><select id="rec-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
+    </div>
+    <div class="form-mb field"><label>Forma de pagamento</label>
+      <select id="rec-forma">
+        <option value="">Selecione…</option>
+        <option value="Pix"${r?.forma_pagamento==='Pix'?' selected':''}>💸 Pix</option>
+        <option value="Boleto"${r?.forma_pagamento==='Boleto'?' selected':''}>📄 Boleto</option>
+        <option value="Débito"${r?.forma_pagamento==='Débito'?' selected':''}>💳 Débito</option>
+        <option value="Débito Automático"${r?.forma_pagamento==='Débito Automático'?' selected':''}>🔄 Débito Automático</option>
+      </select>
+    </div>
+    <button class="salvar-btn ${r?.tipo==='entrada'?'entrada':'saida'}" style="margin-top:16px" onclick="salvarRecorrente('${rid||''}')">Salvar</button>
+  `;
+  openSheetRaw();
+}
+
+async function salvarRecorrente(rid){
+  const desc=$('rec-desc')?.value.trim(); if(!desc){showToast('Informe a descrição.','err');return;}
+  const valor=parseFloat($('rec-valor')?.value)||0; if(!valor){showToast('Informe o valor.','err');return;}
+  const payload={descricao:desc,tipo:$('rec-tipo').value,valor,dia_vencimento:parseInt($('rec-dia').value)||null,categoria_id:$('rec-cat').value||null,centro_id:$('rec-centro').value||null,carteira_id:$('rec-carteira').value||null,forma_pagamento:$('rec-forma').value||null};
+  let error;
+  if(rid){({error}=await sb.from('fin_recorrentes').update(payload).eq('id',rid));}
+  else{({error}=await sb.from('fin_recorrentes').insert([payload]));}
+  if(error){showToast('Erro.','err');return;}
+  await loadAll(); renderRecorrentes(); closeSheet(); showToast('Custo fixo salvo!');
+}
+
+async function gerarLancamentosDoMes(){
+  const mesISO=isoMes(mesAtual);
+  const[y,m]=mesISO.split('-');
+  const ativos=recorrentes.filter(r=>r.ativo!==false);
+  // Quais já foram gerados?
+  const geradosIds=new Set(
+    movimentacoes.filter(mv=>mv.origem==='recorrente'&&(mv.data||'').startsWith(mesISO))
+      .map(mv=>mv.observacao?.replace('recorrente:',''))
+  );
+  const pendentes=ativos.filter(r=>!geradosIds.has(r.id));
+  if(!pendentes.length){showToast('Todos já foram gerados para este mês!','info');return;}
+  const btn=$('btn-gerar-mes'); btn.textContent='Gerando…'; btn.disabled=true;
+  let criados=0, erros=0;
+  for(const r of pendentes){
+    const dia=r.dia_vencimento||1;
+    const dataLanc=`${y}-${m}-${String(Math.min(dia,28)).padStart(2,'0')}`;
+    const{error}=await sb.from('fin_movimentacoes').insert([{
+      descricao:r.descricao, valor:r.valor, tipo:r.tipo||'saida', data:dataLanc,
+      status:'pendente', carteira_id:r.carteira_id||null, categoria_id:r.categoria_id||null,
+      centro_id:r.centro_id||null, forma_pagamento:r.forma_pagamento||null,
+      origem:'recorrente', observacao:'recorrente:'+r.id
+    }]);
+    if(error) erros++; else criados++;
+  }
+  btn.textContent=`⚡ Gerar lançamentos pendentes de ${MESES[parseInt(m)-1]} ${y}`; btn.disabled=false;
+  await loadAll(); renderRecorrentes();
+  showToast(`✅ ${criados} lançamento(s) gerado(s)!${erros?' '+erros+' erro(s)':''}`);
+}
+
+async function deleteRecorrente(rid){
+  openConfirm('Remover custo fixo?','Lançamentos já gerados não serão removidos.',async()=>{
+    await sb.from('fin_recorrentes').delete().eq('id',rid);
+    await loadAll(); renderRecorrentes(); showToast('Removido.','info');
+  },'Remover');
+}
+
+// ════════════════════════════════════════════════
+//  CARTÕES DE CRÉDITO
+// ════════════════════════════════════════════════
+function calcFaturaCartao(cartaoId, mesISO) {
+  // Soma todas as saídas lançadas neste cartão no mês
+  return movimentacoes
+    .filter(m=>m.cartao_id===cartaoId && (m.data||'').startsWith(mesISO) && m.tipo==='saida')
+    .reduce((s,m)=>s+parseFloat(m.valor||0),0);
+}
+
+function renderCartoes() {
+  const el=$('cartoes-lista'); if(!el) return;
+  if(!cartoes.length) {
+    el.innerHTML=`<div class="empty"><div class="empty-icon">💳</div><div class="empty-title">Nenhum cartão cadastrado</div><div class="empty-sub">Adicione seu primeiro cartão acima</div><button class="btn btn-primary" style="margin-top:12px" onclick="openSheetCartao()">+ Novo Cartão</button></div>`;
+    return;
+  }
+  const mesISO = isoMes(mesAtual);
+  el.innerHTML = cartoes.filter(c=>c.ativo!==false).map(c=>{
+    const fatura = calcFaturaCartao(c.id, mesISO);
+    const disponivel = parseFloat(c.limite||0) - fatura;
+    const pctUsado = c.limite ? Math.min(100,(fatura/c.limite*100)) : 0;
+    const carteiraNome = carteiras.find(w=>w.id===c.carteira_pagamento_id)?.nome||'';
+    // Compras do mês
+    const compras = movimentacoes.filter(m=>m.cartao_id===c.id&&(m.data||'').startsWith(mesISO)&&m.tipo==='saida');
+    const comprasHtml = compras.length ? compras.map(m=>`
+      <div class="mov-item" style="border-bottom:1px solid rgba(255,255,255,.06)" onclick="abreDetalhe('${m.id}')">
+        <div class="mov-icon-wrap" style="background:rgba(255,255,255,.08)">${getCatIcon(m.categoria_id)}</div>
+        <div class="mov-body">
+          <div class="mov-desc" style="color:#fff">${m.descricao}</div>
+          <div class="mov-meta" style="color:rgba(255,255,255,.5)">${fmtDate(m.data)}${m.total_parcelas?` · ${m.parcela_atual}/${m.total_parcelas}`:''}</div>
+        </div>
+        <div class="mov-right"><div class="mov-value saida" style="color:#FCA5A5">-${fmt(m.valor)}</div></div>
+      </div>`).join('') : `<div style="padding:12px;font-size:12px;color:rgba(255,255,255,.4);text-align:center">Nenhuma compra neste mês</div>`;
+    return `<div class="cartao-card">
+      <div class="cartao-bandeira">${c.bandeira||'Crédito'}</div>
+      <div class="cartao-nome">💳 ${c.nome}</div>
+      <div class="cartao-stats">
+        <div>
+          <div class="cartao-stat-label">Fatura ${MESES_S[mesAtual.getMonth()]}</div>
+          <div class="cartao-stat-value fatura">${fmt(fatura)}</div>
+        </div>
+        <div>
+          <div class="cartao-stat-label">Limite disponível</div>
+          <div class="cartao-stat-value disponivel">${fmt(disponivel)}</div>
+        </div>
+        <div>
+          <div class="cartao-stat-label">Limite total</div>
+          <div class="cartao-stat-value">${fmt(c.limite)}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;background:rgba(255,255,255,.1);border-radius:4px;height:4px;overflow:hidden">
+        <div style="width:${pctUsado}%;height:100%;background:${pctUsado>80?'#FCA5A5':'#6EE7B7'};border-radius:4px;transition:width .4s"></div>
+      </div>
+      <div class="cartao-actions">
+        <button class="cartao-action-btn" onclick="openSheetCartao()">✏️ Editar</button>
+        <button class="cartao-action-btn" onclick="novaCompraCartao('${c.id}')">➕ Compra</button>
+        <button class="cartao-action-btn" style="background:rgba(252,165,165,.15);border-color:rgba(252,165,165,.3)" onclick="abrirParcelarFatura('${c.id}')">💸 Parcelar fatura</button>
+        <button class="cartao-action-btn" style="background:rgba(252,165,165,.1);border-color:rgba(252,165,165,.2)" onclick="deleteCartao('${c.id}')">🗑</button>
+      </div>
+      <!-- Compras do mês -->
+      <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.08);padding-top:10px">
+        <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Compras de ${MESES_S[mesAtual.getMonth()]}</div>
+        ${comprasHtml}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function openSheetCartao(cid) {
+  $('sheet-title').textContent = cid ? 'Editar Cartão' : 'Novo Cartão';
+  const wOpts = carteiras.map(c=>`<option value="${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join('');
+  const c = cid ? cartoes.find(x=>x.id===cid) : null;
+  $('sheet-body').innerHTML=`
+    <div class="form-mb field"><label>Nome do cartão *</label><input type="text" id="ctao-nome" placeholder="Ex: Nubank NAIARHA" value="${c?.nome||''}"/></div>
+    <div class="form-grid-2">
+      <div class="field"><label>Bandeira</label>
+        <select id="ctao-bandeira">
+          <option value="Visa"${c?.bandeira==='Visa'?' selected':''}>Visa</option>
+          <option value="Mastercard"${c?.bandeira==='Mastercard'?' selected':''}>Mastercard</option>
+          <option value="Elo"${c?.bandeira==='Elo'?' selected':''}>Elo</option>
+          <option value="Amex"${c?.bandeira==='Amex'?' selected':''}>Amex</option>
+          <option value="Hipercard"${c?.bandeira==='Hipercard'?' selected':''}>Hipercard</option>
+        </select>
+      </div>
+      <div class="field"><label>Limite (R$)</label><input type="number" id="ctao-limite" placeholder="0,00" step="0.01" value="${c?.limite||''}"/></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Dia fechamento</label><input type="number" id="ctao-fecha" placeholder="Ex: 20" min="1" max="31" value="${c?.dia_fechamento||''}"/></div>
+      <div class="field"><label>Dia vencimento</label><input type="number" id="ctao-vence" placeholder="Ex: 27" min="1" max="31" value="${c?.dia_vencimento||''}"/></div>
+    </div>
+    <div class="form-mb field"><label>Carteira de débito (quem paga a fatura)</label>
+      <select id="ctao-carteira"><option value="">Selecione…</option>${wOpts}</select>
+    </div>
+    <button class="salvar-btn entrada" style="margin-top:16px" onclick="salvarCartao('${cid||''}')">Salvar cartão</button>
+    ${cid?`<button class="salvar-btn saida" style="margin-top:8px;background:#EF4444" onclick="deleteCartao('${cid}')">Remover cartão</button>`:''}
+  `;
+  if(c?.carteira_pagamento_id) setTimeout(()=>{if($('ctao-carteira'))$('ctao-carteira').value=c.carteira_pagamento_id;},50);
+  openSheetRaw();
+}
+
+async function salvarCartao(cid) {
+  const nome=$('ctao-nome')?.value.trim(); if(!nome){showToast('Informe o nome.','err');return;}
+  const payload={
+    nome, bandeira:$('ctao-bandeira').value||'Visa',
+    limite:parseFloat($('ctao-limite').value)||0,
+    dia_fechamento:parseInt($('ctao-fecha').value)||null,
+    dia_vencimento:parseInt($('ctao-vence').value)||null,
+    carteira_pagamento_id:$('ctao-carteira').value||null
+  };
+  let error;
+  if(cid){({error}=await sb.from('fin_cartoes').update(payload).eq('id',cid));}
+  else{({error}=await sb.from('fin_cartoes').insert([payload]));}
+  if(error){showToast('Erro ao salvar.','err');return;}
+  await loadAll(); renderCartoes(); closeSheet(); showToast(cid?'Cartão atualizado!':'Cartão adicionado!');
+}
+
+async function deleteCartao(cid) {
+  openConfirm('Remover cartão?','Lançamentos vinculados não serão removidos.',async()=>{
+    const{error}=await sb.from('fin_cartoes').delete().eq('id',cid);
+    if(error){showToast('Erro.','err');return;}
+    await loadAll(); renderCartoes(); closeSheet(); showToast('Removido.','info');
+  },'Remover');
+}
+
+function novaCompraCartao(cid) {
+  sheetTipo='saida'; sheetStatus='pago';
+  $('sheet-title').textContent='Nova compra no cartão';
+  buildSheetForm(cid);
+  openSheetRaw();
+}
+
+// ── PARCELAR FATURA ──────────────────────────────
+let mparCartaoId=null, mparParcelas=[];
+
+function abrirParcelarFatura(cid) {
+  mparCartaoId=cid;
+  mparParcelas=[];
+  const c=cartoes.find(x=>x.id===cid); if(!c) return;
+  const mesISO=isoMes(mesAtual);
+  const fatura=calcFaturaCartao(cid,mesISO);
+  $('mpar-title').textContent=`Parcelar Fatura — ${c.nome}`;
+  $('mpar-sub').textContent=`Fatura de ${MESES_S[mesAtual.getMonth()]}: ${fmt(fatura)}`;
+  $('mpar-total').value=fatura.toFixed(2);
+  $('mpar-n').value='';
+  $('mpar-entrada').value='';
+  $('mpar-demais').value='';
+  $('mpar-preview').style.display='none';
+  $('mpar-confirmar').disabled=true;
+  // data padrão: hoje
+  $('mpar-data1').value=new Date().toISOString().split('T')[0];
+  // preenche carteira
+  const wOpts=carteiras.map(w=>`<option value="${w.id}"${w.id===c.carteira_pagamento_id?' selected':''}>${w.icone||'🏦'} ${w.nome}</option>`).join('');
+  $('mpar-carteira').innerHTML=`<option value="">Selecione…</option>${wOpts}`;
+  $('modal-parcelar').classList.remove('hidden');
+}
+
+function closeModalParcelar(){$('modal-parcelar').classList.add('hidden');mparCartaoId=null;mparParcelas=[];}
+
+function mparCalc() {
+  const total=parseFloat($('mpar-total')?.value)||0;
+  const n=parseInt($('mpar-n')?.value)||0;
+  const entrada=parseFloat($('mpar-entrada')?.value)||0;
+  if(!n||n<1) return;
+  if(n===1){$('mpar-demais').value='';mparRenderParcelas();return;}
+  // Sugere valor das demais
+  const restante=total-entrada;
+  const valorDemais=n>1?restante/(n-1):0;
+  if($('mpar-demais')&&!$('mpar-demais').value) $('mpar-demais').value=valorDemais>0?valorDemais.toFixed(2):'';
+  mparRenderParcelas();
+}
+
+function mparRenderParcelas() {
+  const n=parseInt($('mpar-n')?.value)||0;
+  const entrada=parseFloat($('mpar-entrada')?.value)||0;
+  const demais=parseFloat($('mpar-demais')?.value)||0;
+  const data1=$('mpar-data1')?.value;
+  if(!n||!data1) return;
+  // Gera array de parcelas
+  mparParcelas=[];
+  for(let i=0;i<n;i++){
+    const dt=new Date(data1+'T12:00:00');
+    dt.setMonth(dt.getMonth()+i);
+    mparParcelas.push({
+      num:i+1,
+      valor:i===0?entrada:demais,
+      data:dt.toISOString().split('T')[0]
+    });
+  }
+  const total=mparParcelas.reduce((s,p)=>s+p.valor,0);
+  $('mpar-preview').style.display='block';
+  $('mpar-parcelas-lista').innerHTML=mparParcelas.map((p,i)=>`
+    <div class="parcela-edit-row">
+      <span class="parcela-num">${p.num}ª</span>
+      <input class="parcela-edit-input" type="number" value="${p.valor.toFixed(2)}" step="0.01" 
+        onchange="mparParcelas[${i}].valor=parseFloat(this.value)||0;mparAtualizaResumo()" placeholder="Valor"/>
+      <input class="parcela-date-input" type="date" value="${p.data}"
+        onchange="mparParcelas[${i}].data=this.value"/>
+    </div>
+  `).join('');
+  mparAtualizaResumo();
+}
+
+function mparAtualizaResumo(){
+  const total=mparParcelas.reduce((s,p)=>s+parseFloat(p.valor||0),0);
+  const faturaOrig=parseFloat($('mpar-total')?.value)||0;
+  const juros=total-faturaOrig;
+  $('mpar-resumo').innerHTML=`Total parcelado: <b>${fmt(total)}</b>${juros>0?` · Juros: <b>+${fmt(juros)}</b>`:''}`;
+  $('mpar-confirmar').disabled=mparParcelas.length===0||!$('mpar-carteira')?.value;
+}
+
+async function confirmarParcelamento(){
+  const wid=$('mpar-carteira')?.value;
+  const forma=$('mpar-forma')?.value||null;
+  if(!wid){showToast('Selecione a carteira de débito.','err');return;}
+  if(!mparParcelas.length){showToast('Gere as parcelas primeiro.','err');return;}
+  const btn=$('mpar-confirmar'); btn.textContent='Salvando…'; btn.disabled=true;
+  const grupoId=crypto.randomUUID();
+  const cartao=cartoes.find(c=>c.id===mparCartaoId);
+  let erros=0;
+  for(const p of mparParcelas){
+    const{error}=await sb.from('fin_movimentacoes').insert([{
+      descricao:`Fatura ${cartao?.nome||'Cartão'} — Parcela ${p.num}/${mparParcelas.length}`,
+      valor:parseFloat(p.valor)||0,
+      tipo:'saida', data:p.data, status:p.num===1?'pago':'pendente',
+      carteira_id:wid, cartao_id:mparCartaoId,
+      parcela_atual:p.num, total_parcelas:mparParcelas.length,
+      grupo_parcelas:grupoId, origem:'manual',
+      forma_pagamento:forma
+    }]);
+    if(error) erros++;
+  }
+  btn.textContent='✓ Confirmar parcelamento'; btn.disabled=false;
+  await loadAll();
+  closeModalParcelar();
+  renderCartoes();
+  if(erros) showToast(`${mparParcelas.length-erros} salvas, ${erros} erro(s).`,'err');
+  else showToast(`✅ ${mparParcelas.length} parcelas criadas!`);
 }
 
 // ════════════════════════════════════════════════

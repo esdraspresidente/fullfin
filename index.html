@@ -815,7 +815,7 @@
   <div class="sheet-title" id="sheet-title">Novo lançamento</div>
   <div class="sheet-body" id="sheet-body"></div>
 </div>
-<div id="confirm-modal" class="modal-overlay hidden">
+<div id="confirm-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeConfirm()">
   <div class="modal-box">
     <div class="modal-title" id="confirm-title">Confirmar</div>
     <div class="modal-sub" id="confirm-sub"></div>
@@ -1096,11 +1096,23 @@ function renderMovs(containerId, list, compact=false){
 
 function abreDetalhe(mid){
   const m=movimentacoes.find(x=>x.id===mid); if(!m) return;
-  openConfirm(
-    m.descricao,
-    `${fmtDate(m.data)} · ${fmt(m.valor)} · ${getCatNome(m.categoria_id)||'sem categoria'} · ${m.status}`,
-    ()=>deleteMov(mid), '🗑 Remover'
-  );
+  $('confirm-title').textContent = m.descricao;
+  $('confirm-sub').textContent = `${fmtDate(m.data)} · ${fmt(m.valor)} · ${getCatNome(m.categoria_id)||'sem categoria'} · ${m.status}`;
+  const btns = $('confirm-btns');
+  const isPendente = m.status !== 'pago';
+  btns.innerHTML = `
+    <button class="btn btn-secondary" style="flex:1" onclick="closeConfirm()">Cancelar</button>
+    ${isPendente ? `<button class="btn btn-primary" style="flex:1;background:#059669" onclick="marcarPago('${m.id}')">✅ Marcar como Pago</button>` : ''}
+    <button class="btn btn-danger" style="flex:1" onclick="closeConfirm();deleteMov('${m.id}')">🗑 Remover</button>
+  `;
+  $('confirm-modal').classList.remove('hidden');
+}
+async function marcarPago(mid){
+  closeConfirm();
+  const hoje = new Date().toISOString().split('T')[0];
+  const{error}=await sb.from('fin_movimentacoes').update({status:'pago',data:hoje}).eq('id',mid);
+  if(error){showToast('Erro ao salvar.','err');return;}
+  await loadAll(); renderAll(); showToast('Marcado como pago!','ok');
 }
 async function deleteMov(mid){
   const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);

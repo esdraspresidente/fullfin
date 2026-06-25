@@ -622,12 +622,15 @@
           <button class="import-tab" id="imp-tab-previ" onclick="setImportTab('previmater')">🏥 PreviMater</button>
         </div>
         <!-- Selecionar todos -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;flex-shrink:0">
             <input type="checkbox" id="imp-select-all" onchange="toggleSelectAll()" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer"/>
             Selecionar todos
           </label>
-          <span id="imp-sel-count" style="font-size:12px;color:var(--gray)">0 selecionados</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="imp-sel-count" style="font-size:12px;color:var(--gray)">0 selecionados</span>
+            <button id="imp-del-btn" onclick="excluirSelecionados()" disabled style="background:#FEE2E2;color:#DC2626;border:1.5px solid #FECACA;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;opacity:.5">🗑 Excluir</button>
+          </div>
         </div>
         <!-- Lista -->
         <div id="imp-list"></div>
@@ -1249,6 +1252,30 @@ function updateImportBtn(){
   btn.disabled=n===0;
   btn.textContent=`Importar selecionados (${n})`;
   $('imp-sel-count').textContent=`${n} selecionado(s)`;
+  const delBtn=$('imp-del-btn');
+  if(delBtn){delBtn.disabled=n===0;delBtn.style.opacity=n===0?'.5':'1';}
+}
+
+async function excluirSelecionados(){
+  const n=importSelected.size; if(!n) return;
+  if(!confirm(`Excluir ${n} item(s) da lista de importação permanentemente?\n\nEles não aparecerão mais aqui.`)) return;
+  const btn=$('imp-del-btn'); btn.textContent='Excluindo…'; btn.disabled=true;
+  // Marca como "ignorado" criando registro com valor 0 — assim some da lista de importação
+  const selecionados=importItems.filter(i=>importSelected.has(i.id));
+  let erros=0;
+  for(const item of selecionados){
+    const valor=importTab==='diligencias'?parseFloat(item.valor||0):parseFloat(item.valor_honorario||0);
+    const{error}=await sb.from('fin_movimentacoes').insert([{
+      descricao:'[IGNORADO]',valor:0,tipo:'entrada',
+      data:new Date().toISOString().split('T')[0],
+      status:'pago',origem:'ignorado',diligencia_id:item.id
+    }]);
+    if(error) erros++;
+  }
+  await loadAll(); importSelected.clear();
+  await initImportar();
+  if(erros) showToast(`Erro em ${erros} item(s).`,'err');
+  else showToast(`✅ ${n} item(s) removido(s) da lista!`);
 }
 
 async function executarImport(){

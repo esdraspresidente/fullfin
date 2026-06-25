@@ -629,7 +629,6 @@
           </label>
           <div style="display:flex;align-items:center;gap:8px">
             <span id="imp-sel-count" style="font-size:12px;color:var(--gray)">0 selecionados</span>
-            <button id="imp-del-btn" onclick="excluirSelecionados()" disabled style="background:#FEE2E2;color:#DC2626;border:1.5px solid #FECACA;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;opacity:.5">🗑 Excluir</button>
           </div>
         </div>
         <!-- Lista -->
@@ -1178,8 +1177,16 @@ async function initImportar(){
   $('imp-list').innerHTML=`<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Carregando dados…</div></div>`;
   $('imp-btn').disabled=true; $('imp-btn').textContent='Importar selecionados (0)';
 
-  // IDs já importados (origin diligencia ou previmater)
-  const importados=new Set(movimentacoes.filter(m=>m.diligencia_id).map(m=>m.diligencia_id));
+  // Data de corte: data em que cada app começou a ser usado com o Fullfin.
+  // Só aparece o que for desta data em diante. Configurável aqui:
+  const DATA_CORTE = localStorage.getItem('fullfin_data_corte') || new Date().toISOString().split('T')[0];
+
+  // Chaves já importadas — usa "origem:id" para nunca confundir tipos diferentes
+  const importados=new Set(
+    movimentacoes
+      .filter(m=>m.diligencia_id!=null)
+      .map(m=>String(m.origem)+':'+String(m.diligencia_id))
+  );
 
   // Busca dados externos
   const [rDilig,rParc]=await Promise.all([
@@ -1187,10 +1194,20 @@ async function initImportar(){
     sb.from('pm_parcelas').select('*'),
   ]);
 
-  // Diligências pagas ainda não importadas
-  importDiligData=(rDilig.data||[]).filter(d=>d.status==='pago'&&!importados.has(d.id));
-  // PreviMater parcelas recebidas ainda não importadas
-  importPreviData=(rParc.data||[]).filter(p=>p.status==='recebido'&&!importados.has(p.id));
+  // Diligências pagas, de hoje em diante, ainda não importadas
+  importDiligData=(rDilig.data||[]).filter(d=>{
+    if(d.status!=='pago') return false;
+    const dataRef=(d.data||'').split('T')[0];
+    if(dataRef < DATA_CORTE) return false;
+    return !importados.has('diligencia:'+String(d.id));
+  });
+  // PreviMater recebidas, de hoje em diante, ainda não importadas
+  importPreviData=(rParc.data||[]).filter(p=>{
+    if(p.status!=='recebido') return false;
+    const dataRef=(p.data_pagamento||p.data_vencimento||'').split('T')[0];
+    if(dataRef < DATA_CORTE) return false;
+    return !importados.has('previmater:'+String(p.id));
+  });
 
   importSelected.clear();
   setImportTab(importTab);
@@ -1252,30 +1269,6 @@ function updateImportBtn(){
   btn.disabled=n===0;
   btn.textContent=`Importar selecionados (${n})`;
   $('imp-sel-count').textContent=`${n} selecionado(s)`;
-  const delBtn=$('imp-del-btn');
-  if(delBtn){delBtn.disabled=n===0;delBtn.style.opacity=n===0?'.5':'1';}
-}
-
-async function excluirSelecionados(){
-  const n=importSelected.size; if(!n) return;
-  if(!confirm(`Excluir ${n} item(s) da lista de importação permanentemente?\n\nEles não aparecerão mais aqui.`)) return;
-  const btn=$('imp-del-btn'); btn.textContent='Excluindo…'; btn.disabled=true;
-  // Marca como "ignorado" criando registro com valor 0 — assim some da lista de importação
-  const selecionados=importItems.filter(i=>importSelected.has(i.id));
-  let erros=0;
-  for(const item of selecionados){
-    const valor=importTab==='diligencias'?parseFloat(item.valor||0):parseFloat(item.valor_honorario||0);
-    const{error}=await sb.from('fin_movimentacoes').insert([{
-      descricao:'[IGNORADO]',valor:0,tipo:'entrada',
-      data:new Date().toISOString().split('T')[0],
-      status:'pago',origem:'ignorado',diligencia_id:item.id
-    }]);
-    if(error) erros++;
-  }
-  await loadAll(); importSelected.clear();
-  await initImportar();
-  if(erros) showToast(`Erro em ${erros} item(s).`,'err');
-  else showToast(`✅ ${n} item(s) removido(s) da lista!`);
 }
 
 async function executarImport(){
@@ -1296,7 +1289,7 @@ async function executarImport(){
         tipo:'entrada', data:item.data?.split('T')[0]||new Date().toISOString().split('T')[0],
         status:'pago', carteira_id:wid, centro_id:cid||null,
         observacao:`Importado de Diligências · ${item.plataforma||''} · ${item.responsavel||''}`,
-        origem:'diligencia', diligencia_id:item.id
+        origem:'diligencia', diligencia_id:String(item.id)
       };
     } else {
       payload={
@@ -1305,7 +1298,7 @@ async function executarImport(){
         tipo:'entrada', data:item.data_pagamento||item.data_vencimento,
         status:'pago', carteira_id:wid, centro_id:cid||null,
         observacao:`Importado de PreviMater · Parcela ${item.num_parcela}/${item.total_parcelas}`,
-        origem:'previmater', diligencia_id:item.id
+        origem:'previmater', diligencia_id:String(item.id)
       };
     }
     const{error}=await sb.from('fin_movimentacoes').insert([payload]);

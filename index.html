@@ -499,7 +499,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v1.8 · Naiarha</div>
+        <div class="sb-version">v2.1 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -819,7 +819,7 @@
   <div class="modal-box">
     <div class="modal-title" id="confirm-title">Confirmar</div>
     <div class="modal-sub" id="confirm-sub"></div>
-    <div class="modal-btns">
+    <div class="modal-btns" id="confirm-btns">
       <button class="btn btn-secondary" style="flex:1" onclick="closeConfirm()">Cancelar</button>
       <button class="btn btn-danger" style="flex:1" id="confirm-ok">Confirmar</button>
     </div>
@@ -861,11 +861,14 @@ function showToast(msg, type='ok') {
 }
 function openConfirm(title, sub, onOk, okLabel='Confirmar') {
   $('confirm-title').textContent=title; $('confirm-sub').textContent=sub;
-  $('confirm-ok').textContent=okLabel; confirmCallback=onOk;
+  confirmCallback=onOk;
+  $('confirm-btns').innerHTML=`
+    <button class="btn btn-secondary" style="flex:1" onclick="closeConfirm()">Cancelar</button>
+    <button class="btn btn-danger" style="flex:1" onclick="if(confirmCallback){closeConfirm();confirmCallback();}">${okLabel}</button>
+  `;
   $('confirm-modal').classList.remove('hidden');
 }
 function closeConfirm(){$('confirm-modal').classList.add('hidden');confirmCallback=null;}
-$('confirm-ok').onclick=()=>{closeConfirm();if(confirmCallback)confirmCallback();};
 
 // ════════════════════════════════════════════════
 //  AUTH

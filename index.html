@@ -499,7 +499,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v2.1 · Naiarha</div>
+        <div class="sb-version">v2.2 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -841,7 +841,7 @@ let confirmCallback = null;
 // import state
 let importTab = 'diligencias', importItems = [], importSelected = new Set();
 // sheet state
-let sheetTipo = 'saida', sheetStatus = 'pago';
+let sheetTipo = 'saida', sheetStatus = 'pago', sheetEditId = null;
 
 mesAtual.setDate(1);
 
@@ -1099,23 +1099,97 @@ function renderMovs(containerId, list, compact=false){
 
 function abreDetalhe(mid){
   const m=movimentacoes.find(x=>x.id===mid); if(!m) return;
-  $('confirm-title').textContent = m.descricao;
-  $('confirm-sub').textContent = `${fmtDate(m.data)} · ${fmt(m.valor)} · ${getCatNome(m.categoria_id)||'sem categoria'} · ${m.status}`;
-  const btns = $('confirm-btns');
-  const isPendente = m.status !== 'pago';
-  btns.innerHTML = `
-    <button class="btn btn-secondary" style="flex:1" onclick="closeConfirm()">Cancelar</button>
-    ${isPendente ? `<button class="btn btn-primary" style="flex:1;background:#059669" onclick="marcarPago('${m.id}')">✅ Marcar como Pago</button>` : ''}
-    <button class="btn btn-danger" style="flex:1" onclick="closeConfirm();deleteMov('${m.id}')">🗑 Remover</button>
-  `;
-  $('confirm-modal').classList.remove('hidden');
+  sheetEditId=mid;
+  sheetTipo=m.tipo||'saida';
+  sheetStatus=m.status||'pago';
+  $('sheet-title').textContent='Editar movimentação';
+  buildSheetFormEdicao(m);
+  openSheetRaw();
 }
-async function marcarPago(mid){
-  closeConfirm();
-  const hoje = new Date().toISOString().split('T')[0];
+
+function buildSheetFormEdicao(m){
+  const cats=sheetTipo==='entrada'?categorias.filter(c=>c.tipo==='entrada'||c.tipo==='ambos'):categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos');
+  const catOpts=cats.map(c=>`<option value="${c.id}"${m.categoria_id===c.id?' selected':''}>${c.nome}</option>`).join('');
+  const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}"${m.carteira_id===w.id?' selected':''}>${w.nome}</option>`).join('');
+  const centroOpts=centros.map(c=>`<option value="${c.id}"${m.centro_id===c.id?' selected':''}>${c.nome}</option>`).join('');
+  const formas=['Pix','Boleto','Débito','Débito Automático','Transferência','Cartão de Crédito','Dinheiro'];
+  const formaOpts=formas.map(f=>`<option value="${f}"${m.forma_pagamento===f?' selected':''}>${f}</option>`).join('');
+  const isPendente=m.status!=='pago';
+  $('sheet-body').innerHTML=`
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="tipo-btn saida${sheetTipo==='saida'?' active':''}" onclick="setSheetTipoEd('saida','${m.id}')">▼ Saída</button>
+      <button class="tipo-btn entrada${sheetTipo==='entrada'?' active':''}" onclick="setSheetTipoEd('entrada','${m.id}')">▲ Entrada</button>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Centro de custo</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
+      <div class="field"><label>Categoria</label><select id="sh-cat"><option value="">Sem categoria</option>${catOpts}</select></div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Data pagamento</label><input type="date" id="sh-data" value="${(m.data||'').split('T')[0]}"/></div>
+      <div class="field"><label>Data vencimento</label><input type="date" id="sh-venc" value="${(m.data_vencimento||'').split('T')[0]}"/></div>
+    </div>
+    <div class="valor-wrap" style="margin-bottom:12px"><span class="valor-prefix">R$</span><input class="valor-input" type="number" id="sh-valor" value="${m.valor||''}" step="0.01" inputmode="decimal"/></div>
+    <div class="form-mb field"><label>Descrição *</label><input type="text" id="sh-desc" value="${(m.descricao||'').replace(/"/g,'&quot;')}"/></div>
+    <div class="form-grid-2">
+      <div class="field"><label>Conta</label><select id="sh-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
+      <div class="field"><label>Forma de pagamento</label>
+        <select id="sh-forma">
+          <option value="">Selecione…</option>
+          ${formaOpts}
+        </select>
+      </div>
+    </div>
+    <div class="form-mb field"><label>Observação</label><textarea id="sh-obs" rows="2">${m.observacao||''}</textarea></div>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn btn-danger" style="flex:1" onclick="pedirRemocaoMov('${m.id}')">🗑 Remover</button>
+      ${isPendente?`<button class="btn btn-primary" style="flex:1;background:#059669" onclick="marcarPagoSheet('${m.id}')">✅ Pago</button>`:''}
+      <button class="btn btn-primary" style="flex:2" onclick="salvarEdicaoMov('${m.id}')">💾 Salvar</button>
+    </div>
+  `;
+}
+
+function setSheetTipoEd(t,mid){
+  sheetTipo=t;
+  const m=movimentacoes.find(x=>x.id===mid);
+  if(m) buildSheetFormEdicao({...m,tipo:t});
+}
+
+async function marcarPagoSheet(mid){
+  closeSheet();
+  const hoje=new Date().toISOString().split('T')[0];
   const{error}=await sb.from('fin_movimentacoes').update({status:'pago',data:hoje}).eq('id',mid);
   if(error){showToast('Erro ao salvar.','err');return;}
   await loadAll(); renderAll(); showToast('Marcado como pago!','ok');
+}
+
+async function salvarEdicaoMov(mid){
+  const valor=parseFloat($('sh-valor')?.value);
+  const desc=($('sh-desc')?.value||'').trim();
+  const data=$('sh-data')?.value;
+  if(!valor||isNaN(valor)){showToast('Informe o valor.','err');return;}
+  if(!desc){showToast('Informe a descrição.','err');return;}
+  if(!data){showToast('Informe a data.','err');return;}
+  const btn=document.querySelector('.salvar-btn')||document.querySelector('[onclick*="salvarEdicaoMov"]');
+  if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+  const{error}=await sb.from('fin_movimentacoes').update({
+    descricao:desc, valor, tipo:sheetTipo,
+    data, data_vencimento:$('sh-venc')?.value||null,
+    carteira_id:$('sh-carteira')?.value||null,
+    categoria_id:$('sh-cat')?.value||null,
+    centro_id:$('sh-centro')?.value||null,
+    forma_pagamento:$('sh-forma')?.value||null,
+    observacao:$('sh-obs')?.value||null
+  }).eq('id',mid);
+  if(error){showToast('Erro ao salvar.','err');if(btn){btn.textContent='💾 Salvar';btn.disabled=false;}return;}
+  await loadAll(); renderAll(); closeSheet(); showToast('Movimentação atualizada! ✓');
+}
+
+function pedirRemocaoMov(mid){
+  closeSheet();
+  openConfirm('Remover lançamento?','Esta ação não pode ser desfeita.',async()=>{
+    const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);
+    if(error){showToast('Erro ao remover.','err');}else{await loadAll();renderAll();showToast('Removido.','info');}
+  },'🗑 Remover');
 }
 async function deleteMov(mid){
   const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);
@@ -1245,7 +1319,7 @@ async function salvarCarteira(cid){
 // ════════════════════════════════════════════════
 //  SHEET LANÇAMENTO
 // ════════════════════════════════════════════════
-function openSheet(){ sheetTipo='saida'; sheetStatus='pago'; $('sheet-title').textContent='Novo lançamento'; buildSheetForm(null); openSheetRaw(); }
+function openSheet(){ sheetTipo='saida'; sheetStatus='pago'; sheetEditId=null; $('sheet-title').textContent='Novo lançamento'; buildSheetForm(null); openSheetRaw(); }
 function openSheetRaw(){ $('sheet-overlay').classList.add('open'); $('sheet').classList.add('open'); document.body.style.overflow='hidden'; }
 function closeSheet(){ $('sheet-overlay').classList.remove('open'); $('sheet').classList.remove('open'); document.body.style.overflow=''; }
 

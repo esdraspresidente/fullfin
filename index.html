@@ -499,7 +499,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v2.5 · Naiarha</div>
+        <div class="sb-version">v2.7 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -723,14 +723,14 @@
       <div id="page-dizimo" class="page">
         <div style="margin-bottom:20px">
           <div class="page-title">🙏 Dízimo & Oferta</div>
-          <div class="page-sub">Lucro Real — Base para o dízimo fiel</div>
+          <div class="page-sub">Pró-labore (Casa) — Base para o dízimo fiel</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
           <div class="field" style="flex:1;min-width:140px"><label>Mês de referência</label><input type="month" id="lr-mes" oninput="renderLucroReal()"/></div>
           <button class="btn btn-secondary" style="margin-top:15px" onclick="$('lr-mes').value=mesAtualISO();renderLucroReal()">Mês atual</button>
         </div>
         <div class="lr-big">
-          <div class="lr-label">Lucro Real</div>
+          <div class="lr-label">Pró-labore (Base do Dízimo)</div>
           <div class="lr-value" id="lr-lucro">R$ 0,00</div>
           <div class="lr-detail-grid" id="lr-details"></div>
         </div>
@@ -1024,11 +1024,16 @@ function calcLucroReal(mesISO){
   const custos =movs.filter(m=>m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const lucro=receita-custos;
   const porCentro=centros.map(c=>({
-    nome:c.nome,icone:c.icone,
+    nome:c.nome,icone:c.icone,id:c.id,
     ent:movs.filter(m=>m.centro_id===c.id&&m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0),
     sai:movs.filter(m=>m.centro_id===c.id&&m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0),
   })).map(c=>({...c,saldo:c.ent-c.sai}));
-  return{receita,custos,lucro,dizimo:lucro*0.1,porCentro};
+  // Pró-labore = saídas pagas com centro Casa/Família
+  const centroCasa=centros.find(c=>c.nome?.toLowerCase().includes('casa')||c.nome?.toLowerCase().includes('fam'));
+  const prolabore=centroCasa
+    ? movs.filter(m=>m.centro_id===centroCasa.id&&m.tipo==='saida'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0)
+    : 0;
+  return{receita,custos,lucro,prolabore,centroCasaNome:centroCasa?.nome||'Casa/Família',dizimo:prolabore*0.1,porCentro};
 }
 
 function calcSaldoCarteira(cid){
@@ -1202,6 +1207,7 @@ function abrirConfirmPagamento(mid, tipo){
       ✅ Confirmar ${labelAcao}
     </button>
   `;
+  openSheetRaw();
 }
 
 async function confirmarPagamento(mid){
@@ -1770,13 +1776,21 @@ async function executarImport(){
 function renderLucroReal(){
   const mes=$('lr-mes')?.value||mesAtualISO();
   const lr=calcLucroReal(mes);
-  const[y,m]=mes.split('-');
-  $('lr-lucro').textContent=fmt(lr.lucro);
+  $('lr-lucro').textContent=fmt(lr.prolabore);
   $('lr-dizimo-sug').textContent=fmt(lr.dizimo);
   $('lr-details').innerHTML=`
-    <div class="lr-detail-item"><div class="lr-detail-label">▲ Receitas</div><div class="lr-detail-value">${fmt(lr.receita)}</div></div>
-    <div class="lr-detail-item"><div class="lr-detail-label">▼ Custos</div><div class="lr-detail-value">${fmt(lr.custos)}</div></div>
-    ${lr.porCentro.map(c=>`<div class="lr-detail-item"><div class="lr-detail-label">${c.icone} ${c.nome}</div><div class="lr-detail-value">${fmt(c.saldo)}</div></div>`).join('')}
+    <div class="lr-detail-item" style="border-bottom:1px solid rgba(255,255,255,.15);padding-bottom:8px;margin-bottom:8px">
+      <div class="lr-detail-label">▲ Receitas totais</div><div class="lr-detail-value">${fmt(lr.receita)}</div>
+    </div>
+    <div class="lr-detail-item">
+      <div class="lr-detail-label">▼ Custos totais</div><div class="lr-detail-value">${fmt(lr.custos)}</div>
+    </div>
+    ${lr.porCentro.map(c=>`<div class="lr-detail-item" style="padding-left:12px"><div class="lr-detail-label" style="font-size:10px">${c.icone} ${c.nome}</div><div class="lr-detail-value" style="font-size:11px">${fmt(c.sai)}</div></div>`).join('')}
+    <div class="lr-detail-item" style="border-top:1px solid rgba(255,255,255,.15);margin-top:8px;padding-top:8px">
+      <div class="lr-detail-label" style="color:#FDE68A;font-weight:700">🏠 Pró-labore (${lr.centroCasaNome})</div>
+      <div class="lr-detail-value" style="color:#FDE68A;font-weight:800">${fmt(lr.prolabore)}</div>
+    </div>
+    <div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:6px;text-align:center">Base do dízimo = saídas pagas com centro ${lr.centroCasaNome}</div>
   `;
 }
 async function salvarDizimo(){
@@ -1787,7 +1801,7 @@ async function salvarDizimo(){
   if(!dizimoPago&&!ofertaPaga){showToast('Informe pelo menos um valor.','err');return;}
   const{error}=await sb.from('fin_dizimos').insert([{
     data:new Date().toISOString().split('T')[0], periodo_referencia:mes,
-    receita_bruta:lr.receita, total_custos:lr.custos, lucro_real:lr.lucro,
+    receita_bruta:lr.receita, total_custos:lr.custos, lucro_real:lr.prolabore,
     percentual_dizimo:10, valor_dizimo_sugerido:lr.dizimo,
     valor_dizimo_pago:dizimoPago, valor_oferta_pago:ofertaPaga,
     observacao:$('lr-obs')?.value||null

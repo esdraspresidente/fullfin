@@ -1313,7 +1313,7 @@ function pedirRemocaoMov(mid){
   setTimeout(()=>{
     openConfirm('Remover lançamento?','Esta ação não pode ser desfeita.',async()=>{
       const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);
-      if(error){showToast('Erro ao remover.','err');}
+      if(error){showToast('Erro: '+(error.message||error.code||JSON.stringify(error)),'err');}
       else{await loadAll();renderAll();showToast('Removido.','info');}
     },'🗑 Remover');
   },300);
@@ -2330,7 +2330,7 @@ async function uploadComprovante(file, nomeBase){
 async function removerConfirmacao(cid){
   openConfirm('Remover este apontamento?','O valor será descontado do progresso da dívida.',async()=>{
     const{error}=await sb.from('fin_divida_confirmacoes').delete().eq('id',cid);
-    if(error){showToast('Erro ao remover.','err');}
+    if(error){showToast('Erro: '+(error.message||error.code||JSON.stringify(error)),'err');}
     else{await loadAll();renderDividas();showToast('Apontamento removido.','info');}
   },'🗑 Remover');
 }

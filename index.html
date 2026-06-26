@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.4 · Naiarha</div>
+        <div class="sb-version">v3.5 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -535,6 +535,7 @@
     <button class="nav-item" id="nav-veiculos" onclick="goPage('veiculos')"><span class="nav-icon">🚗</span> Veículos</button>
     <button class="nav-item" id="nav-recorrentes" onclick="goPage('recorrentes')"><span class="nav-icon">🔄</span> Custos Fixos</button>
     <button class="nav-item" id="nav-dizimo" onclick="goPage('dizimo')"><span class="nav-icon">🙏</span> Dízimo & Oferta</button>
+    <button class="nav-item" id="nav-config" onclick="goPage('config')"><span class="nav-icon">⚙️</span> Configurações</button>
     <div class="sb-footer">
       <div class="sb-user">
         <div class="sb-avatar" id="sb-avatar">?</div>
@@ -768,10 +769,35 @@
         <div class="card pad" id="dizimo-historico"></div>
       </div>
 
+      <!-- ══ CONFIGURAÇÕES ══ -->
+      <div id="page-config" class="page">
+        <div style="margin-bottom:22px">
+          <div class="page-title">⚙️ Configurações</div>
+          <div class="page-sub">Centros de custo e categorias</div>
+        </div>
+
+        <!-- Centros de custo -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="section-label" style="margin:0">🏷️ Centros de custo</div>
+          <button class="btn btn-primary" style="padding:6px 14px;font-size:12px" onclick="openSheetCentro()">+ Novo</button>
+        </div>
+        <div id="config-centros" style="margin-bottom:24px"></div>
+
+        <!-- Categorias -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div class="section-label" style="margin:0">📌 Categorias</div>
+          <button class="btn btn-primary" style="padding:6px 14px;font-size:12px" onclick="openSheetCategoria()">+ Nova</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:12px" id="config-cat-filtros">
+          <button class="fpill active" id="cfg-cat-todos"   onclick="setCatFiltro('todos')"  >Todas</button>
+          <button class="fpill"        id="cfg-cat-saida"   onclick="setCatFiltro('saida')"  >▼ Saída</button>
+          <button class="fpill"        id="cfg-cat-entrada" onclick="setCatFiltro('entrada')">▲ Entrada</button>
+        </div>
+        <div id="config-cats"></div>
+      </div>
+
     </div>
   </div>
-
-  <!-- MOBILE BOTTOM NAV -->
   <nav id="bottom-nav">
     <button class="bnav-item active" id="bnav-home" onclick="goPage('home')"><span class="bnav-icon">🏠</span><span class="bnav-label">Início</span></button>
     <button class="bnav-item" id="bnav-lancamentos" onclick="goPage('lancamentos')"><span class="bnav-icon">💸</span><span class="bnav-label">Lançamentos</span></button>
@@ -988,6 +1014,7 @@ function goPage(page){
   if(page==='veiculos') renderVeiculos();
   if(page==='recorrentes') renderRecorrentes();
   if(page==='dizimo'){$('lr-mes').value=mesAtualISO();renderLucroReal();renderDizimoHistorico();}
+  if(page==='config') renderConfig();
 }
 
 function atualizaMesLabels(){
@@ -3204,6 +3231,169 @@ function fecharShareModal() {
   $('share-modal')?.classList.remove('open');
   sharedFileObj=null; shareMovSelecionado=null; shareTab='existente'; shareNlTipoAtual='saida';
 }
+// ════════════════════════════════════════════════
+//  CONFIGURAÇÕES — Centros de custo & Categorias
+// ════════════════════════════════════════════════
+let cfgCatFiltro = 'todos';
+
+function setCatFiltro(f) {
+  cfgCatFiltro = f;
+  ['todos','saida','entrada'].forEach(x => {
+    const el = $('cfg-cat-'+x);
+    if (el) el.classList.toggle('active', x === f);
+  });
+  renderConfigCats();
+}
+
+function renderConfig() {
+  renderConfigCentros();
+  renderConfigCats();
+}
+
+function renderConfigCentros() {
+  const el = $('config-centros'); if (!el) return;
+  if (!centros.length) {
+    el.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">🏷️</div><div class="empty-title">Nenhum centro cadastrado</div><div class="empty-sub">Adicione Captur, Moto ou qualquer outro</div></div>`;
+    return;
+  }
+  el.innerHTML = centros.map(c => `
+    <div class="card pad-sm" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:10px;background:var(--accent-bg);display:flex;align-items:center;justify-content:center;font-size:18px">${c.icone||'🏷️'}</div>
+        <div style="font-size:14px;font-weight:700;color:var(--text)">${c.nome}</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="openSheetCentro('${c.id}')">✏️</button>
+        <button class="btn btn-danger"    style="padding:5px 10px;font-size:12px" onclick="deleteCentro('${c.id}')">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+function renderConfigCats() {
+  const el = $('config-cats'); if (!el) return;
+  const lista = cfgCatFiltro === 'todos'
+    ? categorias
+    : categorias.filter(c => c.tipo === cfgCatFiltro || c.tipo === 'ambos');
+  if (!lista.length) {
+    el.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">📌</div><div class="empty-title">Nenhuma categoria</div></div>`;
+    return;
+  }
+  const corTipo = { entrada:'var(--accent-bg)', saida:'#FEE2E2', ambos:'var(--blue-bg)' };
+  const txtTipo = { entrada:'Entrada', saida:'Saída', ambos:'Ambos' };
+  el.innerHTML = lista.map(c => `
+    <div class="card pad-sm" style="margin-bottom:8px;display:flex;align-items:center;gap:12px;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="width:36px;height:36px;border-radius:10px;background:${corTipo[c.tipo]||'var(--gray-bg)'};display:flex;align-items:center;justify-content:center;font-size:18px">${c.icone||'📌'}</div>
+        <div>
+          <div style="font-size:14px;font-weight:700;color:var(--text)">${c.nome}</div>
+          <div style="font-size:10px;color:var(--gray);font-weight:600;text-transform:uppercase;letter-spacing:.4px">${txtTipo[c.tipo]||c.tipo}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary" style="padding:5px 10px;font-size:12px" onclick="openSheetCategoria('${c.id}')">✏️</button>
+        <button class="btn btn-danger"    style="padding:5px 10px;font-size:12px" onclick="deleteCategoria('${c.id}')">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+// ── Centros ──
+function openSheetCentro(cid) {
+  const c = cid ? centros.find(x => x.id === cid) : null;
+  $('sheet-title').textContent = c ? 'Editar Centro' : 'Novo Centro de Custo';
+  $('sheet-body').innerHTML = `
+    <div class="form-mb field"><label>Nome *</label>
+      <input type="text" id="cfg-c-nome" placeholder="Ex: Captur, Moto, NAIARHA ADV…" value="${c?.nome||''}"/>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Ícone (emoji)</label>
+        <input type="text" id="cfg-c-icone" placeholder="🚗" maxlength="2" value="${c?.icone||''}"/>
+      </div>
+      <div class="field"><label>Cor</label>
+        <input type="color" id="cfg-c-cor" value="${c?.cor||'#D1FAE5'}"/>
+      </div>
+    </div>
+    <button class="salvar-btn entrada" style="margin-top:16px" onclick="salvarCentro('${cid||''}')">
+      ${c ? 'Salvar alterações' : 'Criar centro'}
+    </button>
+    ${c ? `<button onclick="deleteCentro('${c.id}')" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;background:#FEE2E2;color:#DC2626;border:none;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">🗑 Remover</button>` : ''}
+  `;
+  openSheetRaw();
+}
+
+async function salvarCentro(cid) {
+  const nome = $('cfg-c-nome')?.value.trim();
+  if (!nome) { showToast('Informe o nome.','err'); return; }
+  const payload = { nome, icone: $('cfg-c-icone').value || '🏷️', cor: $('cfg-c-cor').value || '#D1FAE5' };
+  let error;
+  if (cid) { ({error} = await sb.from('fin_centros').update(payload).eq('id', cid)); }
+  else     { ({error} = await sb.from('fin_centros').insert([payload])); }
+  if (error) { showToast('Erro ao salvar.','err'); return; }
+  await loadAll(); renderConfig(); closeSheet();
+  showToast(cid ? 'Centro atualizado!' : 'Centro criado!');
+}
+
+async function deleteCentro(cid) {
+  closeSheet();
+  setTimeout(() => {
+    openConfirm('Remover centro de custo?', 'Lançamentos vinculados ficam sem centro mas não são removidos.', async () => {
+      const {error} = await sb.from('fin_centros').delete().eq('id', cid);
+      if (error) { showToast('Erro ao remover.','err'); return; }
+      await loadAll(); renderConfig(); showToast('Removido.','info');
+    }, 'Remover');
+  }, 300);
+}
+
+// ── Categorias ──
+function openSheetCategoria(catId) {
+  const c = catId ? categorias.find(x => x.id === catId) : null;
+  $('sheet-title').textContent = c ? 'Editar Categoria' : 'Nova Categoria';
+  $('sheet-body').innerHTML = `
+    <div class="form-mb field"><label>Nome *</label>
+      <input type="text" id="cfg-cat-nome" placeholder="Ex: Combustível, Manutenção…" value="${c?.nome||''}"/>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Ícone (emoji)</label>
+        <input type="text" id="cfg-cat-icone" placeholder="⛽" maxlength="2" value="${c?.icone||''}"/>
+      </div>
+      <div class="field"><label>Tipo *</label>
+        <select id="cfg-cat-tipo">
+          <option value="saida"  ${c?.tipo==='saida'  ?'selected':''}>▼ Saída</option>
+          <option value="entrada"${c?.tipo==='entrada'?'selected':''}>▲ Entrada</option>
+          <option value="ambos"  ${c?.tipo==='ambos'  ?'selected':''}>⇄ Ambos</option>
+        </select>
+      </div>
+    </div>
+    <button class="salvar-btn entrada" style="margin-top:16px" onclick="salvarCategoria('${catId||''}')">
+      ${c ? 'Salvar alterações' : 'Criar categoria'}
+    </button>
+    ${c ? `<button onclick="deleteCategoria('${c.id}')" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;background:#FEE2E2;color:#DC2626;border:none;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">🗑 Remover</button>` : ''}
+  `;
+  openSheetRaw();
+}
+
+async function salvarCategoria(catId) {
+  const nome = $('cfg-cat-nome')?.value.trim();
+  if (!nome) { showToast('Informe o nome.','err'); return; }
+  const payload = { nome, icone: $('cfg-cat-icone').value || '📌', tipo: $('cfg-cat-tipo').value };
+  let error;
+  if (catId) { ({error} = await sb.from('fin_categorias').update(payload).eq('id', catId)); }
+  else       { ({error} = await sb.from('fin_categorias').insert([payload])); }
+  if (error) { showToast('Erro ao salvar.','err'); return; }
+  await loadAll(); renderConfig(); closeSheet();
+  showToast(catId ? 'Categoria atualizada!' : 'Categoria criada!');
+}
+
+async function deleteCategoria(catId) {
+  closeSheet();
+  setTimeout(() => {
+    openConfirm('Remover categoria?', 'Lançamentos vinculados ficam sem categoria mas não são removidos.', async () => {
+      const {error} = await sb.from('fin_categorias').delete().eq('id', catId);
+      if (error) { showToast('Erro ao remover.','err'); return; }
+      await loadAll(); renderConfig(); showToast('Removida.','info');
+    }, 'Remover');
+  }, 300);
+}
+
 // ════════════════════════════════════════════════
 //  LISTENERS
 // ════════════════════════════════════════════════

@@ -319,14 +319,26 @@
     .form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
     .form-mb{margin-bottom:10px;}
 
-    /* ── BOTTOM SHEET ── */
+    /* ── MODAL DE LANÇAMENTO (antes bottom sheet) ── */
     #sheet-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:500;display:none;}
     #sheet-overlay.open{display:block;}
-    #sheet{position:fixed;bottom:0;left:0;right:0;z-index:501;background:#fff;border-radius:22px 22px 0 0;max-height:93vh;overflow-y:auto;transform:translateY(100%);transition:transform .3s cubic-bezier(.4,0,.2,1);-webkit-overflow-scrolling:touch;}
-    #sheet.open{transform:translateY(0);}
-    .sheet-handle{width:36px;height:4px;border-radius:2px;background:#E5E7EB;margin:10px auto 0;}
-    .sheet-title{font-size:16px;font-weight:800;color:var(--text);text-align:center;padding:14px 16px 0;}
-    .sheet-body{padding:16px;}
+    #sheet{
+      position:fixed;top:50%;left:50%;z-index:501;
+      background:#fff;border-radius:20px;
+      max-height:92vh;overflow-y:auto;
+      width:calc(100% - 32px);max-width:520px;
+      transform:translate(-50%,-50%) scale(.96);
+      opacity:0;pointer-events:none;
+      transition:transform .25s cubic-bezier(.34,1.2,.64,1),opacity .18s;
+      box-shadow:0 20px 60px rgba(0,0,0,.22);
+      -webkit-overflow-scrolling:touch;
+    }
+    #sheet.open{transform:translate(-50%,-50%) scale(1);opacity:1;pointer-events:auto;}
+    .sheet-handle{display:none;}
+    .sheet-header{display:flex;justify-content:space-between;align-items:center;padding:18px 20px 0;}
+    .sheet-title{font-size:16px;font-weight:800;color:var(--text);}
+    .sheet-close-btn{background:none;border:none;font-size:22px;color:var(--gray);cursor:pointer;line-height:1;padding:0 0 0 10px;font-family:inherit;}
+    .sheet-body{padding:14px 20px 22px;}
     .tipo-btns{display:flex;gap:6px;margin-bottom:14px;}
     .tipo-btn{flex:1;padding:10px 4px;border-radius:12px;border:2px solid var(--border);background:#fff;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;text-align:center;transition:all .12s;color:var(--gray);}
     .tipo-btn.entrada.active{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);}
@@ -385,7 +397,7 @@
     .parcela-num{font-size:11px;font-weight:700;color:var(--gray);min-width:20px;}
     .parcela-edit-input{flex:1;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;color:var(--text);}
     .parcela-date-input{width:130px;border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;font-family:inherit;color:var(--text);}
-    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:flex-end;justify-content:center;}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px;}
     .modal-overlay.hidden{display:none!important;}
 
     /* ── RELATÓRIO ── */
@@ -418,9 +430,9 @@
     .dizimo-hist-item:last-child{border-bottom:none;}
 
     /* ── MODAL CONFIRM ── */
-    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:flex-end;justify-content:center;}
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px;}
     .modal-overlay.hidden{display:none;}
-    .modal-box{background:#fff;border-radius:22px 22px 0 0;padding:22px 20px;width:100%;max-width:480px;padding-bottom:calc(20px + env(safe-area-inset-bottom,0));}
+    .modal-box{background:#fff;border-radius:20px;padding:22px 20px;width:100%;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,.2);max-height:90vh;overflow-y:auto;}
     .modal-title{font-size:15px;font-weight:800;color:var(--text);margin-bottom:5px;}
     .modal-sub{font-size:13px;color:var(--gray);margin-bottom:18px;}
     .modal-btns{display:flex;gap:8px;}
@@ -499,7 +511,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.2 · Naiarha</div>
+        <div class="sb-version">v3.3 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -691,12 +703,9 @@
       <!-- ══ RECORRENTES ══ -->
       <div id="page-recorrentes" class="page">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
-          <div><div class="page-title">🔄 Custos Fixos</div><div class="page-sub">Despesas que se repetem todo mês</div></div>
+          <div><div class="page-title">🔄 Custos Fixos</div><div class="page-sub">Despesas recorrentes — geradas automaticamente ao cadastrar</div></div>
           <button class="btn btn-primary" onclick="openSheetRecorrente()">+ Novo</button>
         </div>
-        <button id="btn-gerar-mes" onclick="gerarLancamentosDoMes()" style="width:100%;padding:14px;border-radius:12px;background:linear-gradient(135deg,#10B981,#064E3B);color:#fff;border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:16px">
-          ⚡ Gerar lançamentos pendentes de <span id="rec-mes-label">...</span>
-        </button>
         <div id="rec-filtros" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
         <div id="recorrentes-lista"></div>
       </div>
@@ -817,8 +826,10 @@
   </div>
 </div>
 <div id="sheet">
-  <div class="sheet-handle"></div>
-  <div class="sheet-title" id="sheet-title">Novo lançamento</div>
+  <div class="sheet-header">
+    <div class="sheet-title" id="sheet-title">Novo lançamento</div>
+    <button class="sheet-close-btn" onclick="closeSheet()">×</button>
+  </div>
   <div class="sheet-body" id="sheet-body"></div>
 </div>
 <div id="confirm-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeConfirm()">
@@ -1531,6 +1542,24 @@ function buildSheetForm(preCartaoId){
     </div>
     <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="number" id="sh-valor" placeholder="0,00" step="0.01" inputmode="decimal"/></div>
     <div class="form-mb field"><label>Descrição *</label><input type="text" id="sh-desc" placeholder="Ex: Conta de luz…"/></div>
+
+    <div class="form-grid-2" style="margin-bottom:10px">
+      <div class="field">
+        <label>Recorrência</label>
+        <select id="sh-recorrente" onchange="shToggleRecorrente()">
+          <option value="">Não recorrente</option>
+          <option value="mensal">🔄 Mensal</option>
+          <option value="trimestral">🔄 Trimestral</option>
+          <option value="semestral">🔄 Semestral</option>
+          <option value="anual">🔄 Anual</option>
+        </select>
+      </div>
+      <div class="field" id="sh-rep-wrap" style="display:none">
+        <label>Repetições</label>
+        <input type="number" id="sh-repeticoes" placeholder="Ex: 12" min="2" max="360"/>
+      </div>
+    </div>
+
     <div class="form-mb field"><label>Categoria</label><select id="sh-cat"><option value="">Sem categoria</option>${catOpts}</select></div>
     <div class="form-grid-2">
       <div class="field"><label>Forma de pagamento</label>
@@ -1551,10 +1580,10 @@ function buildSheetForm(preCartaoId){
       <select id="sh-cartao"><option value="">Não — débito direto</option>${ctOpts}</select>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
-      <div class="field"><label>Data *</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/></div>
+      <div class="field"><label id="sh-data-label">Data *</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/></div>
       <div class="field"><label>Centro de custo</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+    <div id="sh-parc-bloco" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
       <input type="checkbox" id="sh-parc-chk" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer" onchange="toggleParcelas()"/>
       <label for="sh-parc-chk" style="font-size:13px;font-weight:600;color:var(--text);cursor:pointer">Parcelado</label>
       <div id="sh-parc-wrap" style="display:none">
@@ -1576,33 +1605,68 @@ function setSheetTipo(t){sheetTipo=t;buildSheetForm();}
 function setSheetStatus(s){sheetStatus=s;buildSheetForm();}
 function toggleParcelas(){const c=$('sh-parc-chk'); if($('sh-parc-wrap')) $('sh-parc-wrap').style.display=c?.checked?'block':'none';}
 
+function shToggleRecorrente(){
+  const rec=$('sh-recorrente')?.value;
+  const repWrap=$('sh-rep-wrap');
+  const parcBloco=$('sh-parc-bloco');
+  const dataLabel=$('sh-data-label');
+  if(repWrap) repWrap.style.display=rec?'block':'none';
+  if(parcBloco) parcBloco.style.display=rec?'none':'flex';
+  if(dataLabel) dataLabel.textContent=rec?'Data do 1º pagamento *':'Data *';
+}
+
 async function salvarLancamento(){
   const valor=parseFloat($('sh-valor')?.value), desc=$('sh-desc')?.value.trim(), data=$('sh-data')?.value;
   if(!valor||isNaN(valor)){showToast('Informe o valor.','err');return;}
   if(!desc){showToast('Informe a descrição.','err');return;}
   if(!data){showToast('Informe a data.','err');return;}
-  const parChk=$('sh-parc-chk')?.checked, nParc=parChk?parseInt($('sh-nparc')?.value)||1:1;
-  const grupoId=parChk&&nParc>1?crypto.randomUUID():null;
+
+  const recorrente=$('sh-recorrente')?.value; // 'mensal','trimestral','semestral','anual' ou ''
+  const intervalMap={mensal:1,trimestral:3,semestral:6,anual:12};
+  const intervalo=intervalMap[recorrente]||1;
+
+  const parChk=$('sh-parc-chk')?.checked && !recorrente;
+  const nParc=recorrente
+    ?(parseInt($('sh-repeticoes')?.value)||1)
+    :(parChk?(parseInt($('sh-nparc')?.value)||1):1);
+
+  const grupoId=(nParc>1)?crypto.randomUUID():null;
   const btn=document.querySelector('.salvar-btn'); if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+
+  // Se recorrente, salva em fin_recorrentes para aparecer em Custos Fixos
+  if(recorrente){
+    const diaVenc=new Date(data+'T12:00:00').getDate();
+    await sb.from('fin_recorrentes').insert([{
+      descricao:desc, valor, tipo:sheetTipo||'saida',
+      dia_vencimento:diaVenc,
+      categoria_id:$('sh-cat')?.value||null,
+      centro_id:$('sh-centro')?.value||null,
+      carteira_id:$('sh-carteira')?.value||null,
+      forma_pagamento:$('sh-forma')?.value||null,
+      ativo:true
+    }]);
+  }
+
   let erros=0;
-  for(let i=1;i<=nParc;i++){
-    const dt=new Date(data+'T12:00:00'); dt.setMonth(dt.getMonth()+(i-1));
+  for(let i=0;i<nParc;i++){
+    const dt=new Date(data+'T12:00:00');
+    dt.setMonth(dt.getMonth()+(i*(recorrente?intervalo:1)));
     const{error}=await sb.from('fin_movimentacoes').insert([{
       descricao:desc, valor, tipo:sheetTipo, data:dt.toISOString().split('T')[0],
-      data_vencimento:null, status:nParc===1?sheetStatus:(i===1?sheetStatus:'agendado'),
+      data_vencimento:null, status:nParc===1?sheetStatus:(i===0?sheetStatus:'pendente'),
       carteira_id:$('sh-carteira')?.value||null, cartao_id:$('sh-cartao')?.value||null,
       categoria_id:$('sh-cat')?.value||null,
       centro_id:$('sh-centro')?.value||null,
       forma_pagamento:$('sh-forma')?.value||null,
-      centro_id:$('sh-centro')?.value||null,
-      parcela_atual:nParc>1?i:null, total_parcelas:nParc>1?nParc:null, grupo_parcelas:grupoId,
-      observacao:$('sh-obs')?.value||null, origem:'manual'
+      parcela_atual:nParc>1?i+1:null, total_parcelas:nParc>1?nParc:null, grupo_parcelas:grupoId,
+      observacao:$('sh-obs')?.value||null, origem:recorrente?'recorrente':'manual'
     }]);
     if(error) erros++;
   }
   if(erros){showToast('Erro ao salvar.','err');}else{
     await loadAll(); renderAll(); closeSheet();
-    showToast(nParc>1?`${nParc} parcelas criadas! ✓`:'Lançamento salvo! ✓');
+    if(recorrente) showToast(`✅ ${nParc} lançamento(s) gerado(s) + adicionado em Custos Fixos!`);
+    else showToast(nParc>1?`${nParc} parcelas criadas! ✓`:'Lançamento salvo! ✓');
   }
 }
 
@@ -2515,8 +2579,6 @@ function setRecFiltro(f){
 
 function renderRecorrentes(){
   const mesISO=isoMes(mesAtual);
-  const[y,m]=mesISO.split('-');
-  if($('rec-mes-label')) $('rec-mes-label').textContent=MESES[parseInt(m)-1]+' '+y;
   const el=$('recorrentes-lista'); if(!el) return;
   const ativos=recorrentes.filter(r=>r.ativo!==false);
 

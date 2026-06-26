@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.6 · Naiarha</div>
+        <div class="sb-version">v3.7 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1310,10 +1310,13 @@ async function salvarEdicaoMov(mid){
 
 function pedirRemocaoMov(mid){
   closeSheet();
-  openConfirm('Remover lançamento?','Esta ação não pode ser desfeita.',async()=>{
-    const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);
-    if(error){showToast('Erro ao remover.','err');}else{await loadAll();renderAll();showToast('Removido.','info');}
-  },'🗑 Remover');
+  setTimeout(()=>{
+    openConfirm('Remover lançamento?','Esta ação não pode ser desfeita.',async()=>{
+      const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);
+      if(error){showToast('Erro ao remover.','err');}
+      else{await loadAll();renderAll();showToast('Removido.','info');}
+    },'🗑 Remover');
+  },300);
 }
 async function deleteMov(mid){
   const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);
@@ -2036,12 +2039,15 @@ function renderDividas(){
         const statusText = {pendente:'#92400E',confirmado:'#065F46',contestado:'#991B1B'};
         return `<div style="margin-bottom:12px">
           <div style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">📬 Histórico de confirmações</div>
-          ${confs.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:${statusCor[c.status]};margin-bottom:4px">
-            <div>
+          ${confs.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:${statusCor[c.status]};margin-bottom:4px;gap:8px">
+            <div style="flex:1;min-width:0">
               <div style="font-size:12px;font-weight:700;color:${statusText[c.status]}">${statusIcon[c.status]} ${fmt(c.valor_pago)} pago em ${fmtDate(c.data_pagamento)}</div>
               <div style="font-size:10px;color:${statusText[c.status]};opacity:.8">Novo saldo: ${fmt(c.saldo_novo)}${c.data_resposta?' · Respondido em '+fmtDate(c.data_resposta.split('T')[0]):''}</div>
             </div>
-            <span style="font-size:10px;font-weight:700;color:${statusText[c.status]};white-space:nowrap">${c.status.toUpperCase()}</span>
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+              <span style="font-size:10px;font-weight:700;color:${statusText[c.status]}">${c.status.toUpperCase()}</span>
+              <button onclick="removerConfirmacao('${c.id}')" title="Remover este apontamento" style="background:rgba(0,0,0,.08);border:none;border-radius:6px;padding:3px 7px;cursor:pointer;font-size:13px;line-height:1">🗑</button>
+            </div>
           </div>`).join('')}
         </div>`;
       })() : ''}
@@ -2321,8 +2327,15 @@ async function uploadComprovante(file, nomeBase){
   }catch(e){return null;}
 }
 
+async function removerConfirmacao(cid){
+  openConfirm('Remover este apontamento?','O valor será descontado do progresso da dívida.',async()=>{
+    const{error}=await sb.from('fin_divida_confirmacoes').delete().eq('id',cid);
+    if(error){showToast('Erro ao remover.','err');}
+    else{await loadAll();renderDividas();showToast('Apontamento removido.','info');}
+  },'🗑 Remover');
+}
+
 function dpagCalcEconomia(did){
-  const d=dividas.find(x=>x.id===did); if(!d) return;
   const pago=parseFloat($('dpag-valor')?.value)||0;
   const original=parseFloat(d.valor_parcela)||0;
   const economia=original-pago;

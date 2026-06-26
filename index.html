@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.7 · Naiarha</div>
+        <div class="sb-version">v3.8 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -918,9 +918,14 @@ function openConfirm(title, sub, onOk, okLabel='Confirmar') {
   confirmCallback=onOk;
   $('confirm-btns').innerHTML=`
     <button class="btn btn-secondary" style="flex:1" onclick="closeConfirm()">Cancelar</button>
-    <button class="btn btn-danger" style="flex:1" onclick="if(confirmCallback){closeConfirm();confirmCallback();}">${okLabel}</button>
+    <button class="btn btn-danger" style="flex:1" onclick="execConfirm()">${okLabel}</button>
   `;
   $('confirm-modal').classList.remove('hidden');
+}
+function execConfirm(){
+  const cb=confirmCallback;
+  closeConfirm();
+  if(cb) cb();
 }
 function closeConfirm(){$('confirm-modal').classList.add('hidden');confirmCallback=null;}
 
@@ -1055,10 +1060,13 @@ function setRelCentro(id){relCentro=id;renderCentroPills();renderRelatorio();}
 // Filtra registros fantasma [ANTIGO] de todos os cálculos e exibições
 const movsVisiveis = () => movimentacoes.filter(m => m.descricao !== '[ANTIGO]' && m.origem !== 'ignorado');
 
+// Mês de referência de um lançamento: pago→data pagamento; pendente→vencimento
+const mesRefMov = m => (m.status==='pago' ? (m.data||m.data_vencimento||'') : (m.data_vencimento||m.data||''));
+
 function calcMes(){
   const mesISO=isoMes(mesAtual);
   const movs=movsVisiveis();
-  const fl=m=>(centroAtual==='GERAL'||m.centro_id===centroAtual)&&(m.data||'').startsWith(mesISO);
+  const fl=m=>(centroAtual==='GERAL'||m.centro_id===centroAtual)&&mesRefMov(m).startsWith(mesISO);
   const movsFil=movs.filter(fl);
   const ent=movsFil.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
@@ -1068,7 +1076,7 @@ function calcMes(){
 }
 
 function calcLucroReal(mesISO){
-  const movs=movsVisiveis().filter(m=>(m.data||'').startsWith(mesISO));
+  const movs=movsVisiveis().filter(m=>mesRefMov(m).startsWith(mesISO));
   const receita=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const custos =movs.filter(m=>m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const lucro=receita-custos;
@@ -1289,15 +1297,16 @@ async function confirmarPagamento(mid){
 async function salvarEdicaoMov(mid){
   const valor=parseFloat($('sh-valor')?.value);
   const desc=($('sh-desc')?.value||'').trim();
-  const data=$('sh-data')?.value;
+  const data=$('sh-data')?.value||null;
+  const venc=$('sh-venc')?.value||null;
   if(!valor||isNaN(valor)){showToast('Informe o valor.','err');return;}
   if(!desc){showToast('Informe a descrição.','err');return;}
-  if(!data){showToast('Informe a data.','err');return;}
+  if(!data&&!venc){showToast('Informe ao menos a data de vencimento.','err');return;}
   const btn=document.querySelector('.salvar-btn')||document.querySelector('[onclick*="salvarEdicaoMov"]');
   if(btn){btn.textContent='Salvando…';btn.disabled=true;}
   const{error}=await sb.from('fin_movimentacoes').update({
     descricao:desc, valor, tipo:sheetTipo,
-    data, data_vencimento:$('sh-venc')?.value||null,
+    data, data_vencimento:venc,
     carteira_id:$('sh-carteira')?.value||null,
     categoria_id:$('sh-cat')?.value||null,
     centro_id:$('sh-centro')?.value||null,
@@ -1329,7 +1338,16 @@ async function deleteMov(mid){
 // ════════════════════════════════════════════════
 function renderLancamentos(){
   const mesISO=isoMes(mesAtual);
-  let base=movsVisiveis().filter(m=>(m.data||'').startsWith(mesISO)||(m.data_vencimento||'').startsWith(mesISO));
+  // Regra de exibição por mês:
+  //  - PAGO: aparece no mês da data de pagamento
+  //  - PENDENTE/AGENDADO: aparece no mês do vencimento
+  const noMes=m=>{
+    const ref = (m.status==='pago')
+      ? (m.data || m.data_vencimento || '')
+      : (m.data_vencimento || m.data || '');
+    return ref.startsWith(mesISO);
+  };
+  let base=movsVisiveis().filter(noMes);
 
   // Totais para as abas
   const todas=base;
@@ -1619,8 +1637,11 @@ function buildSheetForm(preCartaoId){
       <select id="sh-cartao"><option value="">Não — débito direto</option>${ctOpts}</select>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
-      <div class="field"><label id="sh-data-label">Data *</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/></div>
+      <div class="field"><label id="sh-data-label">📅 Vencimento *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
       <div class="field"><label>Centro de custo</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
+    </div>
+    <div class="field form-mb" id="sh-data-pag-wrap" style="display:${sheetStatus==='pago'?'block':'none'}">
+      <label>✅ Data do pagamento</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/>
     </div>
     <div id="sh-parc-bloco" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
       <input type="checkbox" id="sh-parc-chk" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer" onchange="toggleParcelas()"/>
@@ -1641,7 +1662,18 @@ function buildSheetForm(preCartaoId){
   setTimeout(()=>$('sh-valor')?.focus(),100);
 }
 function setSheetTipo(t){sheetTipo=t;buildSheetForm();}
-function setSheetStatus(s){sheetStatus=s;buildSheetForm();}
+function setSheetStatus(s){
+  sheetStatus=s;
+  // Atualiza visual dos botões sem reconstruir o form (preserva dados digitados)
+  document.querySelectorAll('.status-btns .status-btn').forEach(b=>b.classList.remove('active','pago','pendente','agendado'));
+  const map={pago:0,pendente:1,agendado:2};
+  const btns=document.querySelectorAll('.status-btns .status-btn');
+  const idx=map[s];
+  if(btns[idx]){ btns[idx].classList.add('active',s); }
+  // Mostra/esconde campo de data de pagamento
+  const wrap=$('sh-data-pag-wrap');
+  if(wrap) wrap.style.display = (s==='pago') ? 'block' : 'none';
+}
 function toggleParcelas(){const c=$('sh-parc-chk'); if($('sh-parc-wrap')) $('sh-parc-wrap').style.display=c?.checked?'block':'none';}
 
 function shToggleRecorrente(){
@@ -1651,14 +1683,16 @@ function shToggleRecorrente(){
   const dataLabel=$('sh-data-label');
   if(repWrap) repWrap.style.display=rec?'block':'none';
   if(parcBloco) parcBloco.style.display=rec?'none':'flex';
-  if(dataLabel) dataLabel.textContent=rec?'Data do 1º pagamento *':'Data *';
+  if(dataLabel) dataLabel.textContent=rec?'📅 1º vencimento *':'📅 Vencimento *';
 }
 
 async function salvarLancamento(){
-  const valor=parseFloat($('sh-valor')?.value), desc=$('sh-desc')?.value.trim(), data=$('sh-data')?.value;
+  const valor=parseFloat($('sh-valor')?.value), desc=$('sh-desc')?.value.trim();
+  const venc=$('sh-venc')?.value;
+  const dataPag=(sheetStatus==='pago')?($('sh-data')?.value||venc):null;
   if(!valor||isNaN(valor)){showToast('Informe o valor.','err');return;}
   if(!desc){showToast('Informe a descrição.','err');return;}
-  if(!data){showToast('Informe a data.','err');return;}
+  if(!venc){showToast('Informe a data de vencimento.','err');return;}
 
   const recorrente=$('sh-recorrente')?.value; // 'mensal','trimestral','semestral','anual' ou ''
   const intervalMap={mensal:1,trimestral:3,semestral:6,anual:12};
@@ -1674,7 +1708,7 @@ async function salvarLancamento(){
 
   // Se recorrente, salva em fin_recorrentes para aparecer em Custos Fixos
   if(recorrente){
-    const diaVenc=new Date(data+'T12:00:00').getDate();
+    const diaVenc=new Date(venc+'T12:00:00').getDate();
     await sb.from('fin_recorrentes').insert([{
       descricao:desc, valor, tipo:sheetTipo||'saida',
       dia_vencimento:diaVenc,
@@ -1688,11 +1722,22 @@ async function salvarLancamento(){
 
   let erros=0;
   for(let i=0;i<nParc;i++){
-    const dt=new Date(data+'T12:00:00');
-    dt.setMonth(dt.getMonth()+(i*(recorrente?intervalo:1)));
+    const dtVenc=new Date(venc+'T12:00:00');
+    dtVenc.setMonth(dtVenc.getMonth()+(i*(recorrente?intervalo:1)));
+    const vencISO=dtVenc.toISOString().split('T')[0];
+    // Status: primeira parcela mantém o escolhido; demais sempre pendentes
+    const statusParc = nParc===1 ? sheetStatus : (i===0 ? sheetStatus : 'pendente');
+    // Data de pagamento: só preenche se a parcela estiver paga
+    let dataPagParc=null;
+    if(statusParc==='pago'){
+      const dtP=new Date((dataPag||venc)+'T12:00:00');
+      dtP.setMonth(dtP.getMonth()+(i*(recorrente?intervalo:1)));
+      dataPagParc=dtP.toISOString().split('T')[0];
+    }
     const{error}=await sb.from('fin_movimentacoes').insert([{
-      descricao:desc, valor, tipo:sheetTipo, data:dt.toISOString().split('T')[0],
-      data_vencimento:null, status:nParc===1?sheetStatus:(i===0?sheetStatus:'pendente'),
+      descricao:desc, valor, tipo:sheetTipo,
+      data:dataPagParc, data_vencimento:vencISO,
+      status:statusParc,
       carteira_id:$('sh-carteira')?.value||null, cartao_id:$('sh-cartao')?.value||null,
       categoria_id:$('sh-cat')?.value||null,
       centro_id:$('sh-centro')?.value||null,

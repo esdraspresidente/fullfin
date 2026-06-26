@@ -437,6 +437,14 @@
     .modal-sub{font-size:13px;color:var(--gray);margin-bottom:18px;}
     .modal-btns{display:flex;gap:8px;}
 
+    /* ── SHARE TARGET MODAL ── */
+    #share-modal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:700;display:none;align-items:center;justify-content:center;padding:16px;}
+    #share-modal.open{display:flex;}
+    .share-box{background:#fff;border-radius:20px;padding:22px 20px;width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.25);}
+    .share-mov-item{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border2);transition:background .12s;}
+    .share-mov-item:last-child{border-bottom:none;}
+    .share-mov-item:hover{background:var(--accent-bg);}
+
     /* ── TOAST ── */
     #toast{position:fixed;left:50%;transform:translateX(-50%) translateY(20px);background:#1A1A2E;color:#fff;padding:11px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:999;opacity:0;transition:opacity .2s,transform .2s;white-space:nowrap;pointer-events:none;}
     #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
@@ -511,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.3 · Naiarha</div>
+        <div class="sb-version">v3.4 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -843,9 +851,9 @@
   </div>
 </div>
 
+<div id="share-modal" onclick="if(event.target===this)fecharShareModal()"></div>
+
 <script>
-// ════════════════════════════════════════════════
-//  ESTADO
 // ════════════════════════════════════════════════
 const sb = supabase;
 const $ = id => document.getElementById(id);
@@ -916,7 +924,7 @@ sb.auth.onAuthStateChange(async(event,session)=>{
     if($('sb-uemail')) $('sb-uemail').textContent=session.user.email;
     $('login-screen').classList.add('hidden');
     $('app').classList.add('visible');
-    await loadAll(); renderAll();
+    await loadAll(); renderAll(); checkSharedFile();
   } else {
     currentUser=null; $('app').classList.remove('visible');
     $('login-screen').classList.remove('hidden');
@@ -1144,6 +1152,7 @@ function buildSheetFormEdicao(m){
   const formaOpts=formas.map(f=>`<option value="${f}"${m.forma_pagamento===f?' selected':''}>${f}</option>`).join('');
   const isPendente=m.status!=='pago';
   $('sheet-body').innerHTML=`
+    ${m.comprovante_url?`<a href="${m.comprovante_url}" target="_blank" style="display:flex;align-items:center;justify-content:space-between;background:var(--accent-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px;text-decoration:none"><span style="font-size:13px;font-weight:700;color:var(--accent)">📎 Ver comprovante</span><span style="font-size:12px;color:var(--accent)">Abrir →</span></a>`:''}
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="tipo-btn saida${sheetTipo==='saida'?' active':''}" onclick="setSheetTipoEd('saida','${m.id}')">▼ Saída</button>
       <button class="tipo-btn entrada${sheetTipo==='entrada'?' active':''}" onclick="setSheetTipoEd('entrada','${m.id}')">▲ Entrada</button>
@@ -2988,6 +2997,146 @@ async function confirmarParcelamento(){
   renderCartoes();
   if(erros) showToast(`${mparParcelas.length-erros} salvas, ${erros} erro(s).`,'err');
   else showToast(`✅ ${mparParcelas.length} parcelas criadas!`);
+}
+
+// ════════════════════════════════════════════════
+//  SHARE TARGET — Compartilhar comprovante do Nubank
+// ════════════════════════════════════════════════
+let sharedFileObj = null;
+let shareMovSelecionado = null;
+
+async function checkSharedFile() {
+  if (!location.search.includes('share=1')) return;
+  history.replaceState({}, '', '/fullfin/');
+  try {
+    const cache = await caches.open('fullfin-share');
+    const response = await cache.match('/fullfin/shared-file');
+    if (!response) return;
+    const blob = await response.blob();
+    const rawName = response.headers.get('X-File-Name') || 'comprovante';
+    const fileName = decodeURIComponent(rawName);
+    sharedFileObj = new File([blob], fileName, { type: blob.type });
+    await cache.delete('/fullfin/shared-file');
+    showShareModal();
+  } catch(e) { console.error('checkSharedFile:', e); }
+}
+
+function showShareModal() {
+  const f = sharedFileObj;
+  if (!f) return;
+  shareMovSelecionado = null;
+  const isImg = f.type.startsWith('image/');
+  const previewHtml = isImg
+    ? `<img id="share-preview-img" style="width:100%;max-height:150px;object-fit:contain;border-radius:10px;background:#F9FAFB;margin-bottom:12px"/>`
+    : `<div style="background:#FEF3C7;border-radius:10px;padding:14px;text-align:center;margin-bottom:12px;font-size:13px;color:#92400E;font-weight:600">📄 ${f.name}</div>`;
+
+  const recentes = movsVisiveis().slice(0, 40);
+  const listHtml = _shareListHtml(recentes);
+
+  $('share-modal').innerHTML = `
+    <div class="share-box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+        <div style="font-size:15px;font-weight:800;color:var(--text)">📎 Comprovante recebido</div>
+        <button onclick="fecharShareModal()" style="background:none;border:none;font-size:24px;color:var(--gray);cursor:pointer;padding:0;line-height:1">×</button>
+      </div>
+      ${previewHtml}
+      <div style="font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">Vincular a qual lançamento?</div>
+      <input type="text" id="share-search" placeholder="Buscar por descrição…"
+        oninput="filtrarShareMovs(this.value)"
+        style="width:100%;padding:9px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-family:inherit;margin-bottom:10px;box-sizing:border-box"/>
+      <div id="share-mov-list" style="max-height:200px;overflow-y:auto;border:1.5px solid var(--border);border-radius:10px">
+        ${listHtml}
+      </div>
+      <div id="share-selecionado" style="display:none;background:var(--accent-bg);border-radius:10px;padding:10px 12px;margin-top:10px;font-size:12px;color:var(--accent);font-weight:700"></div>
+      <button id="share-salvar-btn" onclick="salvarShareComprovante()" disabled
+        style="width:100%;margin-top:14px;padding:14px;border-radius:14px;border:none;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;color:#fff;background:linear-gradient(135deg,#10B981,#059669);opacity:.4;transition:opacity .15s">
+        💾 Salvar comprovante
+      </button>
+    </div>
+  `;
+  $('share-modal').classList.add('open');
+  if (isImg) {
+    const reader = new FileReader();
+    reader.onload = e => { const img = $('share-preview-img'); if (img) img.src = e.target.result; };
+    reader.readAsDataURL(f);
+  }
+}
+
+function _shareListHtml(lista) {
+  if (!lista.length) return `<div style="padding:20px;text-align:center;color:var(--gray);font-size:12px">Nenhum lançamento encontrado</div>`;
+  return lista.map(m => `
+    <div class="share-mov-item" onclick="selecionarMovShare('${m.id}')" id="smi-${m.id}">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.descricao}</div>
+        <div style="font-size:11px;color:var(--gray)">${fmtDate(m.data)} · ${fmt(m.valor)}${m.comprovante_url?' · <span style="color:var(--accent)">📎 já tem comprovante</span>':''}</div>
+      </div>
+      <span style="font-size:16px;flex-shrink:0;color:var(--gray)">○</span>
+    </div>`).join('');
+}
+
+function selecionarMovShare(mid) {
+  shareMovSelecionado = mid;
+  document.querySelectorAll('.share-mov-item').forEach(el => {
+    el.style.background = '';
+    const dot = el.querySelector('span:last-child');
+    if (dot) dot.textContent = '○';
+  });
+  const el = $('smi-' + mid);
+  if (el) {
+    el.style.background = 'var(--accent-bg)';
+    const dot = el.querySelector('span:last-child');
+    if (dot) dot.textContent = '●';
+  }
+  const m = movimentacoes.find(x => x.id === mid);
+  const sel = $('share-selecionado');
+  if (sel && m) {
+    sel.style.display = 'block';
+    sel.textContent = `✓ ${m.descricao} — ${fmt(m.valor)} (${fmtDate(m.data)})`;
+  }
+  const btn = $('share-salvar-btn');
+  if (btn) { btn.disabled = false; btn.style.opacity = '1'; }
+}
+
+function filtrarShareMovs(q) {
+  const lower = q.toLowerCase();
+  const todos = movsVisiveis();
+  const filtrados = q ? todos.filter(m => m.descricao?.toLowerCase().includes(lower)) : todos;
+  const listEl = $('share-mov-list');
+  if (listEl) listEl.innerHTML = _shareListHtml(filtrados.slice(0, 40));
+}
+
+async function salvarShareComprovante() {
+  if (!shareMovSelecionado || !sharedFileObj) return;
+  const btn = $('share-salvar-btn');
+  btn.textContent = '⏳ Enviando…'; btn.disabled = true; btn.style.opacity = '.7';
+  try {
+    const url = await _uploadComprovanteFile(sharedFileObj);
+    const { error } = await sb.from('fin_movimentacoes').update({ comprovante_url: url }).eq('id', shareMovSelecionado);
+    if (error) throw error;
+    await loadAll();
+    fecharShareModal();
+    showToast('✅ Comprovante salvo!');
+  } catch(e) {
+    showToast('Erro ao salvar comprovante.', 'err');
+    btn.textContent = '💾 Salvar comprovante'; btn.disabled = false; btn.style.opacity = '1';
+  }
+}
+
+async function _uploadComprovanteFile(file) {
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext||'png'}`;
+  const token = JSON.parse(localStorage.getItem('supa_sess') || '{}')?.access_token || '';
+  const r = await fetch(
+    `https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/comprovantes/${path}`,
+    { method:'POST', headers:{ 'Authorization':'Bearer '+token, 'Content-Type':file.type||'application/octet-stream', 'apikey':'sb_publishable_WJOo1uEpdSXTPoPDlErTJw_vPSe5x1S', 'x-upsert':'true' }, body:file }
+  );
+  if (!r.ok) { const d = await r.json().catch(()=>({})); throw new Error(d.message || 'Upload falhou'); }
+  return `https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/public/comprovantes/${path}`;
+}
+
+function fecharShareModal() {
+  $('share-modal')?.classList.remove('open');
+  sharedFileObj = null; shareMovSelecionado = null;
 }
 
 // ════════════════════════════════════════════════

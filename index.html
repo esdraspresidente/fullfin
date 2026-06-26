@@ -499,7 +499,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v2.4 · Naiarha</div>
+        <div class="sb-version">v2.5 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -596,14 +596,19 @@
       <!-- ══ LANÇAMENTOS ══ -->
       <div id="page-lancamentos" class="page">
         <div class="desk-month-bar">
-          <div><div class="page-title">Lançamentos</div><div class="page-sub" id="lance-count">0 registros</div></div>
-          <div class="desk-month-nav">
-            <button class="desk-month-btn" onclick="mudaMes(-1)">‹</button>
-            <span class="desk-month-label" id="desk-month-lance">Junho 2026</span>
-            <button class="desk-month-btn" onclick="mudaMes(1)">›</button>
+          <div><div class="page-title">Lançamentos</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px" onclick="abrirFiltroLance()">⚙️ Filtrar</button>
+            <div class="desk-month-nav">
+              <button class="desk-month-btn" onclick="mudaMes(-1)">‹</button>
+              <span class="desk-month-label" id="desk-month-lance">Junho 2026</span>
+              <button class="desk-month-btn" onclick="mudaMes(1)">›</button>
+            </div>
           </div>
         </div>
-        <div class="filter-strip" id="lance-filters"></div>
+        <!-- Abas com totais -->
+        <div id="lance-abas" style="display:flex;gap:0;overflow-x:auto;border-bottom:2px solid var(--border);margin-bottom:14px;scrollbar-width:none"></div>
+        <!-- Lista -->
         <div id="lance-list"></div>
       </div>
 
@@ -836,6 +841,8 @@ const $ = id => document.getElementById(id);
 let currentUser = null;
 let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos = [];
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
+let lanceAba = 'todas';
+let lanceFiltros = { desc:'', carteira:'', centro:'', categoria:'', forma:'' };
 let cartoes = [], cartaoAtual = null;
 let dividas = [], veiculos = [], abastecimentos = [], recorrentes = [], dividaParcelas = [];
 let recFiltro = 'todos';
@@ -1254,17 +1261,152 @@ async function deleteMov(mid){
 //  LANÇAMENTOS
 // ════════════════════════════════════════════════
 function renderLancamentos(){
-  const filtros=[{id:'todos',l:'Todos'},{id:'entrada',l:'▲ Entradas'},{id:'saida',l:'▼ Saídas'},{id:'pendente',l:'⏰ Pendentes'}];
-  $('lance-filters').innerHTML=filtros.map(f=>`<button class="fpill${filterTipo===f.id?' active':''}" onclick="setFilter('${f.id}')">${f.l}</button>`).join('');
   const mesISO=isoMes(mesAtual);
-  let lista=movsVisiveis().filter(m=>(m.data||'').startsWith(mesISO));
-  if(filterTipo==='entrada') lista=lista.filter(m=>m.tipo==='entrada');
-  else if(filterTipo==='saida') lista=lista.filter(m=>m.tipo==='saida');
-  else if(filterTipo==='pendente') lista=lista.filter(m=>m.status!=='pago');
-  $('lance-count').textContent=lista.length+' registro(s)';
-  renderMovs('lance-list',lista);
+  let base=movsVisiveis().filter(m=>(m.data||'').startsWith(mesISO)||(m.data_vencimento||'').startsWith(mesISO));
+
+  // Totais para as abas
+  const todas=base;
+  const entradas=base.filter(m=>m.tipo==='entrada');
+  const saidas=base.filter(m=>m.tipo==='saida');
+  const aReceber=base.filter(m=>m.tipo==='entrada'&&m.status!=='pago');
+  const aPagar=base.filter(m=>m.tipo==='saida'&&m.status!=='pago');
+  const totAba=list=>list.reduce((s,m)=>s+parseFloat(m.valor||0),0);
+
+  // Abas
+  const abas=[
+    {id:'todas',    label:'Todas',           total:totAba(todas),    count:todas.length},
+    {id:'entradas', label:'Entradas',         total:totAba(entradas), count:entradas.length, cor:'var(--accent)'},
+    {id:'saidas',   label:'Saídas',           total:totAba(saidas),   count:saidas.length,   cor:'var(--red)'},
+    {id:'a_receber',label:'Contas a receber', total:totAba(aReceber), count:aReceber.length, cor:'var(--accent)'},
+    {id:'a_pagar',  label:'Contas a pagar',   total:totAba(aPagar),   count:aPagar.length,   cor:'var(--red)'},
+  ];
+  const abaEl=$('lance-abas');
+  if(abaEl){
+    abaEl.innerHTML=abas.map(a=>{
+      const ativo=lanceAba===a.id;
+      return`<button onclick="setLanceAba('${a.id}')" style="flex-shrink:0;padding:8px 14px;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:${ativo?'2.5px solid var(--accent)':'2.5px solid transparent'};margin-bottom:-2px;text-align:center;min-width:90px">
+        <div style="font-size:11px;font-weight:700;color:${ativo?'var(--accent)':'var(--gray)'};white-space:nowrap">${a.label}</div>
+        <div style="font-size:13px;font-weight:800;color:${ativo?'var(--accent)':(a.cor||'var(--text)')};">${fmt(a.total)}</div>
+      </button>`;
+    }).join('');
+  }
+
+  // Filtra pela aba
+  let lista = lanceAba==='todas'?todas:lanceAba==='entradas'?entradas:lanceAba==='saidas'?saidas:lanceAba==='a_receber'?aReceber:aPagar;
+
+  // Aplica filtros extras
+  if(lanceFiltros.desc)    lista=lista.filter(m=>(m.descricao||'').toLowerCase().includes(lanceFiltros.desc.toLowerCase()));
+  if(lanceFiltros.carteira) lista=lista.filter(m=>m.carteira_id===lanceFiltros.carteira);
+  if(lanceFiltros.centro)   lista=lista.filter(m=>m.centro_id===lanceFiltros.centro);
+  if(lanceFiltros.categoria)lista=lista.filter(m=>m.categoria_id===lanceFiltros.categoria);
+  if(lanceFiltros.forma)    lista=lista.filter(m=>m.forma_pagamento===lanceFiltros.forma);
+
+  lista.sort((a,b)=>{
+    const da=(a.data_vencimento||a.data||'');
+    const db=(b.data_vencimento||b.data||'');
+    return da.localeCompare(db);
+  });
+
+  const el=$('lance-list'); if(!el) return;
+  if(!lista.length){
+    el.innerHTML=`<div class="empty"><div class="empty-icon">💸</div><div class="empty-title">Nenhum lançamento</div><div class="empty-sub">Toque no + para adicionar</div></div>`;return;
+  }
+
+  // Tabela
+  el.innerHTML=`<div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border)">
+          <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray);white-space:nowrap">Pagamento</th>
+          <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray);white-space:nowrap">Vencimento</th>
+          <th style="padding:8px 10px;text-align:left;font-size:11px;font-weight:700;color:var(--gray)">Descrição</th>
+          <th style="padding:8px 10px;text-align:right;font-size:11px;font-weight:700;color:var(--gray)">Valor</th>
+          <th style="padding:8px 10px;text-align:center;font-size:11px;font-weight:700;color:var(--gray)">Ações</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${lista.map(m=>{
+          const cat=categorias.find(c=>c.id===m.categoria_id);
+          const centro=centros.find(c=>c.id===m.centro_id);
+          const isPendente=m.status!=='pago';
+          const corValor=m.tipo==='entrada'?'var(--accent)':'var(--red)';
+          const subinfo=[centro?.nome,cat?.nome,m.parcela_atual?`Parcela ${m.parcela_atual}/${m.total_parcelas}`:null].filter(Boolean).join(' · ');
+          return`<tr style="border-bottom:1px solid var(--border);${isPendente?'background:#FFFBEB':''}">
+            <td style="padding:10px 10px;color:${isPendente?'var(--gray)':'var(--text)'};white-space:nowrap">${m.data?fmtDate(m.data):'—'}</td>
+            <td style="padding:10px 10px;white-space:nowrap;color:${isPendente?'#B45309':'var(--gray)'}">${m.data_vencimento?fmtDate(m.data_vencimento):'—'}</td>
+            <td style="padding:10px 10px">
+              <div style="font-weight:700;color:var(--text)">${m.descricao||'—'}</div>
+              ${subinfo?`<div style="font-size:10px;color:var(--gray);margin-top:2px">${subinfo}</div>`:''}
+            </td>
+            <td style="padding:10px 10px;text-align:right">
+              <span style="background:${isPendente?'#FEF3C7':'transparent'};color:${isPendente?'#B45309':corValor};font-weight:800;padding:${isPendente?'3px 8px':'0'};border-radius:${isPendente?'20px':'0'};white-space:nowrap">
+                ${m.tipo==='entrada'?'+':'-'}${fmt(m.valor)}
+              </span>
+            </td>
+            <td style="padding:10px 10px;text-align:center;white-space:nowrap">
+              ${isPendente?`<button onclick="abrirConfirmPagamento('${m.id}','${m.tipo}')" title="Marcar como pago" style="width:30px;height:30px;border-radius:8px;background:#059669;color:#fff;border:none;cursor:pointer;font-size:14px;margin-right:4px">✅</button>`:''}
+              <button onclick="abreDetalhe('${m.id}')" title="Editar" style="width:30px;height:30px;border-radius:8px;background:#1D4ED8;color:#fff;border:none;cursor:pointer;font-size:13px;margin-right:4px">✏️</button>
+              <button onclick="pedirRemocaoMov('${m.id}')" title="Remover" style="width:30px;height:30px;border-radius:8px;background:#F3F4F6;color:#6B7280;border:1px solid var(--border);cursor:pointer;font-size:13px">🗑</button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>`;
 }
+
+function setLanceAba(aba){lanceAba=aba;renderLancamentos();}
 function setFilter(tipo){filterTipo=tipo;renderLancamentos();}
+
+function abrirFiltroLance(){
+  const wOpts=carteiras.map(w=>`<option value="${w.id}"${lanceFiltros.carteira===w.id?' selected':''}>${w.nome}</option>`).join('');
+  const cOpts=centros.map(c=>`<option value="${c.id}"${lanceFiltros.centro===c.id?' selected':''}>${c.nome}</option>`).join('');
+  const catOpts=categorias.map(c=>`<option value="${c.id}"${lanceFiltros.categoria===c.id?' selected':''}>${c.nome}</option>`).join('');
+  const formas=['Pix','Boleto','Débito','Débito Automático','Transferência','Cartão de Crédito','Dinheiro'];
+  const fOpts=formas.map(f=>`<option value="${f}"${lanceFiltros.forma===f?' selected':''}>${f}</option>`).join('');
+  $('sheet-title').textContent='Filtros';
+  $('sheet-body').innerHTML=`
+    <div class="form-mb field"><label>Descrição</label>
+      <input type="text" id="fl-desc" value="${lanceFiltros.desc}" placeholder="Digite aqui…"/>
+    </div>
+    <div class="form-mb field"><label>Carteira</label>
+      <select id="fl-carteira"><option value="">Todas</option>${wOpts}</select>
+    </div>
+    <div class="form-mb field"><label>Centro de custos</label>
+      <select id="fl-centro"><option value="">Todos</option>${cOpts}</select>
+    </div>
+    <div class="form-mb field"><label>Categoria</label>
+      <select id="fl-cat"><option value="">Todas</option>${catOpts}</select>
+    </div>
+    <div class="form-mb field"><label>Forma de pagamento</label>
+      <select id="fl-forma"><option value="">Todas</option>${fOpts}</select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-secondary" style="flex:1" onclick="limparFiltroLance()">Limpar</button>
+      <button class="btn btn-primary" style="flex:2;background:var(--accent)" onclick="aplicarFiltroLance()">FILTRAR</button>
+    </div>
+  `;
+  openSheetRaw();
+}
+
+function aplicarFiltroLance(){
+  lanceFiltros={
+    desc:  $('fl-desc')?.value||'',
+    carteira: $('fl-carteira')?.value||'',
+    centro:   $('fl-centro')?.value||'',
+    categoria:$('fl-cat')?.value||'',
+    forma:    $('fl-forma')?.value||''
+  };
+  closeSheet();
+  renderLancamentos();
+}
+
+function limparFiltroLance(){
+  lanceFiltros={desc:'',carteira:'',centro:'',categoria:'',forma:''};
+  ['fl-desc','fl-carteira','fl-centro','fl-cat','fl-forma'].forEach(id=>{const el=$(id);if(el)el.value='';});
+  renderLancamentos();
+  closeSheet();
+}
 
 // ════════════════════════════════════════════════
 //  RELATÓRIO

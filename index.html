@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.8 · Naiarha</div>
+        <div class="sb-version">v3.9 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1320,11 +1320,73 @@ async function salvarEdicaoMov(mid){
 function pedirRemocaoMov(mid){
   closeSheet();
   setTimeout(()=>{
-    openConfirm('Remover lançamento?','Esta ação não pode ser desfeita.',async()=>{
+    const m = movimentacoes.find(x=>x.id===mid);
+    if(!m){ openConfirm('Remover lançamento?','Esta ação não pode ser desfeita.',async()=>{ const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid); if(error){showToast('Erro: '+(error.message||error.code||JSON.stringify(error)),'err');}else{await loadAll();renderAll();showToast('Removido.','info');} },'🗑 Remover'); return; }
+
+    // Verifica se faz parte de um grupo (parcelado ou recorrente)
+    const grupo = m.grupo_parcelas;
+    const subsequentes = grupo
+      ? movimentacoes.filter(x => x.grupo_parcelas===grupo && (x.parcela_atual||0)>(m.parcela_atual||0))
+          .sort((a,b)=>(a.parcela_atual||0)-(b.parcela_atual||0))
+      : [];
+
+    if(!grupo || !subsequentes.length){
+      // Não tem grupo ou é o último — delete simples
+      openConfirm('Remover lançamento?','Esta ação não pode ser desfeita.',async()=>{
+        const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);
+        if(error){showToast('Erro: '+(error.message||error.code||JSON.stringify(error)),'err');}
+        else{await loadAll();renderAll();showToast('Removido.','info');}
+      },'🗑 Remover');
+      return;
+    }
+
+    // Tem subsequentes — mostra opções
+    const totalNoGrupo = movimentacoes.filter(x=>x.grupo_parcelas===grupo).length;
+    const listaHtml = subsequentes.slice(0,8).map(x=>
+      `<div style="font-size:12px;color:var(--text);padding:4px 0;border-bottom:1px solid var(--border2)">
+        Parc. ${x.parcela_atual}/${x.total_parcelas} · ${fmtDate(x.data_vencimento||x.data)} · ${fmt(x.valor)}
+       </div>`).join('')
+      + (subsequentes.length>8?`<div style="font-size:11px;color:var(--gray);padding-top:4px">...e mais ${subsequentes.length-8}</div>`:'');
+
+    // Modal customizado para escolha de escopo
+    const el=$('confirm-modal');
+    $('confirm-title').textContent='Remover lançamento';
+    $('confirm-sub').textContent=`Parcela ${m.parcela_atual}/${m.total_parcelas||totalNoGrupo} de "${m.descricao}"`;
+    $('confirm-btns').innerHTML=`
+      <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:10px;margin-bottom:12px;font-size:12px;color:#92400E;text-align:left">
+        <div style="font-weight:700;margin-bottom:6px">⚠️ ${subsequentes.length} parcela(s) seguinte(s):</div>
+        ${listaHtml}
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px;width:100%">
+        <button class="btn btn-secondary" style="width:100%;text-align:left" onclick="execConfirm()">🗑 Remover só este (parcela ${m.parcela_atual})</button>
+        <button class="btn btn-danger"    style="width:100%;text-align:left" id="btn-remover-todos">🗑 Remover este e os ${subsequentes.length} seguintes</button>
+        <button class="btn btn-secondary" style="width:100%" onclick="closeConfirm()">Cancelar</button>
+      </div>
+    `;
+    // Ação: remover só este
+    confirmCallback = async()=>{
       const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);
-      if(error){showToast('Erro: '+(error.message||error.code||JSON.stringify(error)),'err');}
+      if(error){showToast('Erro: '+(error.message||JSON.stringify(error)),'err');}
       else{await loadAll();renderAll();showToast('Removido.','info');}
-    },'🗑 Remover');
+    };
+    // Ação: remover todos os subsequentes também
+    document.getElementById('btn-remover-todos').onclick = ()=>{
+      closeConfirm();
+      const ids=[mid,...subsequentes.map(x=>x.id)];
+      openConfirm(
+        `Remover ${ids.length} lançamentos?`,
+        'Esta ação não pode ser desfeita.',
+        async()=>{
+          let erros=0;
+          for(const id of ids){ const{error}=await sb.from('fin_movimentacoes').delete().eq('id',id); if(error) erros++; }
+          await loadAll(); renderAll();
+          if(erros) showToast(`${ids.length-erros} removidos, ${erros} erro(s).`,'err');
+          else showToast(`${ids.length} lançamentos removidos.`,'info');
+        },
+        '🗑 Remover todos'
+      );
+    };
+    el.classList.remove('hidden');
   },300);
 }
 async function deleteMov(mid){
@@ -1598,7 +1660,11 @@ function buildSheetForm(preCartaoId){
       <button class="tipo-btn transf${sheetTipo==='transferencia'?' active':''}" onclick="setSheetTipo('transferencia')">⇄ Transf.</button>
     </div>
     <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="number" id="sh-valor" placeholder="0,00" step="0.01" inputmode="decimal"/></div>
-    <div class="form-mb field"><label>Descrição *</label><input type="text" id="sh-desc" placeholder="Ex: Conta de luz…"/></div>
+    <div class="form-grid-2" style="margin-bottom:10px">
+      <div class="field form-full"><label>Descrição *</label><input type="text" id="sh-desc" placeholder="Ex: Conta de luz…"/></div>
+      <div class="field"><label>Categoria</label><select id="sh-cat"><option value="">Sem categoria</option>${catOpts}</select></div>
+      <div class="field"><label>Centro de custo</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
+    </div>
 
     <div class="form-grid-2" style="margin-bottom:10px">
       <div class="field">
@@ -1616,8 +1682,6 @@ function buildSheetForm(preCartaoId){
         <input type="number" id="sh-repeticoes" placeholder="Ex: 12" min="2" max="360"/>
       </div>
     </div>
-
-    <div class="form-mb field"><label>Categoria</label><select id="sh-cat"><option value="">Sem categoria</option>${catOpts}</select></div>
     <div class="form-grid-2">
       <div class="field"><label>Forma de pagamento</label>
         <select id="sh-forma">
@@ -1638,7 +1702,6 @@ function buildSheetForm(preCartaoId){
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
       <div class="field"><label id="sh-data-label">📅 Vencimento *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
-      <div class="field"><label>Centro de custo</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
     </div>
     <div class="field form-mb" id="sh-data-pag-wrap" style="display:${sheetStatus==='pago'?'block':'none'}">
       <label>✅ Data do pagamento</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/>
@@ -2332,12 +2395,12 @@ async function confirmarPagamentoLivre(did, saldoAnteriorStr){
   }]);
   if(e1){showToast('Erro ao registrar pagamento.','err');if(btn){btn.textContent='💰 Registrar pagamento';btn.disabled=false;}return;}
 
-  // 2. Registra direto em fin_divida_confirmacoes (garante atualização do saldo/progresso)
+  // 2. Registra confirmação direto como CONFIRMADO (email é só notificação, não determina status)
   const token=crypto.randomUUID();
   const{error:e2}=await sb.from('fin_divida_confirmacoes').insert([{
     divida_id:did, token,
     valor_pago:valor, saldo_anterior:saldoAnterior, saldo_novo:saldoNovo,
-    data_pagamento:data, status:'pendente'
+    data_pagamento:data, status:'confirmado'
   }]);
   if(e2){showToast('Erro ao registrar confirmação. Verifique RLS.','err');if(btn){btn.textContent='💰 Registrar pagamento';btn.disabled=false;}return;}
 

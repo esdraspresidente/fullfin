@@ -499,7 +499,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.0 · Naiarha</div>
+        <div class="sb-version">v3.1 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -844,7 +844,7 @@ let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentr
 let lanceAba = 'todas';
 let lanceFiltros = { desc:'', carteira:'', centro:'', categoria:'', forma:'' };
 let cartoes = [], cartaoAtual = null;
-let dividas = [], veiculos = [], abastecimentos = [], recorrentes = [], dividaParcelas = [];
+let dividas = [], veiculos = [], abastecimentos = [], recorrentes = [], dividaParcelas = [], dividaConfirmacoes = [];
 let recFiltro = 'todos';
 let confirmCallback = null;
 // import state
@@ -928,6 +928,7 @@ async function loadAll(){
     sb.from('fin_abastecimentos').select().order('data',{ascending:false}),
     sb.from('fin_recorrentes').select().order('descricao',{ascending:true}),
     sb.from('fin_divida_parcelas').select().order('num_parcela',{ascending:true}),
+    sb.from('fin_divida_confirmacoes').select().order('created_at',{ascending:false}),
   ]);
   if(!r1.error) centros=r1.data||[];
   if(!r2.error) carteiras=r2.data||[];
@@ -940,6 +941,8 @@ async function loadAll(){
   if(!r9.error) abastecimentos=r9.data||[];
   if(!r10.error) recorrentes=r10.data||[];
   if(!r11.error) dividaParcelas=r11.data||[];
+  const r12=await sb.from('fin_divida_confirmacoes').select().order('created_at',{ascending:false});
+  if(!r12.error) dividaConfirmacoes=r12.data||[];
 }
 
 // ════════════════════════════════════════════════
@@ -1901,6 +1904,24 @@ function renderDividas(){
         <div style="width:${pct}%;height:100%;background:var(--accent);border-radius:8px;transition:width .4s"></div>
       </div>
 
+      ${d.envia_confirmacao ? (() => {
+        const confs = dividaConfirmacoes.filter(c=>c.divida_id===d.id);
+        if(!confs.length) return '';
+        const statusIcon = {pendente:'⏳',confirmado:'✅',contestado:'⚠️'};
+        const statusCor  = {pendente:'#FEF3C7',confirmado:'#D1FAE5',contestado:'#FEE2E2'};
+        const statusText = {pendente:'#92400E',confirmado:'#065F46',contestado:'#991B1B'};
+        return `<div style="margin-bottom:12px">
+          <div style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">📬 Histórico de confirmações</div>
+          ${confs.map(c=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:${statusCor[c.status]};margin-bottom:4px">
+            <div>
+              <div style="font-size:12px;font-weight:700;color:${statusText[c.status]}">${statusIcon[c.status]} ${fmt(c.valor_pago)} pago em ${fmtDate(c.data_pagamento)}</div>
+              <div style="font-size:10px;color:${statusText[c.status]};opacity:.8">Novo saldo: ${fmt(c.saldo_novo)}${c.data_resposta?' · Respondido em '+fmtDate(c.data_resposta.split('T')[0]):''}</div>
+            </div>
+            <span style="font-size:10px;font-weight:700;color:${statusText[c.status]};white-space:nowrap">${c.status.toUpperCase()}</span>
+          </div>`).join('')}
+        </div>`;
+      })() : ''}
+
       <div style="display:flex;gap:8px">
         ${restantes.length>0?`<button class="btn btn-primary" style="flex:1;padding:9px;font-size:13px" onclick="registrarPagamentoDivida('${d.id}')">💰 Registrar pagamento</button>`:`<span style="font-size:12px;color:var(--accent);font-weight:700;padding:9px">✅ Quitada!</span>`}
         <button class="btn btn-secondary" style="padding:9px;font-size:12px" onclick="openSheetDivida('${d.id}')">✏️</button>
@@ -1953,7 +1974,14 @@ function openSheetDivida(did){
       <div class="field"><label>Centro</label><select id="div-centro"><option value="">Geral</option>${centroOpts}</select></div>
       <div class="field"><label>Carteira</label><select id="div-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
     </div>
-    <button class="salvar-btn saida" style="margin-top:16px" onclick="salvarDivida('${did||''}')">Salvar</button>
+    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#EFF6FF;border-radius:10px;cursor:pointer;margin-top:14px;margin-bottom:4px">
+      <input type="checkbox" id="div-confirmacao" ${d?.envia_confirmacao?'checked':''} style="width:18px;height:18px;accent-color:#1D4ED8"/>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#1D4ED8">📬 Confirmação bilateral</div>
+        <div style="font-size:11px;color:#6B7280">Envia email para o credor confirmar cada pagamento</div>
+      </div>
+    </label>
+    <button class="salvar-btn saida" style="margin-top:12px" onclick="salvarDivida('${did||''}')">Salvar</button>
   `;
   openSheetRaw();
 }
@@ -1970,7 +1998,8 @@ async function salvarDivida(did){
     taxa_juros:0,
     data_inicio:inicio,
     centro_id:$('div-centro').value||null,
-    carteira_id:$('div-carteira').value||null
+    carteira_id:$('div-carteira').value||null,
+    envia_confirmacao:!!$('div-confirmacao')?.checked
   };
   let error;
   if(did){({error}=await sb.from('fin_dividas').update(payload).eq('id',did));}
@@ -2080,13 +2109,44 @@ async function confirmarPagamentoDivida(did){
 
   if(e1||e2){showToast('Erro ao registrar.','err');return;}
 
-  // Atualiza parcelas_pagas na dívida (para compatibilidade)
-  const pagas=dividaParcelas.filter(p=>p.divida_id===did).length+1;
-  await sb.from('fin_dividas').update({parcelas_pagas:pagas,ativo:pagas<d.n_parcelas}).eq('id',did);
+  // Atualiza parcelas_pagas na dívida
+  const novasPagas=dividaParcelas.filter(p=>p.divida_id===did).length+1;
+  await sb.from('fin_dividas').update({parcelas_pagas:novasPagas,ativo:novasPagas<d.n_parcelas}).eq('id',did);
+
+  // Se dívida tem confirmação bilateral, dispara email para o credor
+  if(d.envia_confirmacao) {
+    const pagas2=dividaParcelas.filter(p=>p.divida_id===did);
+    const totalPagoAnterior=pagas2.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
+    const saldoOriginal=parseFloat(d.valor_total||0)||(d.n_parcelas*parseFloat(d.valor_parcela||0));
+    const saldoAnterior=saldoOriginal-totalPagoAnterior;
+    const saldoNovo=Math.max(0,saldoAnterior-valorPago);
+    try {
+      const resp = await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')
+        },
+        body:JSON.stringify({
+          divida_id:did,
+          valor_pago:valorPago,
+          saldo_anterior:saldoAnterior,
+          saldo_novo:saldoNovo,
+          data_pagamento:data,
+          descricao_divida:d.descricao
+        })
+      });
+      if(resp.ok) showToast('✅ Pago! Email enviado para confirmação 📧');
+      else showToast('✅ Pago! (falha ao enviar email)','info');
+    } catch(e) {
+      showToast('✅ Pago! (email não enviado)','info');
+    }
+  } else {
+    const economia=valorOriginal-valorPago;
+    showToast(economia>0?`✅ Pago! Você economizou ${fmt(economia)}`:'✅ Pagamento registrado!');
+  }
 
   await loadAll(); renderDividas(); closeSheet();
-  const economia=valorOriginal-valorPago;
-  showToast(economia>0?`✅ Pago! Você economizou ${fmt(economia)}`:'✅ Pagamento registrado!');
 }
 
 async function deleteDivida(did){

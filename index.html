@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.5 · Naiarha</div>
+        <div class="sb-version">v3.6 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -2260,6 +2260,9 @@ async function confirmarPagamentoLivre(did, saldoAnteriorStr){
   const saldoAnterior=parseFloat(saldoAnteriorStr)||0;
   const saldoNovo=Math.max(0,saldoAnterior-valor);
 
+  const btn=document.querySelector('.salvar-btn');
+  if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+
   // Upload comprovante
   let comprovanteUrl=null;
   const fileInput=$('dpag-livre-comprovante');
@@ -2267,24 +2270,33 @@ async function confirmarPagamentoLivre(did, saldoAnteriorStr){
     comprovanteUrl=await uploadComprovante(fileInput.files[0],did+'-'+Date.now());
   }
 
-  // Cria lançamento de saída
-  await sb.from('fin_movimentacoes').insert([{
+  // 1. Cria lançamento de saída em fin_movimentacoes
+  const{error:e1}=await sb.from('fin_movimentacoes').insert([{
     descricao:`${d.descricao} — pagamento`,
     valor, tipo:'saida', data, status:'pago',
     carteira_id:$('dpag-livre-carteira')?.value||null,
     centro_id:d.centro_id||null,
     forma_pagamento:$('dpag-livre-forma')?.value||null,
-    origem:'manual',
-    comprovante_url:comprovanteUrl
+    origem:'manual', comprovante_url:comprovanteUrl
   }]);
+  if(e1){showToast('Erro ao registrar pagamento.','err');if(btn){btn.textContent='💰 Registrar pagamento';btn.disabled=false;}return;}
 
-  // Dispara confirmação bilateral se configurado
+  // 2. Registra direto em fin_divida_confirmacoes (garante atualização do saldo/progresso)
+  const token=crypto.randomUUID();
+  const{error:e2}=await sb.from('fin_divida_confirmacoes').insert([{
+    divida_id:did, token,
+    valor_pago:valor, saldo_anterior:saldoAnterior, saldo_novo:saldoNovo,
+    data_pagamento:data, status:'pendente'
+  }]);
+  if(e2){showToast('Erro ao registrar confirmação. Verifique RLS.','err');if(btn){btn.textContent='💰 Registrar pagamento';btn.disabled=false;}return;}
+
+  // 3. Tenta enviar email (opcional — falha não bloqueia o registro)
   if(d.envia_confirmacao && d.credor_email){
     try{
       await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
         method:'POST',
         headers:{'Content-Type':'application/json','Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')},
-        body:JSON.stringify({divida_id:did,valor_pago:valor,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao,credor_email:d.credor_email})
+        body:JSON.stringify({divida_id:did,valor_pago:valor,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao,credor_email:d.credor_email,token})
       });
       showToast('✅ Pago! Email enviado para confirmação 📧');
     }catch(e){showToast('✅ Pago! (email não enviado)','info');}

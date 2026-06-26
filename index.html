@@ -499,7 +499,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.1 · Naiarha</div>
+        <div class="sb-version">v3.2 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1206,6 +1206,10 @@ function abrirConfirmPagamento(mid, tipo){
     <div class="form-mb field"><label>Observação</label>
       <textarea id="cpag-obs" rows="2" placeholder="Opcional…">${m.observacao||''}</textarea>
     </div>
+    <div class="form-mb field" style="margin-bottom:12px">
+      <label>📎 Comprovante (PDF, PNG, JPG)</label>
+      <input type="file" id="cpag-comprovante" accept=".pdf,.png,.jpg,.jpeg" style="padding:8px;background:#F9FAFB;border:1px solid var(--border);border-radius:8px;width:100%;font-size:12px"/>
+    </div>
     <button class="btn btn-primary" style="width:100%;background:#059669;padding:14px;font-size:15px" onclick="confirmarPagamento('${mid}')">
       ✅ Confirmar ${labelAcao}
     </button>
@@ -1219,13 +1223,17 @@ async function confirmarPagamento(mid){
   if(!data){showToast('Informe a data.','err');return;}
   const btn=document.querySelector('[onclick*="confirmarPagamento"]');
   if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+  let comprovanteUrl=null;
+  const cpagFile=$('cpag-comprovante');
+  if(cpagFile?.files?.length) comprovanteUrl=await uploadComprovante(cpagFile.files[0],'lanc-'+mid+'-'+Date.now());
   const{error}=await sb.from('fin_movimentacoes').update({
     status:'pago',
     valor: valor||undefined,
     data,
     carteira_id:$('cpag-carteira')?.value||null,
     forma_pagamento:$('cpag-forma')?.value||null,
-    observacao:$('cpag-obs')?.value||null
+    observacao:$('cpag-obs')?.value||null,
+    comprovante_url:comprovanteUrl||undefined
   }).eq('id',mid);
   if(error){showToast('Erro ao salvar.','err');if(btn){btn.textContent='✅ Confirmar';btn.disabled=false;}return;}
   await loadAll(); renderAll(); closeSheet(); showToast('Registrado com sucesso! ✓','ok');
@@ -1854,13 +1862,19 @@ function renderDividas(){
   if(!ativas.length){el.innerHTML=`<div class="empty"><div class="empty-icon">📉</div><div class="empty-title">Nenhuma dívida cadastrada</div></div>`;return;}
 
   el.innerHTML=ativas.map(d=>{
+    const isLivre=d.tipo_controle==='livre';
     const pagas=dividaParcelas.filter(p=>p.divida_id===d.id);
     const numsPagos=new Set(pagas.map(p=>p.num_parcela));
-    const totalPago=pagas.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
+    const totalPagoParcelas=pagas.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
+    const confs=dividaConfirmacoes.filter(c=>c.divida_id===d.id);
+    const totalPagoLivre=confs.reduce((s,c)=>s+parseFloat(c.valor_pago||0),0);
+    const totalPago=isLivre?totalPagoLivre:totalPagoParcelas;
     const economia=pagas.reduce((s,p)=>s+(parseFloat(p.valor_original||0)-parseFloat(p.valor_pago||0)),0);
     const restantes=Array.from({length:d.n_parcelas},(_,i)=>i+1).filter(n=>!numsPagos.has(n));
-    const saldoDevedor=restantes.length*parseFloat(d.valor_parcela||0);
-    const pct=d.n_parcelas?(pagas.length/d.n_parcelas*100).toFixed(0):0;
+    const saldoDevedor=isLivre?Math.max(0,(parseFloat(d.valor_total)||0)-totalPago):restantes.length*parseFloat(d.valor_parcela||0);
+    const pctParcelas=d.n_parcelas?(pagas.length/d.n_parcelas*100).toFixed(0):0;
+    const pctLivre=d.valor_total?Math.min(100,(totalPago/(parseFloat(d.valor_total)||1)*100)).toFixed(0):0;
+    const pct=isLivre?pctLivre:pctParcelas;
     const tipoIcon={'emprestimo':'🤝','financiamento':'🏠','cartao_parcelado':'💳'}[d.tipo]||'📉';
 
     // Grade de parcelas — max 48 visível
@@ -1873,11 +1887,16 @@ function renderDividas(){
       return`<div onclick="verParcela('${d.id}',${n})" title="${title}" style="width:28px;height:28px;border-radius:6px;background:${cor};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:${textCor};cursor:pointer;flex-shrink:0">${n}</div>`;
     }).join('');
 
+    // Contestações pendentes
+    const contestacoes=confs.filter(c=>c.status==='contestado');
+
     return`<div class="card pad" style="margin-bottom:14px">
+      ${contestacoes.length?`<div style="background:#FEE2E2;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;font-weight:700;color:#991B1B">⚠️ ${contestacoes.length} pagamento(s) contestado(s) por ${d.credor_email||'credor'} — verifique abaixo</div>`:''}
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
         <div>
           <div style="font-size:15px;font-weight:800;color:var(--text)">${tipoIcon} ${d.descricao}</div>
-          <div style="font-size:11px;color:var(--gray);margin-top:2px">${d.tipo==='emprestimo'?'Empréstimo':d.tipo==='financiamento'?'Financiamento':'Cartão parcelado'} · desde ${fmtDate(d.data_inicio)}</div>
+          <div style="font-size:11px;color:var(--gray);margin-top:2px">${d.tipo==='emprestimo'?'Empréstimo':d.tipo==='financiamento'?'Financiamento':'Cartão parcelado'}${isLivre?' · valor livre':''} · desde ${fmtDate(d.data_inicio)}</div>
+          ${d.envia_confirmacao&&d.credor_email?`<div style="font-size:10px;color:#1D4ED8;margin-top:2px">📬 ${d.credor_email}</div>`:''}
         </div>
         <div style="text-align:right">
           <div style="font-size:18px;font-weight:800;color:var(--red)">${fmt(saldoDevedor)}</div>
@@ -1885,20 +1904,25 @@ function renderDividas(){
         </div>
       </div>
 
+      ${isLivre ? `
+      <div class="stats-grid" style="margin-bottom:12px">
+        <div class="stat-card"><div class="stat-label">💰 Valor total</div><div class="stat-value">${fmt(d.valor_total)}</div></div>
+        <div class="stat-card"><div class="stat-label">✅ Total pago</div><div class="stat-value verde">${fmt(totalPago)}</div></div>
+        <div class="stat-card"><div class="stat-label">📉 Saldo</div><div class="stat-value vermelho">${fmt(saldoDevedor)}</div></div>
+        <div class="stat-card"><div class="stat-label">📊 Progresso</div><div class="stat-value">${pct}%</div></div>
+      </div>
+      ` : `
       <div class="stats-grid" style="margin-bottom:12px">
         <div class="stat-card"><div class="stat-label">💳 Parcela original</div><div class="stat-value">${fmt(d.valor_parcela)}</div></div>
         <div class="stat-card"><div class="stat-label">✅ Pagas</div><div class="stat-value verde">${pagas.length}/${d.n_parcelas} (${pct}%)</div></div>
         <div class="stat-card"><div class="stat-label">💰 Total pago</div><div class="stat-value">${fmt(totalPago)}</div></div>
         ${economia>0?`<div class="stat-card"><div class="stat-label">⚡ Economizado</div><div class="stat-value verde">${fmt(economia)}</div></div>`:`<div class="stat-card"><div class="stat-label">⏳ Restantes</div><div class="stat-value amarelo">${restantes.length} parcelas</div></div>`}
       </div>
-
       <div style="background:#F9FAFB;border-radius:10px;padding:10px;margin-bottom:12px">
-        <div style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">
-          Grade de parcelas
-          <span style="font-weight:400;margin-left:8px">🟡 amortizada &nbsp; 🟢 paga &nbsp; ⬜ pendente</span>
-        </div>
+        <div style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Grade de parcelas <span style="font-weight:400;margin-left:8px">🟡 amortizada &nbsp; 🟢 paga &nbsp; ⬜ pendente</span></div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">${gridParcelas}</div>
       </div>
+      `}
 
       <div style="background:#F9FAFB;border-radius:8px;height:6px;overflow:hidden;margin-bottom:12px">
         <div style="width:${pct}%;height:100%;background:var(--accent);border-radius:8px;transition:width .4s"></div>
@@ -1923,7 +1947,7 @@ function renderDividas(){
       })() : ''}
 
       <div style="display:flex;gap:8px">
-        ${restantes.length>0?`<button class="btn btn-primary" style="flex:1;padding:9px;font-size:13px" onclick="registrarPagamentoDivida('${d.id}')">💰 Registrar pagamento</button>`:`<span style="font-size:12px;color:var(--accent);font-weight:700;padding:9px">✅ Quitada!</span>`}
+        ${isLivre?(saldoDevedor>0?`<button class="btn btn-primary" style="flex:1;padding:9px;font-size:13px" onclick="registrarPagamentoDivida('${d.id}')">💰 Novo Pagamento</button>`:`<span style="font-size:12px;color:var(--accent);font-weight:700;padding:9px">✅ Quitada!</span>`):(restantes.length>0?`<button class="btn btn-primary" style="flex:1;padding:9px;font-size:13px" onclick="registrarPagamentoDivida('${d.id}')">💰 Registrar Parcela</button>`:`<span style="font-size:12px;color:var(--accent);font-weight:700;padding:9px">✅ Quitada!</span>`)}
         <button class="btn btn-secondary" style="padding:9px;font-size:12px" onclick="openSheetDivida('${d.id}')">✏️</button>
         <button class="btn btn-danger" style="padding:9px;font-size:12px" onclick="deleteDivida('${d.id}')">🗑</button>
       </div>
@@ -1953,8 +1977,9 @@ function openSheetDivida(did){
   $('sheet-title').textContent=d?'Editar Dívida':'Nova Dívida';
   const centroOpts=centros.map(c=>`<option value="${c.id}"${d?.centro_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
   const wOpts=carteiras.map(c=>`<option value="${c.id}"${d?.carteira_id===c.id?' selected':''}>${c.icone||'🏦'} ${c.nome}</option>`).join('');
+  const modoAtual=d?.tipo_controle||'parcelas';
   $('sheet-body').innerHTML=`
-    <div class="form-mb field"><label>Descrição *</label><input type="text" id="div-desc" placeholder="Ex: Empréstimo Nubank" value="${d?.descricao||''}"/></div>
+    <div class="form-mb field"><label>Descrição *</label><input type="text" id="div-desc" placeholder="Ex: Dívida com Lucas" value="${d?.descricao||''}"/></div>
     <div class="form-mb field"><label>Tipo</label>
       <select id="div-tipo">
         <option value="emprestimo"${d?.tipo==='emprestimo'?' selected':''}>🤝 Empréstimo</option>
@@ -1962,44 +1987,82 @@ function openSheetDivida(did){
         <option value="cartao_parcelado"${d?.tipo==='cartao_parcelado'?' selected':''}>💳 Cartão parcelado</option>
       </select>
     </div>
-    <div class="form-grid-2">
-      <div class="field"><label>Valor da parcela (R$) *</label><input type="number" id="div-parcela" placeholder="0,00" step="0.01" value="${d?.valor_parcela||''}"/></div>
-      <div class="field"><label>Nº de parcelas *</label><input type="number" id="div-n" placeholder="Ex: 24" value="${d?.n_parcelas||''}"/></div>
+    <div class="form-mb" style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Modo de controle</div>
+      <div style="display:flex;gap:8px">
+        <button id="div-modo-parcelas" onclick="divSetModo('parcelas')" style="flex:1;padding:10px;border-radius:10px;border:2px solid ${modoAtual==='parcelas'?'var(--accent)':'var(--border)'};background:${modoAtual==='parcelas'?'var(--accent-bg)':'#fff'};color:${modoAtual==='parcelas'?'var(--accent)':'var(--gray)'};font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">📦 Por parcelas</button>
+        <button id="div-modo-livre" onclick="divSetModo('livre')" style="flex:1;padding:10px;border-radius:10px;border:2px solid ${modoAtual==='livre'?'var(--accent)':'var(--border)'};background:${modoAtual==='livre'?'var(--accent-bg)':'#fff'};color:${modoAtual==='livre'?'var(--accent)':'var(--gray)'};font-weight:700;font-size:12px;cursor:pointer;font-family:inherit">💸 Valor livre</button>
+      </div>
     </div>
-    <div class="form-grid-2">
-      <div class="field"><label>Parcelas já pagas</label><input type="number" id="div-pagas" placeholder="0" value="${d?.parcelas_pagas||0}"/></div>
-      <div class="field"><label>Data de início *</label><input type="date" id="div-inicio" value="${d?.data_inicio?.split('T')[0]||''}"/></div>
+    <div id="div-bloco-parcelas" style="display:${modoAtual==='parcelas'?'block':'none'}">
+      <div class="form-grid-2">
+        <div class="field"><label>Valor da parcela (R$)</label><input type="number" id="div-parcela" placeholder="0,00" step="0.01" value="${d?.valor_parcela||''}"/></div>
+        <div class="field"><label>Nº de parcelas</label><input type="number" id="div-n" placeholder="Ex: 24" value="${d?.n_parcelas||''}"/></div>
+      </div>
+      <div class="form-grid-2" style="margin-top:10px">
+        <div class="field"><label>Parcelas já pagas</label><input type="number" id="div-pagas" placeholder="0" value="${d?.parcelas_pagas||0}"/></div>
+        <div class="field"><label>Data de início *</label><input type="date" id="div-inicio-parc" value="${d?.data_inicio?.split('T')[0]||''}"/></div>
+      </div>
     </div>
-    <div class="form-grid-2">
+    <div id="div-bloco-livre" style="display:${modoAtual==='livre'?'block':'none'}">
+      <div class="form-grid-2">
+        <div class="field"><label>Valor total da dívida (R$) *</label><input type="number" id="div-valor-total" placeholder="Ex: 15000" step="0.01" value="${d?.valor_total||''}"/></div>
+        <div class="field"><label>Data de início *</label><input type="date" id="div-inicio-livre" value="${d?.data_inicio?.split('T')[0]||''}"/></div>
+      </div>
+    </div>
+    <div class="form-grid-2" style="margin-top:10px">
       <div class="field"><label>Centro</label><select id="div-centro"><option value="">Geral</option>${centroOpts}</select></div>
       <div class="field"><label>Carteira</label><select id="div-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
     </div>
-    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#EFF6FF;border-radius:10px;cursor:pointer;margin-top:14px;margin-bottom:4px">
-      <input type="checkbox" id="div-confirmacao" ${d?.envia_confirmacao?'checked':''} style="width:18px;height:18px;accent-color:#1D4ED8"/>
-      <div>
-        <div style="font-size:13px;font-weight:700;color:#1D4ED8">📬 Confirmação bilateral</div>
-        <div style="font-size:11px;color:#6B7280">Envia email para o credor confirmar cada pagamento</div>
-      </div>
+    <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#EFF6FF;border-radius:10px;cursor:pointer;margin-top:14px;margin-bottom:8px">
+      <input type="checkbox" id="div-confirmacao" ${d?.envia_confirmacao?'checked':''} onchange="divToggleEmail()" style="width:18px;height:18px;accent-color:#1D4ED8"/>
+      <div><div style="font-size:13px;font-weight:700;color:#1D4ED8">📬 Confirmação bilateral</div><div style="font-size:11px;color:#6B7280">Envia email ao credor para confirmar cada pagamento</div></div>
     </label>
-    <button class="salvar-btn saida" style="margin-top:12px" onclick="salvarDivida('${did||''}')">Salvar</button>
+    <div id="div-email-wrap" style="display:${d?.envia_confirmacao?'block':'none'}" class="form-mb field">
+      <label>Email do credor *</label>
+      <input type="email" id="div-credor-email" placeholder="email@exemplo.com" value="${d?.credor_email||''}"/>
+    </div>
+    <button class="salvar-btn saida" style="margin-top:4px" onclick="salvarDivida('${did||''}')">Salvar</button>
   `;
   openSheetRaw();
 }
 
+function divSetModo(modo){
+  $('div-bloco-parcelas').style.display=modo==='parcelas'?'block':'none';
+  $('div-bloco-livre').style.display=modo==='livre'?'block':'none';
+  const btnP=$('div-modo-parcelas'),btnL=$('div-modo-livre');
+  btnP.style.borderColor=modo==='parcelas'?'var(--accent)':'var(--border)';
+  btnP.style.background=modo==='parcelas'?'var(--accent-bg)':'#fff';
+  btnP.style.color=modo==='parcelas'?'var(--accent)':'var(--gray)';
+  btnL.style.borderColor=modo==='livre'?'var(--accent)':'var(--border)';
+  btnL.style.background=modo==='livre'?'var(--accent-bg)':'#fff';
+  btnL.style.color=modo==='livre'?'var(--accent)':'var(--gray)';
+}
+
+function divToggleEmail(){
+  $('div-email-wrap').style.display=$('div-confirmacao')?.checked?'block':'none';
+}
+
 async function salvarDivida(did){
   const desc=$('div-desc')?.value.trim(); if(!desc){showToast('Informe a descrição.','err');return;}
-  const inicio=$('div-inicio')?.value; if(!inicio){showToast('Informe a data de início.','err');return;}
+  const modo=$('div-bloco-livre')?.style.display==='block'?'livre':'parcelas';
+  const inicio=(modo==='livre'?$('div-inicio-livre'):$('div-inicio-parc'))?.value;
+  if(!inicio){showToast('Informe a data de início.','err');return;}
+  const temConfirmacao=!!$('div-confirmacao')?.checked;
+  if(temConfirmacao && !$('div-credor-email')?.value){showToast('Informe o email do credor.','err');return;}
   const payload={
     descricao:desc, tipo:$('div-tipo').value,
-    valor_total:null,
-    valor_parcela:parseFloat($('div-parcela').value)||0,
-    n_parcelas:parseInt($('div-n').value)||1,
-    parcelas_pagas:parseInt($('div-pagas').value)||0,
+    tipo_controle:modo,
+    valor_total:modo==='livre'?(parseFloat($('div-valor-total')?.value)||0):null,
+    valor_parcela:modo==='parcelas'?(parseFloat($('div-parcela')?.value)||0):0,
+    n_parcelas:modo==='parcelas'?(parseInt($('div-n')?.value)||1):0,
+    parcelas_pagas:modo==='parcelas'?(parseInt($('div-pagas')?.value)||0):0,
     taxa_juros:0,
     data_inicio:inicio,
     centro_id:$('div-centro').value||null,
     carteira_id:$('div-carteira').value||null,
-    envia_confirmacao:!!$('div-confirmacao')?.checked
+    envia_confirmacao:temConfirmacao,
+    credor_email:temConfirmacao?($('div-credor-email')?.value||null):null
   };
   let error;
   if(did){({error}=await sb.from('fin_dividas').update(payload).eq('id',did));}
@@ -2010,6 +2073,9 @@ async function salvarDivida(did){
 
 async function registrarPagamentoDivida(did){
   const d=dividas.find(x=>x.id===did); if(!d) return;
+  if(d.tipo_controle==='livre') { abrirPagamentoLivre(did); return; }
+
+  // ── modo parcelas (fluxo existente) ──
   const pagas=dividaParcelas.filter(p=>p.divida_id===did);
   const numsPagos=new Set(pagas.map(p=>p.num_parcela));
   const pendentes=Array.from({length:d.n_parcelas},(_,i)=>i+1).filter(n=>!numsPagos.has(n));
@@ -2022,41 +2088,125 @@ async function registrarPagamentoDivida(did){
       <div style="font-size:13px;font-weight:700;color:var(--text)">${d.descricao}</div>
       <div style="font-size:11px;color:var(--gray);margin-top:3px">Parcela original: ${fmt(d.valor_parcela)} · ${pagas.length} de ${d.n_parcelas} pagas</div>
     </div>
-
     <div class="form-mb field">
       <label>Qual parcela está pagando? *</label>
       <select id="dpag-num">${parOpts}</select>
-      <div style="font-size:10px;color:var(--gray);margin-top:4px">Pode pagar qualquer parcela, em qualquer ordem</div>
     </div>
-
     <div class="form-grid-2">
-      <div class="field">
-        <label>Valor pago (R$) *</label>
-        <input type="number" id="dpag-valor" value="${d.valor_parcela}" step="0.01" oninput="dpagCalcEconomia('${d.id}')"/>
-      </div>
-      <div class="field">
-        <label>Valor original</label>
-        <input type="number" id="dpag-original" value="${d.valor_parcela}" step="0.01" readonly style="background:#F3F4F6;font-weight:700"/>
-      </div>
+      <div class="field"><label>Valor pago (R$) *</label><input type="number" id="dpag-valor" value="${d.valor_parcela}" step="0.01" oninput="dpagCalcEconomia('${d.id}')"/></div>
+      <div class="field"><label>Valor original</label><input type="number" id="dpag-original" value="${d.valor_parcela}" step="0.01" readonly style="background:#F3F4F6;font-weight:700"/></div>
     </div>
-
     <div id="dpag-economia-wrap" style="display:none;background:#D1FAE5;border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;color:#065F46;font-weight:700"></div>
-
     <div class="form-mb field"><label>Data do pagamento *</label><input type="date" id="dpag-data" value="${new Date().toISOString().split('T')[0]}"/></div>
     <div class="form-mb field"><label>De qual conta</label><select id="dpag-carteira"><option value="">Selecione…</option>${wOpts}</select></div>
     <div class="form-mb field"><label>Forma de pagamento</label>
       <select id="dpag-forma">
-        <option value="Pix">💸 Pix</option>
-        <option value="Boleto">📄 Boleto</option>
-        <option value="Débito">💳 Débito</option>
-        <option value="Débito Automático">🔄 Débito Automático</option>
-        <option value="Transferência">↔️ Transferência</option>
+        <option value="Pix">💸 Pix</option><option value="Boleto">📄 Boleto</option>
+        <option value="Débito">💳 Débito</option><option value="Transferência">↔️ Transferência</option>
       </select>
     </div>
     <div class="form-mb field"><label>Observação</label><input type="text" id="dpag-obs" placeholder="Ex: antecipei com desconto"/></div>
+    <div class="form-mb field">
+      <label>📎 Comprovante (PDF, PNG, JPG)</label>
+      <input type="file" id="dpag-comprovante" accept=".pdf,.png,.jpg,.jpeg" style="padding:8px;background:#F9FAFB;border:1px solid var(--border);border-radius:8px;width:100%;font-size:12px"/>
+    </div>
     <button class="salvar-btn saida" onclick="confirmarPagamentoDivida('${did}')">Confirmar pagamento</button>
   `;
   openSheetRaw();
+}
+
+function abrirPagamentoLivre(did){
+  const d=dividas.find(x=>x.id===did); if(!d) return;
+  const confs=dividaConfirmacoes.filter(c=>c.divida_id===did);
+  const totalPago=confs.reduce((s,c)=>s+parseFloat(c.valor_pago||0),0);
+  const saldoAtual=Math.max(0,(parseFloat(d.valor_total)||0)-totalPago);
+  const wOpts=carteiras.map(c=>`<option value="${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join('');
+  $('sheet-title').textContent='Novo Pagamento';
+  $('sheet-body').innerHTML=`
+    <div style="background:var(--accent-bg);border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;color:var(--text)">${d.descricao}</div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px">
+        <div><div style="font-size:10px;color:var(--gray);font-weight:700;text-transform:uppercase">Total pago</div><div style="font-size:16px;font-weight:800;color:#059669">${fmt(totalPago)}</div></div>
+        <div style="text-align:right"><div style="font-size:10px;color:var(--gray);font-weight:700;text-transform:uppercase">Saldo devedor</div><div style="font-size:16px;font-weight:800;color:var(--red)">${fmt(saldoAtual)}</div></div>
+      </div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Valor pago agora (R$) *</label><input type="number" id="dpag-livre-valor" placeholder="0,00" step="0.01"/></div>
+      <div class="field"><label>Data do pagamento *</label><input type="date" id="dpag-livre-data" value="${new Date().toISOString().split('T')[0]}"/></div>
+    </div>
+    <div class="form-mb field" style="margin-top:10px"><label>De qual conta</label><select id="dpag-livre-carteira"><option value="">Selecione…</option>${wOpts}</select></div>
+    <div class="form-mb field"><label>Forma de pagamento</label>
+      <select id="dpag-livre-forma">
+        <option value="Pix">💸 Pix</option><option value="Boleto">📄 Boleto</option>
+        <option value="Débito">💳 Débito</option><option value="Transferência">↔️ Transferência</option>
+      </select>
+    </div>
+    <div class="form-mb field"><label>Observação</label><input type="text" id="dpag-livre-obs" placeholder="Opcional…"/></div>
+    <div class="form-mb field">
+      <label>📎 Comprovante (PDF, PNG, JPG)</label>
+      <input type="file" id="dpag-livre-comprovante" accept=".pdf,.png,.jpg,.jpeg" style="padding:8px;background:#F9FAFB;border:1px solid var(--border);border-radius:8px;width:100%;font-size:12px"/>
+    </div>
+    <button class="salvar-btn saida" onclick="confirmarPagamentoLivre('${did}','${saldoAtual}')">💰 Registrar pagamento</button>
+  `;
+  openSheetRaw();
+}
+
+async function confirmarPagamentoLivre(did, saldoAnteriorStr){
+  const d=dividas.find(x=>x.id===did); if(!d) return;
+  const valor=parseFloat($('dpag-livre-valor')?.value)||0;
+  const data=$('dpag-livre-data')?.value;
+  if(!valor){showToast('Informe o valor pago.','err');return;}
+  if(!data){showToast('Informe a data.','err');return;}
+  const saldoAnterior=parseFloat(saldoAnteriorStr)||0;
+  const saldoNovo=Math.max(0,saldoAnterior-valor);
+
+  // Upload comprovante
+  let comprovanteUrl=null;
+  const fileInput=$('dpag-livre-comprovante');
+  if(fileInput?.files?.length){
+    comprovanteUrl=await uploadComprovante(fileInput.files[0],did+'-'+Date.now());
+  }
+
+  // Cria lançamento de saída
+  await sb.from('fin_movimentacoes').insert([{
+    descricao:`${d.descricao} — pagamento`,
+    valor, tipo:'saida', data, status:'pago',
+    carteira_id:$('dpag-livre-carteira')?.value||null,
+    centro_id:d.centro_id||null,
+    forma_pagamento:$('dpag-livre-forma')?.value||null,
+    origem:'manual',
+    comprovante_url:comprovanteUrl
+  }]);
+
+  // Dispara confirmação bilateral se configurado
+  if(d.envia_confirmacao && d.credor_email){
+    try{
+      await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')},
+        body:JSON.stringify({divida_id:did,valor_pago:valor,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao,credor_email:d.credor_email})
+      });
+      showToast('✅ Pago! Email enviado para confirmação 📧');
+    }catch(e){showToast('✅ Pago! (email não enviado)','info');}
+  } else {
+    showToast('✅ Pagamento registrado!');
+  }
+  await loadAll(); renderDividas(); closeSheet();
+}
+
+async function uploadComprovante(file, nomeBase){
+  try{
+    const ext=file.name.split('.').pop();
+    const path=`pagamentos/${nomeBase}.${ext}`;
+    const sess=JSON.parse(localStorage.getItem('supa_sess')||'{}');
+    const r=await fetch(`https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/comprovantes/${path}`,{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+sess.access_token,'Content-Type':file.type},
+      body:file
+    });
+    if(!r.ok) return null;
+    return `https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/public/comprovantes/${path}`;
+  }catch(e){return null;}
 }
 
 function dpagCalcEconomia(did){
@@ -2064,18 +2214,10 @@ function dpagCalcEconomia(did){
   const pago=parseFloat($('dpag-valor')?.value)||0;
   const original=parseFloat(d.valor_parcela)||0;
   const economia=original-pago;
-  const wrap=$('dpag-economia-wrap');
-  if(!wrap) return;
-  if(economia>0){
-    wrap.style.display='block';
-    wrap.innerHTML=`⚡ Amortização detectada! Você economizou <b>${fmt(economia)}</b> nesta parcela.`;
-  } else if(economia<0){
-    wrap.style.display='block';
-    wrap.style.background='#FEF3C7'; wrap.style.color='#92400E';
-    wrap.innerHTML=`📌 Pagamento acima do valor original (+${fmt(Math.abs(economia))})`;
-  } else {
-    wrap.style.display='none';
-  }
+  const wrap=$('dpag-economia-wrap'); if(!wrap) return;
+  if(economia>0){wrap.style.display='block';wrap.style.background='#D1FAE5';wrap.style.color='#065F46';wrap.innerHTML=`⚡ Amortização! Você economizou <b>${fmt(economia)}</b>.`;}
+  else if(economia<0){wrap.style.display='block';wrap.style.background='#FEF3C7';wrap.style.color='#92400E';wrap.innerHTML=`📌 Pagamento acima do valor original (+${fmt(Math.abs(economia))})`;}
+  else{wrap.style.display='none';}
 }
 
 async function confirmarPagamentoDivida(did){
@@ -2146,6 +2288,62 @@ async function confirmarPagamentoDivida(did){
     showToast(economia>0?`✅ Pago! Você economizou ${fmt(economia)}`:'✅ Pagamento registrado!');
   }
 
+  await loadAll(); renderDividas(); closeSheet();
+}
+
+async function confirmarPagamentoDivida(did){
+  const d=dividas.find(x=>x.id===did); if(!d) return;
+  const numParcela=parseInt($('dpag-num')?.value);
+  const valorPago=parseFloat($('dpag-valor')?.value)||0;
+  const valorOriginal=parseFloat(d.valor_parcela)||0;
+  const data=$('dpag-data')?.value||new Date().toISOString().split('T')[0];
+  if(!numParcela){showToast('Selecione a parcela.','err');return;}
+  if(!valorPago){showToast('Informe o valor pago.','err');return;}
+
+  // Upload comprovante
+  let comprovanteUrl=null;
+  const fileInput=$('dpag-comprovante');
+  if(fileInput?.files?.length){
+    comprovanteUrl=await uploadComprovante(fileInput.files[0],did+'-parc'+numParcela+'-'+Date.now());
+  }
+
+  const{error:e1}=await sb.from('fin_divida_parcelas').insert([{
+    divida_id:did, num_parcela:numParcela,
+    valor_original:valorOriginal, valor_pago:valorPago,
+    data_pagamento:data,
+    carteira_id:$('dpag-carteira')?.value||null,
+    forma_pagamento:$('dpag-forma')?.value||null,
+    observacao:$('dpag-obs')?.value||null,
+    comprovante_url:comprovanteUrl
+  }]);
+  const{error:e2}=await sb.from('fin_movimentacoes').insert([{
+    descricao:`${d.descricao} — Parcela ${numParcela}/${d.n_parcelas}`,
+    valor:valorPago, tipo:'saida', data, status:'pago',
+    carteira_id:$('dpag-carteira')?.value||null,
+    centro_id:d.centro_id||null,
+    forma_pagamento:$('dpag-forma')?.value||null,
+    origem:'manual', comprovante_url:comprovanteUrl
+  }]);
+  if(e1||e2){showToast('Erro ao registrar.','err');return;}
+  const novasPagas=dividaParcelas.filter(p=>p.divida_id===did).length+1;
+  await sb.from('fin_dividas').update({parcelas_pagas:novasPagas,ativo:novasPagas<d.n_parcelas}).eq('id',did);
+  if(d.envia_confirmacao && d.credor_email){
+    const totalPagoAnterior=dividaParcelas.filter(p=>p.divida_id===did).reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
+    const saldoOriginal=d.n_parcelas*parseFloat(d.valor_parcela||0);
+    const saldoAnterior=saldoOriginal-totalPagoAnterior;
+    const saldoNovo=Math.max(0,saldoAnterior-valorPago);
+    try{
+      await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')},
+        body:JSON.stringify({divida_id:did,valor_pago:valorPago,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao,credor_email:d.credor_email})
+      });
+      showToast('✅ Pago! Email enviado para confirmação 📧');
+    }catch(e){showToast('✅ Pago! (email não enviado)','info');}
+  } else {
+    const economia=valorOriginal-valorPago;
+    showToast(economia>0?`✅ Pago! Você economizou ${fmt(economia)}`:'✅ Pagamento registrado!');
+  }
   await loadAll(); renderDividas(); closeSheet();
 }
 

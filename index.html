@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.13 · Naiarha</div>
+        <div class="sb-version">v3.14 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -970,6 +970,7 @@ sb.auth.onAuthStateChange(async(event,session)=>{
     $('login-screen').classList.add('hidden');
     $('app').classList.add('visible');
     await loadAll(); renderAll(); checkSharedFile();
+    setTimeout(applyAllMoneyMasks, 100); // campos estáticos (dízimo etc.)
   } else {
     currentUser=null; $('app').classList.remove('visible');
     $('login-screen').classList.remove('hidden');
@@ -1672,7 +1673,7 @@ async function salvarCarteira(cid){
 //  SHEET LANÇAMENTO
 // ════════════════════════════════════════════════
 function openSheet(){ sheetTipo='saida'; sheetStatus='pago'; sheetEditId=null; $('sheet-title').textContent='Novo lançamento'; buildSheetForm(null); openSheetRaw(); }
-function openSheetRaw(){ $('sheet-overlay').classList.add('open'); $('sheet').classList.add('open'); document.body.style.overflow='hidden'; }
+function openSheetRaw(){ $('sheet-overlay').classList.add('open'); $('sheet').classList.add('open'); document.body.style.overflow='hidden'; setTimeout(applyAllMoneyMasks,30); }
 function closeSheet(){ $('sheet-overlay').classList.remove('open'); $('sheet').classList.remove('open'); document.body.style.overflow=''; }
 
 function buildSheetForm(preCartaoId){
@@ -2709,6 +2710,10 @@ function renderVeiculos(){
           <div class="mov-right">
             <div class="mov-value saida">${fmt(a.valor_total)}</div>
             ${a.custo_por_km?`<div style="font-size:10px;color:var(--gray)">R$ ${parseFloat(a.custo_por_km).toFixed(2)}/km</div>`:''}
+            <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end">
+              <button onclick="openSheetAbastecimento('${v.id}','${a.id}')" style="width:26px;height:26px;border-radius:6px;background:#1D4ED8;color:#fff;border:none;cursor:pointer;font-size:11px">✏️</button>
+              <button onclick="deletarAbastecimento('${a.id}')" style="width:26px;height:26px;border-radius:6px;background:#F3F4F6;color:#9CA3AF;border:1px solid var(--border);cursor:pointer;font-size:11px">🗑</button>
+            </div>
           </div>
         </div>`).join('')}
       `:''}
@@ -2753,27 +2758,42 @@ async function salvarVeiculo(vid){
   await loadAll(); renderVeiculos(); closeSheet(); showToast('Veículo salvo!');
 }
 
-function openSheetAbastecimento(vid){
+function openSheetAbastecimento(vid, aid){
   const v=veiculos.find(x=>x.id===vid); if(!v) return;
-  const ultimos=abastecimentos.filter(a=>a.veiculo_id===vid);
+  const a=aid?abastecimentos.find(x=>x.id===aid):null;
+  const ultimos=abastecimentos.filter(x=>x.veiculo_id===vid);
   const ultimoKm=ultimos.length?parseFloat(ultimos[0].km_odometro||0):0;
-  $('sheet-title').textContent=`⛽ Abastecer — ${v.nome}`;
+  $('sheet-title').textContent=a?`✏️ Editar abastecimento — ${v.nome}`:`⛽ Abastecer — ${v.nome}`;
   $('sheet-body').innerHTML=`
     <div class="form-grid-2">
-      <div class="field"><label>Data *</label><input type="date" id="ab-data" value="${new Date().toISOString().split('T')[0]}"/></div>
-      <div class="field"><label>Km odômetro atual</label><input type="number" id="ab-km" placeholder="Ex: 45320" value="" oninput="abCalc()"/></div>
+      <div class="field"><label>Data *</label><input type="date" id="ab-data" value="${a?.data?.split('T')[0]||new Date().toISOString().split('T')[0]}"/></div>
+      <div class="field"><label>Km odômetro atual</label><input type="number" id="ab-km" placeholder="Ex: 45320" value="${a?.km_odometro||''}" oninput="abCalc()"/></div>
     </div>
     <div class="form-grid-2">
-      <div class="field"><label>Litros abastecidos</label><input type="text" data-money="1" id="ab-litros" placeholder="0,00" oninput="abCalc()"/></div>
-      <div class="field"><label>Preço por litro (R$)</label><input type="text" data-money="1" id="ab-preco" placeholder="6,99" oninput="abCalc()"/></div>
+      <div class="field"><label>Litros abastecidos</label><input type="text" data-money="1" id="ab-litros" placeholder="0,00" value="${a?.litros||''}" oninput="abCalc()"/></div>
+      <div class="field"><label>Preço por litro (R$)</label><input type="text" data-money="1" id="ab-preco" placeholder="6,99" value="${a?.preco_litro||''}" oninput="abCalc()"/></div>
     </div>
-    <div class="form-mb field"><label>Valor total (R$)</label><input type="text" data-money="1" id="ab-total" placeholder="0,00"/></div>
-    <div class="form-mb field"><label>Posto</label><input type="text" id="ab-posto" placeholder="Nome do posto (opcional)"/></div>
-    ${ultimoKm?`<div style="font-size:11px;color:var(--gray);margin-bottom:8px">Último km registrado: ${ultimoKm.toLocaleString('pt-BR')}</div>`:''}
+    <div class="form-mb field"><label>Valor total (R$)</label><input type="text" data-money="1" id="ab-total" placeholder="0,00" value="${a?.valor_total||''}"/></div>
+    <div class="form-mb field"><label>Posto</label><input type="text" id="ab-posto" placeholder="Nome do posto (opcional)" value="${a?.posto||''}"/></div>
+    ${ultimoKm&&!a?`<div style="font-size:11px;color:var(--gray);margin-bottom:8px">Último km registrado: ${ultimoKm.toLocaleString('pt-BR')}</div>`:''}
     <div id="ab-preview" style="display:none;background:var(--accent-bg);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--text)"></div>
-    <button class="salvar-btn entrada" onclick="salvarAbastecimento('${vid}','${ultimoKm}')">Salvar abastecimento</button>
+    <button class="salvar-btn entrada" onclick="salvarAbastecimento('${vid}','${ultimoKm}','${aid||''}')">
+      ${a?'💾 Salvar alterações':'Salvar abastecimento'}
+    </button>
+    ${a?`<button onclick="deletarAbastecimento('${a.id}')" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;background:#FEE2E2;color:#DC2626;border:none;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">🗑 Remover abastecimento</button>`:''}
   `;
   openSheetRaw();
+}
+
+async function deletarAbastecimento(aid){
+  closeSheet();
+  setTimeout(()=>{
+    openConfirm('Remover abastecimento?','Esta ação não pode ser desfeita.',async()=>{
+      const{error}=await sb.from('fin_abastecimentos').delete().eq('id',aid);
+      if(error){showToast('Erro ao remover.','err');return;}
+      await loadAll(); renderVeiculos(); showToast('Removido.','info');
+    },'🗑 Remover');
+  },300);
 }
 
 function abCalc(){
@@ -2785,21 +2805,25 @@ function abCalc(){
   if(prev&&km) prev.style.display='block';
 }
 
-async function salvarAbastecimento(vid, ultimoKm){
+async function salvarAbastecimento(vid, ultimoKm, aid){
   const data=$('ab-data')?.value; if(!data){showToast('Informe a data.','err');return;}
   const total=getMaskValue($('ab-total'))||0; if(!total){showToast('Informe o valor.','err');return;}
   const kmAtual=parseFloat($('ab-km')?.value)||null;
   const litros=getMaskValue($('ab-litros'))||null;
   const preco=getMaskValue($('ab-preco'))||null;
-  const kmRodados=kmAtual&&ultimoKm?(kmAtual-parseFloat(ultimoKm)):null;
+  const kmRodados=kmAtual&&ultimoKm&&!aid?(kmAtual-parseFloat(ultimoKm)):null;
   const custoPorKm=kmRodados&&kmRodados>0?(total/kmRodados):null;
-  const payload={veiculo_id:vid,data,litros,valor_total:total,preco_litro:preco,km_odometro:kmAtual,km_rodados:kmRodados,custo_por_km:custoPorKm,posto:$('ab-posto')?.value||null,centro_id:veiculos.find(v=>v.id===vid)?.centro_id||null};
-  const{error}=await sb.from('fin_abastecimentos').insert([payload]);
-  if(error){showToast('Erro ao salvar.','err');return;}
-  // Também salva como movimentação de saída
   const v=veiculos.find(x=>x.id===vid);
-  await sb.from('fin_movimentacoes').insert([{descricao:`Abastecimento — ${v?.nome||'Veículo'}`,valor:total,tipo:'saida',data,status:'pago',centro_id:v?.centro_id||null,origem:'manual'}]);
-  await loadAll(); renderVeiculos(); closeSheet(); showToast('Abastecimento registrado!');
+  const payload={veiculo_id:vid,data,litros,valor_total:total,preco_litro:preco,km_odometro:kmAtual,km_rodados:kmRodados,custo_por_km:custoPorKm,posto:$('ab-posto')?.value||null,centro_id:v?.centro_id||null};
+  let error;
+  if(aid){
+    ({error}=await sb.from('fin_abastecimentos').update(payload).eq('id',aid));
+  } else {
+    ({error}=await sb.from('fin_abastecimentos').insert([payload]));
+    if(!error) await sb.from('fin_movimentacoes').insert([{descricao:`Abastecimento — ${v?.nome||'Veículo'}`,valor:total,tipo:'saida',data,status:'pago',centro_id:v?.centro_id||null,origem:'manual'}]);
+  }
+  if(error){showToast('Erro ao salvar.','err');return;}
+  await loadAll(); renderVeiculos(); closeSheet(); showToast(aid?'Abastecimento atualizado!':'Abastecimento registrado!');
 }
 
 // ════════════════════════════════════════════════
@@ -3665,14 +3689,17 @@ function applyMaskMoeda(el, valorInicial){
       el._maskCents=el._maskCents*10+parseInt(e.key);
       if(el._maskCents>9999999999) return;
       el.value=_fmtCentavos(el._maskCents);
+      el.dispatchEvent(new Event('input',{bubbles:true}));
     } else if(e.key==='Backspace'){
       e.preventDefault();
       el._maskActive=true;
       el._maskCents=Math.floor(el._maskCents/10);
       el.value=el._maskCents>0?_fmtCentavos(el._maskCents):'';
+      el.dispatchEvent(new Event('input',{bubbles:true}));
     } else if(e.key==='Delete'){
       e.preventDefault();
       el._maskCents=0;el._maskActive=true;el.value='';
+      el.dispatchEvent(new Event('input',{bubbles:true}));
     }
   });
   el.addEventListener('paste',e=>{

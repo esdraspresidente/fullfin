@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.12 · Naiarha</div>
+        <div class="sb-version">v3.13 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -879,7 +879,18 @@
   </div>
 </div>
 
-<div id="share-modal" onclick="if(event.target===this)fecharShareModal()"></div>
+<div id="comp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:800;flex-direction:column;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)fecharComp()">
+  <div style="background:#fff;border-radius:16px;width:100%;max-width:560px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.35)">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
+      <span style="font-size:14px;font-weight:700;color:var(--text)">📎 Comprovante</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <a id="comp-link" href="#" target="_blank" style="font-size:12px;font-weight:700;color:var(--accent);text-decoration:none;border:1.5px solid var(--accent);border-radius:8px;padding:5px 12px">↗ Abrir em nova aba</a>
+        <button onclick="fecharComp()" style="background:none;border:none;font-size:22px;color:var(--gray);cursor:pointer;line-height:1;padding:0">×</button>
+      </div>
+    </div>
+    <div id="comp-body" style="flex:1;overflow:auto;min-height:200px;display:flex;align-items:center;justify-content:center;background:#F9FAFB"></div>
+  </div>
+</div>
 
 <script>
 // ════════════════════════════════════════════════
@@ -1165,7 +1176,7 @@ function renderMovs(containerId, list, compact=false){
       <div class="mov-right">
         <div class="mov-value ${m.tipo}">${m.tipo==='entrada'?'+':m.tipo==='saida'?'-':''}${fmt(m.valor)}</div>
         ${stBadge} ${getOrigBadge(m.origem)}
-        ${m.comprovante_url?`<a href="${m.comprovante_url}" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--accent);text-decoration:none;font-weight:700" title="Ver comprovante">📎</a>`:''}
+        ${m.comprovante_url?`<button onclick="event.stopPropagation();abrirComprovante('${m.comprovante_url}')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--accent);padding:0" title="Ver comprovante">📎</button>`:''}
       </div>
     </div>`;
   }).join('');
@@ -1191,7 +1202,7 @@ function buildSheetFormEdicao(m){
   const formaOpts=formas.map(f=>`<option value="${f}"${m.forma_pagamento===f?' selected':''}>${f}</option>`).join('');
   const isPendente=m.status!=='pago';
   $('sheet-body').innerHTML=`
-    ${m.comprovante_url?`<a href="${m.comprovante_url}" target="_blank" style="display:flex;align-items:center;justify-content:space-between;background:var(--accent-bg);border:1px solid var(--border);border-radius:10px;padding:10px 14px;margin-bottom:12px;text-decoration:none"><span style="font-size:13px;font-weight:700;color:var(--accent)">📎 Ver comprovante</span><span style="font-size:12px;color:var(--accent)">Abrir →</span></a>`:''}
+    ${m.comprovante_url?`<button onclick="abrirComprovante('${m.comprovante_url}')" style="display:flex;align-items:center;justify-content:space-between;background:var(--accent-bg);border:1px solid #DDD6FE;border-radius:10px;padding:10px 14px;margin-bottom:12px;width:100%;cursor:pointer;font-family:inherit"><span style="font-size:13px;font-weight:700;color:var(--accent)">📎 Ver comprovante</span><span style="font-size:12px;color:var(--accent)">Abrir →</span></button>`:''}
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="tipo-btn saida${sheetTipo==='saida'?' active':''}" onclick="setSheetTipoEd('saida','${m.id}')">▼ Saída</button>
       <button class="tipo-btn entrada${sheetTipo==='entrada'?' active':''}" onclick="setSheetTipoEd('entrada','${m.id}')">▲ Entrada</button>
@@ -1490,7 +1501,7 @@ function renderLancamentos(){
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:14px;font-weight:800;color:${isPendente?'#B45309':corValor}">${m.tipo==='entrada'?'+':'-'}${fmt(m.valor)}</div>
         <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end">
-          ${m.comprovante_url?`<a href="${m.comprovante_url}" target="_blank" style="width:28px;height:28px;border-radius:7px;background:#F5F3FF;color:var(--accent);border:1px solid #DDD6FE;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;text-decoration:none" title="Ver comprovante">📎</a>`:''}
+          ${m.comprovante_url?`<button onclick="abrirComprovante('${m.comprovante_url}')" style="width:28px;height:28px;border-radius:7px;background:#F5F3FF;color:var(--accent);border:1px solid #DDD6FE;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center" title="Ver comprovante">📎</button>`:''}
           ${isPendente?`<button onclick="abrirConfirmPagamento('${m.id}','${m.tipo}')" style="width:28px;height:28px;border-radius:7px;background:#059669;color:#fff;border:none;cursor:pointer;font-size:13px">✅</button>`:''}
           <button onclick="abreDetalhe('${m.id}')" style="width:28px;height:28px;border-radius:7px;background:#1D4ED8;color:#fff;border:none;cursor:pointer;font-size:12px">✏️</button>
           <button onclick="pedirRemocaoMov('${m.id}')" style="width:28px;height:28px;border-radius:7px;background:#F3F4F6;color:#9CA3AF;border:1px solid var(--border);cursor:pointer;font-size:12px">🗑</button>
@@ -3423,6 +3434,25 @@ async function _uploadComprovanteFile(file) {
   );
   if (!r.ok) { const d=await r.json().catch(()=>({})); throw new Error(d.message||`HTTP ${r.status}`); }
   return `https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/public/comprovantes/${path}`;
+}
+
+function abrirComprovante(url){
+  if(!url) return;
+  const modal = document.getElementById('comp-modal');
+  const body  = document.getElementById('comp-body');
+  const link  = document.getElementById('comp-link');
+  link.href = url;
+  const ext = url.split('?')[0].split('.').pop().toLowerCase();
+  const isPdf = ext === 'pdf' || url.includes('application/pdf');
+  body.innerHTML = isPdf
+    ? `<iframe src="${url}" style="width:100%;height:65vh;border:none"></iframe>`
+    : `<img src="${url}" style="max-width:100%;max-height:65vh;object-fit:contain;padding:12px" onerror="this.outerHTML='<div style=\\'padding:20px;color:#666;font-size:13px;text-align:center\\'>Não foi possível carregar a imagem.<br/>Use o botão acima para abrir.</div>'"/>`;
+  modal.style.display = 'flex';
+}
+function fecharComp(){
+  const modal = document.getElementById('comp-modal');
+  modal.style.display = 'none';
+  document.getElementById('comp-body').innerHTML = '';
 }
 
 function fecharShareModal() {

@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.11 · Naiarha</div>
+        <div class="sb-version">v3.12 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1165,6 +1165,7 @@ function renderMovs(containerId, list, compact=false){
       <div class="mov-right">
         <div class="mov-value ${m.tipo}">${m.tipo==='entrada'?'+':m.tipo==='saida'?'-':''}${fmt(m.valor)}</div>
         ${stBadge} ${getOrigBadge(m.origem)}
+        ${m.comprovante_url?`<a href="${m.comprovante_url}" target="_blank" onclick="event.stopPropagation()" style="font-size:11px;color:var(--accent);text-decoration:none;font-weight:700" title="Ver comprovante">📎</a>`:''}
       </div>
     </div>`;
   }).join('');
@@ -1489,6 +1490,7 @@ function renderLancamentos(){
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:14px;font-weight:800;color:${isPendente?'#B45309':corValor}">${m.tipo==='entrada'?'+':'-'}${fmt(m.valor)}</div>
         <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end">
+          ${m.comprovante_url?`<a href="${m.comprovante_url}" target="_blank" style="width:28px;height:28px;border-radius:7px;background:#F5F3FF;color:var(--accent);border:1px solid #DDD6FE;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;text-decoration:none" title="Ver comprovante">📎</a>`:''}
           ${isPendente?`<button onclick="abrirConfirmPagamento('${m.id}','${m.tipo}')" style="width:28px;height:28px;border-radius:7px;background:#059669;color:#fff;border:none;cursor:pointer;font-size:13px">✅</button>`:''}
           <button onclick="abreDetalhe('${m.id}')" style="width:28px;height:28px;border-radius:7px;background:#1D4ED8;color:#fff;border:none;cursor:pointer;font-size:12px">✏️</button>
           <button onclick="pedirRemocaoMov('${m.id}')" style="width:28px;height:28px;border-radius:7px;background:#F3F4F6;color:#9CA3AF;border:1px solid var(--border);cursor:pointer;font-size:12px">🗑</button>

@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.9 · Naiarha</div>
+        <div class="sb-version">v3.10 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -627,6 +627,8 @@
             </div>
           </div>
         </div>
+        <!-- Filtro rápido por centro de custo -->
+        <div id="lance-centro-pills" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:10px;scrollbar-width:none;-webkit-overflow-scrolling:touch"></div>
         <!-- Abas com totais -->
         <div id="lance-abas" style="display:flex;gap:0;overflow-x:auto;border-bottom:2px solid var(--border);margin-bottom:14px;scrollbar-width:none;-webkit-overflow-scrolling:touch"></div>
         <!-- Lista -->
@@ -887,6 +889,7 @@ let currentUser = null;
 let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos = [];
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
 let lanceAba = 'todas';
+let lanceCentroPill = ''; // '' = todos, ou centro_id
 let lanceFiltros = { desc:'', carteira:'', centro:'', categoria:'', forma:'' };
 let cartoes = [], cartaoAtual = null;
 let dividas = [], veiculos = [], abastecimentos = [], recorrentes = [], dividaParcelas = [], dividaConfirmacoes = [];
@@ -1400,6 +1403,16 @@ async function deleteMov(mid){
 // ════════════════════════════════════════════════
 function renderLancamentos(){
   const mesISO=isoMes(mesAtual);
+  // Pills de centro de custo
+  const pillsEl=$('lance-centro-pills');
+  if(pillsEl){
+    const todos=[{id:'',nome:'Todos',icone:'⊞'},...centros];
+    pillsEl.innerHTML=todos.map(c=>{
+      const ativo=lanceCentroPill===(c.id||'');
+      return`<button onclick="setLanceCentro('${c.id||''}')" style="flex-shrink:0;padding:5px 12px;border-radius:20px;border:1.5px solid ${ativo?'var(--accent)':'var(--border)'};background:${ativo?'var(--accent-bg)':'#fff'};color:${ativo?'var(--accent)':'var(--gray)'};font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">${c.icone||''} ${c.nome}</button>`;
+    }).join('');
+  }
+
   // Regra de exibição por mês:
   //  - PAGO: aparece no mês da data de pagamento
   //  - PENDENTE/AGENDADO: aparece no mês do vencimento
@@ -1409,7 +1422,8 @@ function renderLancamentos(){
       : (m.data_vencimento || m.data || '');
     return ref.startsWith(mesISO);
   };
-  let base=movsVisiveis().filter(noMes);
+  // Aplica pill de centro
+  let base=movsVisiveis().filter(m=>noMes(m)&&(lanceCentroPill===''||m.centro_id===lanceCentroPill));
 
   // Totais para as abas
   const todas=base;
@@ -1485,6 +1499,7 @@ function renderLancamentos(){
 }
 
 function setLanceAba(aba){lanceAba=aba;renderLancamentos();}
+function setLanceCentro(cid){lanceCentroPill=cid;renderLancamentos();}
 function setFilter(tipo){filterTipo=tipo;renderLancamentos();}
 
 function abrirFiltroLance(){
@@ -1724,7 +1739,31 @@ function buildSheetForm(preCartaoId){
   `;
   setTimeout(()=>$('sh-valor')?.focus(),100);
 }
-function setSheetTipo(t){sheetTipo=t;buildSheetForm();}
+function setSheetTipo(t){
+  sheetTipo=t;
+  if(t==='transferencia'){
+    // Form simplificado de transferência
+    const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.icone||'🏦'} ${w.nome}</option>`).join('');
+    $('sheet-body').innerHTML=`
+      <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="number" id="sh-valor" placeholder="0,00" step="0.01" inputmode="decimal"/></div>
+      <div class="form-mb field"><label>📅 Data da transferência *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
+      <div class="form-mb field"><label>De qual conta *</label>
+        <select id="sh-cart-origem"><option value="">Selecione…</option>${wOpts}</select>
+      </div>
+      <div class="form-mb field"><label>Para qual conta *</label>
+        <select id="sh-cart-destino"><option value="">Selecione…</option>${wOpts}</select>
+      </div>
+      <div class="tipo-btns" style="margin-bottom:14px">
+        <button class="tipo-btn saida" onclick="setSheetTipo('saida')" style="opacity:.6">▼ Saída</button>
+        <button class="tipo-btn entrada" onclick="setSheetTipo('entrada')" style="opacity:.6">▲ Entrada</button>
+        <button class="tipo-btn transf active">⇄ Transf.</button>
+      </div>
+      <button class="salvar-btn transf" onclick="salvarTransferencia()">Registrar transferência</button>
+    `;
+    return;
+  }
+  buildSheetForm();
+}
 function setSheetStatus(s){
   sheetStatus=s;
   // Atualiza visual dos botões sem reconstruir o form (preserva dados digitados)
@@ -1749,6 +1788,30 @@ function shToggleRecorrente(){
   if(dataLabel) dataLabel.textContent=rec?'📅 1º vencimento *':'📅 Vencimento *';
 }
 
+async function salvarTransferencia(){
+  const valor=parseFloat($('sh-valor')?.value);
+  const data=$('sh-venc')?.value;
+  const origem=$('sh-cart-origem')?.value;
+  const destino=$('sh-cart-destino')?.value;
+  if(!valor||isNaN(valor)){showToast('Informe o valor.','err');return;}
+  if(!data){showToast('Informe a data.','err');return;}
+  if(!origem){showToast('Selecione a conta de origem.','err');return;}
+  if(!destino){showToast('Selecione a conta de destino.','err');return;}
+  if(origem===destino){showToast('Origem e destino não podem ser iguais.','err');return;}
+  const nOrig=carteiras.find(w=>w.id===origem)?.nome||'?';
+  const nDest=carteiras.find(w=>w.id===destino)?.nome||'?';
+  const btn=document.querySelector('.salvar-btn');
+  if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+  // Gera dois lançamentos: saída da origem + entrada no destino
+  const grupoId=crypto.randomUUID();
+  const base={descricao:`Transferência ${nOrig} → ${nDest}`,valor,data,data_vencimento:data,status:'pago',tipo:'transferencia',grupo_parcelas:grupoId,origem:'manual'};
+  const[{error:e1},{error:e2}]=await Promise.all([
+    sb.from('fin_movimentacoes').insert([{...base,carteira_id:origem,tipo:'saida'}]),
+    sb.from('fin_movimentacoes').insert([{...base,carteira_id:destino,tipo:'entrada'}])
+  ]);
+  if(e1||e2){showToast('Erro ao registrar.','err');}
+  else{await loadAll();renderAll();closeSheet();showToast('Transferência registrada! ⇄');}
+}
 async function salvarLancamento(){
   const valor=parseFloat($('sh-valor')?.value), desc=$('sh-desc')?.value.trim();
   const venc=$('sh-venc')?.value;

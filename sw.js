@@ -42,7 +42,6 @@ self.addEventListener('fetch', e => {
       } catch (err) {
         console.error('[SW] Share target error:', err);
       }
-      // Redireciona para o app com flag de compartilhamento
       return Response.redirect('/fullfin/?share=1', 303);
     })());
     return;

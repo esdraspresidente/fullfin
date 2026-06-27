@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.10 · Naiarha</div>
+        <div class="sb-version">v3.11 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -761,8 +761,8 @@
             <span style="font-size:13px;font-weight:700;color:var(--blue)" id="lr-dizimo-sug">R$ 0,00</span>
           </div>
           <div class="form-grid-2">
-            <div class="field"><label>Dízimo pago (R$)</label><input type="number" id="lr-dizimo-pago" placeholder="0,00" step="0.01"/></div>
-            <div class="field"><label>Oferta paga (R$)</label><input type="number" id="lr-oferta-paga" placeholder="0,00" step="0.01"/></div>
+            <div class="field"><label>Dízimo pago (R$)</label><input type="text" data-money="1" id="lr-dizimo-pago" placeholder="0,00"/></div>
+            <div class="field"><label>Oferta paga (R$)</label><input type="text" data-money="1" id="lr-oferta-paga" placeholder="0,00"/></div>
           </div>
           <div class="field form-mb" style="margin-top:8px"><label>Observação</label><textarea id="lr-obs" placeholder="Ex: Culto, 22/06…" rows="2"></textarea></div>
           <button class="btn btn-primary" style="width:100%;padding:12px" onclick="salvarDizimo()">💾 Salvar registro</button>
@@ -823,15 +823,15 @@
     <div style="font-size:12px;color:var(--gray);margin-bottom:16px" id="mpar-sub">Divida a fatura em parcelas mensais</div>
 
     <div class="form-grid-2" style="margin-bottom:10px">
-      <div class="field"><label>Valor total da fatura (R$)</label><input type="number" id="mpar-total" placeholder="0,00" step="0.01" oninput="mparCalc()"/></div>
+      <div class="field"><label>Valor total da fatura (R$)</label><input type="text" data-money="1" id="mpar-total" placeholder="0,00" oninput="mparCalc()"/></div>
       <div class="field"><label>Nº total de parcelas</label><input type="number" id="mpar-n" placeholder="Ex: 10" min="2" max="60" oninput="mparCalc()"/></div>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
-      <div class="field"><label>Valor da entrada (1ª parcela)</label><input type="number" id="mpar-entrada" placeholder="0,00" step="0.01" oninput="mparCalc()"/></div>
+      <div class="field"><label>Valor da entrada (1ª parcela)</label><input type="text" data-money="1" id="mpar-entrada" placeholder="0,00" oninput="mparCalc()"/></div>
       <div class="field"><label>📆 Data da 1ª parcela</label><input type="date" id="mpar-data1"/></div>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
-      <div class="field"><label>Valor das demais parcelas (R$)</label><input type="number" id="mpar-demais" placeholder="0,00" step="0.01" oninput="mparRenderParcelas()"/></div>
+      <div class="field"><label>Valor das demais parcelas (R$)</label><input type="text" data-money="1" id="mpar-demais" placeholder="0,00" oninput="mparRenderParcelas()"/></div>
       <div class="field"></div>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
@@ -1203,7 +1203,7 @@ function buildSheetFormEdicao(m){
       <div class="field"><label>Data pagamento</label><input type="date" id="sh-data" value="${(m.data||'').split('T')[0]}"/></div>
       <div class="field"><label>Data vencimento</label><input type="date" id="sh-venc" value="${(m.data_vencimento||'').split('T')[0]}"/></div>
     </div>
-    <div class="valor-wrap" style="margin-bottom:12px"><span class="valor-prefix">R$</span><input class="valor-input" type="number" id="sh-valor" value="${m.valor||''}" step="0.01" inputmode="decimal"/></div>
+    <div class="valor-wrap" style="margin-bottom:12px"><span class="valor-prefix">R$</span><input class="valor-input" type="text" data-money="1" id="sh-valor" value="${m.valor||''}" inputmode="decimal"/></div>
     <div class="form-mb field"><label>Descrição *</label><input type="text" id="sh-desc" value="${(m.descricao||'').replace(/"/g,'&quot;')}"/></div>
     <div class="form-grid-2">
       <div class="field"><label>Conta</label><select id="sh-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
@@ -1244,7 +1244,7 @@ function abrirConfirmPagamento(mid, tipo){
     </div>
     <div class="form-grid-2" style="margin-bottom:12px">
       <div class="field"><label>Valor ${labelAcao==='Recebimento'?'recebido':'pago'} (R$)</label>
-        <input type="number" id="cpag-valor" value="${m.valor}" step="0.01" inputmode="decimal"/>
+        <input type="text" data-money="1" id="cpag-valor" value="${m.valor}" inputmode="decimal"/>
       </div>
       <div class="field"><label>Data do ${labelAcao}</label>
         <input type="date" id="cpag-data" value="${hoje}"/>
@@ -1276,7 +1276,7 @@ function abrirConfirmPagamento(mid, tipo){
 }
 
 async function confirmarPagamento(mid){
-  const valor=parseFloat($('cpag-valor')?.value);
+  const valor=getMaskValue($('cpag-valor'));
   const data=$('cpag-data')?.value;
   if(!data){showToast('Informe a data.','err');return;}
   const btn=document.querySelector('[onclick*="confirmarPagamento"]');
@@ -1298,7 +1298,7 @@ async function confirmarPagamento(mid){
 }
 
 async function salvarEdicaoMov(mid){
-  const valor=parseFloat($('sh-valor')?.value);
+  const valor=getMaskValue($('sh-valor'));
   const desc=($('sh-desc')?.value||'').trim();
   const data=$('sh-data')?.value||null;
   const venc=$('sh-venc')?.value||null;
@@ -1631,7 +1631,7 @@ function openSheetCarteira(cid){
   $('sheet-body').innerHTML=`
     <div class="form-mb field"><label>Nome *</label><input type="text" id="crt-nome" placeholder="Ex: C6 Naiarha" value="${c?.nome||''}"/></div>
     <div class="form-mb field"><label>Banco / Descrição</label><input type="text" id="crt-banco" placeholder="Ex: C6 Bank, Nubank…" value="${c?.banco||''}"/></div>
-    <div class="form-mb field"><label>Saldo inicial (R$)</label><input type="number" id="crt-saldo" placeholder="0,00" step="0.01" value="${c?.saldo_inicial||''}"/></div>
+    <div class="form-mb field"><label>Saldo inicial (R$)</label><input type="text" data-money="1" id="crt-saldo" placeholder="0,00" value="${c?.saldo_inicial||''}"/></div>
     <div class="form-mb field"><label>Centro de custo</label>
       <select id="crt-centro"><option value="">Geral (sem centro específico)</option>${centroOpts}</select>
     </div>
@@ -1647,7 +1647,7 @@ function openSheetCarteira(cid){
 
 async function salvarCarteira(cid){
   const nome=$('crt-nome')?.value.trim(); if(!nome){showToast('Informe o nome.','err');return;}
-  const payload={nome,banco:$('crt-banco').value||null,saldo_inicial:parseFloat($('crt-saldo').value)||0,centro_id:$('crt-centro').value||null,icone:$('crt-icone').value||'🏦',cor:$('crt-cor').value||'#D1FAE5',ativo:true};
+  const payload={nome,banco:$('crt-banco').value||null,saldo_inicial:getMaskValue($('crt-saldo'))||0,centro_id:$('crt-centro').value||null,icone:$('crt-icone').value||'🏦',cor:$('crt-cor').value||'#D1FAE5',ativo:true};
   let error;
   if(cid){({error}=await sb.from('fin_carteiras').update(payload).eq('id',cid));}
   else{({error}=await sb.from('fin_carteiras').insert([payload]));}
@@ -1674,7 +1674,7 @@ function buildSheetForm(preCartaoId){
       <button class="tipo-btn entrada${sheetTipo==='entrada'?' active':''}" onclick="setSheetTipo('entrada')">▲ Entrada</button>
       <button class="tipo-btn transf${sheetTipo==='transferencia'?' active':''}" onclick="setSheetTipo('transferencia')">⇄ Transf.</button>
     </div>
-    <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="number" id="sh-valor" placeholder="0,00" step="0.01" inputmode="decimal"/></div>
+    <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="text" data-money="1" id="sh-valor" placeholder="0,00" inputmode="decimal"/></div>
     <div class="form-grid-2" style="margin-bottom:10px">
       <div class="field form-full"><label>Descrição *</label><input type="text" id="sh-desc" placeholder="Ex: Conta de luz…"/></div>
       <div class="field"><label>Categoria</label><select id="sh-cat"><option value="">Sem categoria</option>${catOpts}</select></div>
@@ -1745,7 +1745,7 @@ function setSheetTipo(t){
     // Form simplificado de transferência
     const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.icone||'🏦'} ${w.nome}</option>`).join('');
     $('sheet-body').innerHTML=`
-      <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="number" id="sh-valor" placeholder="0,00" step="0.01" inputmode="decimal"/></div>
+      <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="text" data-money="1" id="sh-valor" placeholder="0,00" inputmode="decimal"/></div>
       <div class="form-mb field"><label>📅 Data da transferência *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
       <div class="form-mb field"><label>De qual conta *</label>
         <select id="sh-cart-origem"><option value="">Selecione…</option>${wOpts}</select>
@@ -1789,7 +1789,7 @@ function shToggleRecorrente(){
 }
 
 async function salvarTransferencia(){
-  const valor=parseFloat($('sh-valor')?.value);
+  const valor=getMaskValue($('sh-valor'));
   const data=$('sh-venc')?.value;
   const origem=$('sh-cart-origem')?.value;
   const destino=$('sh-cart-destino')?.value;
@@ -1813,7 +1813,7 @@ async function salvarTransferencia(){
   else{await loadAll();renderAll();closeSheet();showToast('Transferência registrada! ⇄');}
 }
 async function salvarLancamento(){
-  const valor=parseFloat($('sh-valor')?.value), desc=$('sh-desc')?.value.trim();
+  const valor=getMaskValue($('sh-valor')), desc=$('sh-desc')?.value.trim();
   const venc=$('sh-venc')?.value;
   const dataPag=(sheetStatus==='pago')?($('sh-data')?.value||venc):null;
   if(!valor||isNaN(valor)){showToast('Informe o valor.','err');return;}
@@ -2063,8 +2063,8 @@ function renderLucroReal(){
 async function salvarDizimo(){
   const mes=$('lr-mes')?.value||mesAtualISO();
   const lr=calcLucroReal(mes);
-  const dizimoPago=parseFloat($('lr-dizimo-pago')?.value)||0;
-  const ofertaPaga=parseFloat($('lr-oferta-paga')?.value)||0;
+  const dizimoPago=getMaskValue($('lr-dizimo-pago'))||0;
+  const ofertaPaga=getMaskValue($('lr-oferta-paga'))||0;
   if(!dizimoPago&&!ofertaPaga){showToast('Informe pelo menos um valor.','err');return;}
   const{error}=await sb.from('fin_dizimos').insert([{
     data:new Date().toISOString().split('T')[0], periodo_referencia:mes,
@@ -2273,7 +2273,7 @@ function openSheetDivida(did){
     </div>
     <div id="div-bloco-parcelas" style="display:${modoAtual==='parcelas'?'block':'none'}">
       <div class="form-grid-2">
-        <div class="field"><label>Valor da parcela (R$)</label><input type="number" id="div-parcela" placeholder="0,00" step="0.01" value="${d?.valor_parcela||''}"/></div>
+        <div class="field"><label>Valor da parcela (R$)</label><input type="text" data-money="1" id="div-parcela" placeholder="0,00" value="${d?.valor_parcela||''}"/></div>
         <div class="field"><label>Nº de parcelas</label><input type="number" id="div-n" placeholder="Ex: 24" value="${d?.n_parcelas||''}"/></div>
       </div>
       <div class="form-grid-2" style="margin-top:10px">
@@ -2283,7 +2283,7 @@ function openSheetDivida(did){
     </div>
     <div id="div-bloco-livre" style="display:${modoAtual==='livre'?'block':'none'}">
       <div class="form-grid-2">
-        <div class="field"><label>Valor total da dívida (R$) *</label><input type="number" id="div-valor-total" placeholder="Ex: 15000" step="0.01" value="${d?.valor_total||''}"/></div>
+        <div class="field"><label>Valor total da dívida (R$) *</label><input type="text" data-money="1" id="div-valor-total" placeholder="Ex: 15000" value="${d?.valor_total||''}"/></div>
         <div class="field"><label>Data de início *</label><input type="date" id="div-inicio-livre" value="${d?.data_inicio?.split('T')[0]||''}"/></div>
       </div>
     </div>
@@ -2330,8 +2330,8 @@ async function salvarDivida(did){
   const payload={
     descricao:desc, tipo:$('div-tipo').value,
     tipo_controle:modo,
-    valor_total:modo==='livre'?(parseFloat($('div-valor-total')?.value)||0):null,
-    valor_parcela:modo==='parcelas'?(parseFloat($('div-parcela')?.value)||0):0,
+    valor_total:modo==='livre'?(getMaskValue($('div-valor-total'))||0):null,
+    valor_parcela:modo==='parcelas'?(getMaskValue($('div-parcela'))||0):0,
     n_parcelas:modo==='parcelas'?(parseInt($('div-n')?.value)||1):0,
     parcelas_pagas:modo==='parcelas'?(parseInt($('div-pagas')?.value)||0):0,
     taxa_juros:0,
@@ -2370,7 +2370,7 @@ async function registrarPagamentoDivida(did){
       <select id="dpag-num">${parOpts}</select>
     </div>
     <div class="form-grid-2">
-      <div class="field"><label>Valor pago (R$) *</label><input type="number" id="dpag-valor" value="${d.valor_parcela}" step="0.01" oninput="dpagCalcEconomia('${d.id}')"/></div>
+      <div class="field"><label>Valor pago (R$) *</label><input type="text" data-money="1" id="dpag-valor" value="${d.valor_parcela}" oninput="dpagCalcEconomia('${d.id}')"/></div>
       <div class="field"><label>Valor original</label><input type="number" id="dpag-original" value="${d.valor_parcela}" step="0.01" readonly style="background:#F3F4F6;font-weight:700"/></div>
     </div>
     <div id="dpag-economia-wrap" style="display:none;background:#D1FAE5;border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;color:#065F46;font-weight:700"></div>
@@ -2408,7 +2408,7 @@ function abrirPagamentoLivre(did){
       </div>
     </div>
     <div class="form-grid-2">
-      <div class="field"><label>Valor pago agora (R$) *</label><input type="number" id="dpag-livre-valor" placeholder="0,00" step="0.01"/></div>
+      <div class="field"><label>Valor pago agora (R$) *</label><input type="text" data-money="1" id="dpag-livre-valor" placeholder="0,00"/></div>
       <div class="field"><label>Data do pagamento *</label><input type="date" id="dpag-livre-data" value="${new Date().toISOString().split('T')[0]}"/></div>
     </div>
     <div class="form-mb field" style="margin-top:10px"><label>De qual conta</label><select id="dpag-livre-carteira"><option value="">Selecione…</option>${wOpts}</select></div>
@@ -2430,7 +2430,7 @@ function abrirPagamentoLivre(did){
 
 async function confirmarPagamentoLivre(did, saldoAnteriorStr){
   const d=dividas.find(x=>x.id===did); if(!d) return;
-  const valor=parseFloat($('dpag-livre-valor')?.value)||0;
+  const valor=getMaskValue($('dpag-livre-valor'))||0;
   const data=$('dpag-livre-data')?.value;
   if(!valor){showToast('Informe o valor pago.','err');return;}
   if(!data){showToast('Informe a data.','err');return;}
@@ -2507,7 +2507,7 @@ async function removerConfirmacao(cid){
 }
 
 function dpagCalcEconomia(did){
-  const pago=parseFloat($('dpag-valor')?.value)||0;
+  const pago=getMaskValue($('dpag-valor'))||0;
   const original=parseFloat(d.valor_parcela)||0;
   const economia=original-pago;
   const wrap=$('dpag-economia-wrap'); if(!wrap) return;
@@ -2519,7 +2519,7 @@ function dpagCalcEconomia(did){
 async function confirmarPagamentoDivida(did){
   const d=dividas.find(x=>x.id===did); if(!d) return;
   const numParcela=parseInt($('dpag-num')?.value);
-  const valorPago=parseFloat($('dpag-valor')?.value)||0;
+  const valorPago=getMaskValue($('dpag-valor'))||0;
   const valorOriginal=parseFloat(d.valor_parcela)||0;
   const data=$('dpag-data')?.value||new Date().toISOString().split('T')[0];
   if(!numParcela){showToast('Selecione a parcela.','err');return;}
@@ -2590,7 +2590,7 @@ async function confirmarPagamentoDivida(did){
 async function confirmarPagamentoDivida(did){
   const d=dividas.find(x=>x.id===did); if(!d) return;
   const numParcela=parseInt($('dpag-num')?.value);
-  const valorPago=parseFloat($('dpag-valor')?.value)||0;
+  const valorPago=getMaskValue($('dpag-valor'))||0;
   const valorOriginal=parseFloat(d.valor_parcela)||0;
   const data=$('dpag-data')?.value||new Date().toISOString().split('T')[0];
   if(!numParcela){showToast('Selecione a parcela.','err');return;}
@@ -2751,10 +2751,10 @@ function openSheetAbastecimento(vid){
       <div class="field"><label>Km odômetro atual</label><input type="number" id="ab-km" placeholder="Ex: 45320" value="" oninput="abCalc()"/></div>
     </div>
     <div class="form-grid-2">
-      <div class="field"><label>Litros abastecidos</label><input type="number" id="ab-litros" placeholder="0,00" step="0.01" oninput="abCalc()"/></div>
-      <div class="field"><label>Preço por litro (R$)</label><input type="number" id="ab-preco" placeholder="6,99" step="0.01" oninput="abCalc()"/></div>
+      <div class="field"><label>Litros abastecidos</label><input type="text" data-money="1" id="ab-litros" placeholder="0,00" oninput="abCalc()"/></div>
+      <div class="field"><label>Preço por litro (R$)</label><input type="text" data-money="1" id="ab-preco" placeholder="6,99" oninput="abCalc()"/></div>
     </div>
-    <div class="form-mb field"><label>Valor total (R$)</label><input type="number" id="ab-total" placeholder="0,00" step="0.01"/></div>
+    <div class="form-mb field"><label>Valor total (R$)</label><input type="text" data-money="1" id="ab-total" placeholder="0,00"/></div>
     <div class="form-mb field"><label>Posto</label><input type="text" id="ab-posto" placeholder="Nome do posto (opcional)"/></div>
     ${ultimoKm?`<div style="font-size:11px;color:var(--gray);margin-bottom:8px">Último km registrado: ${ultimoKm.toLocaleString('pt-BR')}</div>`:''}
     <div id="ab-preview" style="display:none;background:var(--accent-bg);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--text)"></div>
@@ -2764,8 +2764,8 @@ function openSheetAbastecimento(vid){
 }
 
 function abCalc(){
-  const litros=parseFloat($('ab-litros')?.value)||0;
-  const preco=parseFloat($('ab-preco')?.value)||0;
+  const litros=getMaskValue($('ab-litros'))||0;
+  const preco=getMaskValue($('ab-preco'))||0;
   if(litros&&preco) $('ab-total').value=(litros*preco).toFixed(2);
   const km=parseFloat($('ab-km')?.value)||0;
   const prev=$('ab-preview');
@@ -2774,10 +2774,10 @@ function abCalc(){
 
 async function salvarAbastecimento(vid, ultimoKm){
   const data=$('ab-data')?.value; if(!data){showToast('Informe a data.','err');return;}
-  const total=parseFloat($('ab-total')?.value)||0; if(!total){showToast('Informe o valor.','err');return;}
+  const total=getMaskValue($('ab-total'))||0; if(!total){showToast('Informe o valor.','err');return;}
   const kmAtual=parseFloat($('ab-km')?.value)||null;
-  const litros=parseFloat($('ab-litros')?.value)||null;
-  const preco=parseFloat($('ab-preco')?.value)||null;
+  const litros=getMaskValue($('ab-litros'))||null;
+  const preco=getMaskValue($('ab-preco'))||null;
   const kmRodados=kmAtual&&ultimoKm?(kmAtual-parseFloat(ultimoKm)):null;
   const custoPorKm=kmRodados&&kmRodados>0?(total/kmRodados):null;
   const payload={veiculo_id:vid,data,litros,valor_total:total,preco_litro:preco,km_odometro:kmAtual,km_rodados:kmRodados,custo_por_km:custoPorKm,posto:$('ab-posto')?.value||null,centro_id:veiculos.find(v=>v.id===vid)?.centro_id||null};
@@ -2912,7 +2912,7 @@ function openSheetRecorrente(rid){
           <option value="entrada"${r?.tipo==='entrada'?' selected':''}>▲ Entrada</option>
         </select>
       </div>
-      <div class="field"><label>Valor (R$)</label><input type="number" id="rec-valor" placeholder="0,00" step="0.01" value="${r?.valor||''}"/></div>
+      <div class="field"><label>Valor (R$)</label><input type="text" data-money="1" id="rec-valor" placeholder="0,00" value="${r?.valor||''}"/></div>
     </div>
     <div class="form-grid-2">
       <div class="field"><label>Dia vencimento</label><input type="number" id="rec-dia" placeholder="Ex: 10" min="1" max="31" value="${r?.dia_vencimento||''}"/></div>
@@ -2938,7 +2938,7 @@ function openSheetRecorrente(rid){
 
 async function salvarRecorrente(rid){
   const desc=$('rec-desc')?.value.trim(); if(!desc){showToast('Informe a descrição.','err');return;}
-  const valor=parseFloat($('rec-valor')?.value)||0; if(!valor){showToast('Informe o valor.','err');return;}
+  const valor=getMaskValue($('rec-valor'))||0; if(!valor){showToast('Informe o valor.','err');return;}
   const payload={descricao:desc,tipo:$('rec-tipo').value,valor,dia_vencimento:parseInt($('rec-dia').value)||null,categoria_id:$('rec-cat').value||null,centro_id:$('rec-centro').value||null,carteira_id:$('rec-carteira').value||null,forma_pagamento:$('rec-forma').value||null};
   let error;
   if(rid){({error}=await sb.from('fin_recorrentes').update(payload).eq('id',rid));}
@@ -3067,7 +3067,7 @@ function openSheetCartao(cid) {
           <option value="Hipercard"${c?.bandeira==='Hipercard'?' selected':''}>Hipercard</option>
         </select>
       </div>
-      <div class="field"><label>Limite (R$)</label><input type="number" id="ctao-limite" placeholder="0,00" step="0.01" value="${c?.limite||''}"/></div>
+      <div class="field"><label>Limite (R$)</label><input type="text" data-money="1" id="ctao-limite" placeholder="0,00" value="${c?.limite||''}"/></div>
     </div>
     <div class="form-grid-2">
       <div class="field"><label>Dia fechamento</label><input type="number" id="ctao-fecha" placeholder="Ex: 20" min="1" max="31" value="${c?.dia_fechamento||''}"/></div>
@@ -3087,7 +3087,7 @@ async function salvarCartao(cid) {
   const nome=$('ctao-nome')?.value.trim(); if(!nome){showToast('Informe o nome.','err');return;}
   const payload={
     nome, bandeira:$('ctao-bandeira').value||'Visa',
-    limite:parseFloat($('ctao-limite').value)||0,
+    limite:getMaskValue($('ctao-limite'))||0,
     dia_fechamento:parseInt($('ctao-fecha').value)||null,
     dia_vencimento:parseInt($('ctao-vence').value)||null,
     carteira_pagamento_id:$('ctao-carteira').value||null
@@ -3142,9 +3142,9 @@ function abrirParcelarFatura(cid) {
 function closeModalParcelar(){$('modal-parcelar').classList.add('hidden');mparCartaoId=null;mparParcelas=[];}
 
 function mparCalc() {
-  const total=parseFloat($('mpar-total')?.value)||0;
+  const total=getMaskValue($('mpar-total'))||0;
   const n=parseInt($('mpar-n')?.value)||0;
-  const entrada=parseFloat($('mpar-entrada')?.value)||0;
+  const entrada=getMaskValue($('mpar-entrada'))||0;
   if(!n||n<1) return;
   if(n===1){$('mpar-demais').value='';mparRenderParcelas();return;}
   // Sugere valor das demais
@@ -3156,8 +3156,8 @@ function mparCalc() {
 
 function mparRenderParcelas() {
   const n=parseInt($('mpar-n')?.value)||0;
-  const entrada=parseFloat($('mpar-entrada')?.value)||0;
-  const demais=parseFloat($('mpar-demais')?.value)||0;
+  const entrada=getMaskValue($('mpar-entrada'))||0;
+  const demais=getMaskValue($('mpar-demais'))||0;
   const data1=$('mpar-data1')?.value;
   if(!n||!data1) return;
   // Gera array de parcelas
@@ -3176,7 +3176,7 @@ function mparRenderParcelas() {
   $('mpar-parcelas-lista').innerHTML=mparParcelas.map((p,i)=>`
     <div class="parcela-edit-row">
       <span class="parcela-num">${p.num}ª</span>
-      <input class="parcela-edit-input" type="number" value="${p.valor.toFixed(2)}" step="0.01" 
+      <input class="parcela-edit-input" type="text" data-money="1" value="${p.valor.toFixed(2)}" 
         onchange="mparParcelas[${i}].valor=parseFloat(this.value)||0;mparAtualizaResumo()" placeholder="Valor"/>
       <input class="parcela-date-input" type="date" value="${p.data}"
         onchange="mparParcelas[${i}].data=this.value"/>
@@ -3187,7 +3187,7 @@ function mparRenderParcelas() {
 
 function mparAtualizaResumo(){
   const total=mparParcelas.reduce((s,p)=>s+parseFloat(p.valor||0),0);
-  const faturaOrig=parseFloat($('mpar-total')?.value)||0;
+  const faturaOrig=getMaskValue($('mpar-total'))||0;
   const juros=total-faturaOrig;
   $('mpar-resumo').innerHTML=`Total parcelado: <b>${fmt(total)}</b>${juros>0?` · Juros: <b>+${fmt(juros)}</b>`:''}`;
   $('mpar-confirmar').disabled=mparParcelas.length===0||!$('mpar-carteira')?.value;
@@ -3298,7 +3298,7 @@ function showShareModal() {
             style="flex:1;padding:9px;border-radius:10px;border:2px solid var(--border);background:#fff;color:var(--gray);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">▲ Entrada</button>
         </div>
         <div class="form-grid-2" style="margin-bottom:8px">
-          <div class="field"><label>Valor (R$) *</label><input type="number" id="snl-valor" placeholder="0,00" step="0.01" inputmode="decimal"/></div>
+          <div class="field"><label>Valor (R$) *</label><input type="text" data-money="1" id="snl-valor" placeholder="0,00" inputmode="decimal"/></div>
           <div class="field"><label>Data *</label><input type="date" id="snl-data" value="${new Date().toISOString().split('T')[0]}"/></div>
         </div>
         <div class="form-mb field"><label>Descrição *</label><input type="text" id="snl-desc" placeholder="Ex: Pagamento aluguel…"/></div>
@@ -3390,7 +3390,7 @@ async function salvarShareComprovante() {
       if (error) throw error;
       showToast('✅ Comprovante salvo!');
     } else {
-      const valor=parseFloat($('snl-valor')?.value);
+      const valor=getMaskValue($('snl-valor'));
       const desc=($('snl-desc')?.value||'').trim();
       const data=$('snl-data')?.value;
       if(!valor||!desc||!data){ showToast('Preencha valor, descrição e data.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
@@ -3588,6 +3588,76 @@ async function deleteCategoria(catId) {
       await loadAll(); renderConfig(); showToast('Removida.','info');
     }, 'Remover');
   }, 300);
+}
+
+// ════════════════════════════════════════════════
+//  MÁSCARA DE MOEDA
+// ════════════════════════════════════════════════
+function _fmtCentavos(c){
+  const reais=Math.floor(c/100);
+  const cents=c%100;
+  return reais.toLocaleString('pt-BR')+','+String(cents).padStart(2,'0');
+}
+
+function getMaskValue(el){
+  if(!el) return 0;
+  if(el._maskActive) return el._maskCents/100;
+  // Não mascarado ainda — parse do valor exibido
+  const v=(el.value||'').trim().replace(/\./g,'').replace(',','.');
+  return parseFloat(v)||0;
+}
+
+function applyMaskMoeda(el, valorInicial){
+  if(!el||el._maskApplied) return;
+  el._maskApplied=true;
+  el.type='text';
+  el.setAttribute('inputmode','decimal');
+  el.autocomplete='off';
+  el._maskActive=false;
+  el._maskCents=0;
+  // Se valorInicial não passado, tenta ler do value atual do campo
+  const src=valorInicial!==undefined?valorInicial:el.value;
+  if(src!==undefined&&src!==null&&src!==''){
+    const n=parseFloat(String(src).replace(/\./g,'').replace(',','.'))||0;
+    if(n>0){
+      el.value=n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+      el._maskCents=Math.round(n*100);
+    } else {
+      el.value='';
+    }
+  }
+  el.addEventListener('keydown',e=>{
+    if(e.key>='0'&&e.key<='9'){
+      e.preventDefault();
+      if(!el._maskActive){el._maskCents=0;el._maskActive=true;}
+      el._maskCents=el._maskCents*10+parseInt(e.key);
+      if(el._maskCents>9999999999) return;
+      el.value=_fmtCentavos(el._maskCents);
+    } else if(e.key==='Backspace'){
+      e.preventDefault();
+      el._maskActive=true;
+      el._maskCents=Math.floor(el._maskCents/10);
+      el.value=el._maskCents>0?_fmtCentavos(el._maskCents):'';
+    } else if(e.key==='Delete'){
+      e.preventDefault();
+      el._maskCents=0;el._maskActive=true;el.value='';
+    }
+  });
+  el.addEventListener('paste',e=>{
+    e.preventDefault();
+    const digits=(e.clipboardData||window.clipboardData).getData('text').replace(/\D/g,'');
+    if(digits){
+      el._maskCents=Math.min(parseInt(digits),9999999999);
+      el._maskActive=true;
+      el.value=_fmtCentavos(el._maskCents);
+    }
+  });
+}
+
+function applyAllMoneyMasks(){
+  document.querySelectorAll('[data-money="1"]').forEach(el=>{
+    if(!el._maskApplied) applyMaskMoeda(el);
+  });
 }
 
 // ════════════════════════════════════════════════

@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.16 · Naiarha</div>
+        <div class="sb-version">v3.17 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -2094,8 +2094,20 @@ async function salvarDizimo(){
 }
 function renderDizimoHistorico(){
   const el=$('dizimo-historico'); if(!el) return;
-  if(!dizimos.length){el.innerHTML='<div style="text-align:center;padding:20px;color:var(--gray);font-size:13px">Nenhum registro ainda</div>';return;}
-  el.innerHTML=dizimos.map(d=>{
+
+  // Categorias marcadas como dízimo/oferta (nome contém "dízimo", "dizimo", "oferta")
+  const catsDizimo = categorias.filter(c =>
+    /d[ií]zimo|oferta/i.test(c.nome)
+  );
+  const catIds = new Set(catsDizimo.map(c=>c.id));
+
+  // Lançamentos avulsos com essas categorias
+  const lancsDizimo = movsVisiveis().filter(m =>
+    m.categoria_id && catIds.has(m.categoria_id)
+  ).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+
+  // Histórico formal (fin_dizimos)
+  const formalHtml = dizimos.length ? dizimos.map(d=>{
     const[y,m]=d.periodo_referencia.split('-');
     const nome=MESES[parseInt(m)-1]+' '+y;
     const total=parseFloat(d.valor_dizimo_pago||0)+parseFloat(d.valor_oferta_pago||0);
@@ -2105,6 +2117,7 @@ function renderDizimoHistorico(){
         <div style="font-size:13px;font-weight:700;color:var(--text)">${nome}</div>
         <div style="font-size:11px;color:var(--gray);margin-top:2px">Lucro: ${fmt(d.lucro_real)} · Sug: ${fmt(d.valor_dizimo_sugerido)}</div>
         ${diff>0.01?`<div style="font-size:11px;color:var(--red);margin-top:2px">⚠️ Faltou ${fmt(diff)}</div>`:`<div style="font-size:11px;color:var(--accent);margin-top:2px">✓ Em dia</div>`}
+        ${d.observacao?`<div style="font-size:11px;color:var(--gray);margin-top:2px;font-style:italic">${d.observacao}</div>`:''}
       </div>
       <div style="text-align:right">
         <div style="font-size:14px;font-weight:800;color:var(--blue)">${fmt(total)}</div>
@@ -2112,7 +2125,32 @@ function renderDizimoHistorico(){
         <button class="btn btn-danger" style="padding:4px 8px;font-size:10px;margin-top:4px" onclick="deleteDizimo('${d.id}')">✕</button>
       </div>
     </div>`;
-  }).join('');
+  }).join('') : '';
+
+  // Lançamentos avulsos
+  const avulsosHtml = lancsDizimo.length ? `
+    <div style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.6px;padding:12px 0 6px;border-top:1px solid var(--border2);margin-top:8px">
+      📋 Lançamentos avulsos
+    </div>
+    ${lancsDizimo.map(m=>{
+      const cat = categorias.find(c=>c.id===m.categoria_id);
+      return`<div class="dizimo-hist-item">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--text)">${m.descricao}</div>
+          <div style="font-size:11px;color:var(--gray);margin-top:2px">${fmtDate(m.data||m.data_vencimento)} · ${cat?.icone||''} ${cat?.nome||''}</div>
+        </div>
+        <div style="text-align:right;display:flex;align-items:center;gap:8px">
+          <div style="font-size:14px;font-weight:800;color:var(--blue)">${fmt(m.valor)}</div>
+          ${m.comprovante_url?`<button onclick="abrirComprovante('${m.comprovante_url}')" style="background:#F5F3FF;border:1px solid #DDD6FE;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px;color:var(--accent)">📎</button>`:''}
+        </div>
+      </div>`;
+    }).join('')}` : '';
+
+  if(!dizimos.length && !lancsDizimo.length){
+    el.innerHTML='<div style="text-align:center;padding:20px;color:var(--gray);font-size:13px">Nenhum registro ainda</div>';
+    return;
+  }
+  el.innerHTML = formalHtml + avulsosHtml;
 }
 async function deleteDizimo(did){
   openConfirm('Remover registro?','Esta ação não pode ser desfeita.',async()=>{

@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-title" content="Fullfin"/>
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="theme-color" content="#064E3B"/>
-  <title>Fullfin v3.16 — Controle Financeiro</title>
+  <title>Fullfin — Controle Financeiro</title>
   <link rel="manifest" href="manifest.json"/>
   <link rel="apple-touch-icon" href="icon-192.png"/>
   <link rel="icon" href="icon-192.png"/>
@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.15 · Naiarha</div>
+        <div class="sb-version">v3.16 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -878,8 +878,6 @@
     </div>
   </div>
 </div>
-
-<div id="share-modal"></div>
 
 <div id="comp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:800;flex-direction:column;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)fecharComp()">
   <div style="background:#fff;border-radius:16px;width:100%;max-width:560px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.35)">
@@ -2483,15 +2481,19 @@ async function confirmarPagamentoLivre(did, saldoAnteriorStr){
   }]);
   if(e2){showToast('Erro ao registrar confirmação. Verifique RLS.','err');if(btn){btn.textContent='💰 Registrar pagamento';btn.disabled=false;}return;}
 
-  // Tenta enviar email em background — silencioso, não bloqueia nem notifica
+  // 3. Tenta enviar email (opcional — falha não bloqueia o registro)
   if(d.envia_confirmacao && d.credor_email){
-    fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')},
-      body:JSON.stringify({divida_id:did,valor_pago:valor,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao,credor_email:d.credor_email,token})
-    }).catch(()=>{});
+    try{
+      await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')},
+        body:JSON.stringify({divida_id:did,valor_pago:valor,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao,credor_email:d.credor_email,token})
+      });
+      showToast('✅ Pago! Email enviado para confirmação 📧');
+    }catch(e){showToast('✅ Pago! (email não enviado)','info');}
+  } else {
+    showToast('✅ Pagamento registrado!');
   }
-  showToast('✅ Pago! Lançamento criado em Lançamentos.');
   await loadAll(); renderDividas(); closeSheet();
 }
 
@@ -2563,21 +2565,38 @@ async function confirmarPagamentoDivida(did){
   const novasPagas=dividaParcelas.filter(p=>p.divida_id===did).length+1;
   await sb.from('fin_dividas').update({parcelas_pagas:novasPagas,ativo:novasPagas<d.n_parcelas}).eq('id',did);
 
-  // Dispara email em background — silencioso
+  // Se dívida tem confirmação bilateral, dispara email para o credor
   if(d.envia_confirmacao) {
     const pagas2=dividaParcelas.filter(p=>p.divida_id===did);
     const totalPagoAnterior=pagas2.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
     const saldoOriginal=parseFloat(d.valor_total||0)||(d.n_parcelas*parseFloat(d.valor_parcela||0));
     const saldoAnterior=saldoOriginal-totalPagoAnterior;
     const saldoNovo=Math.max(0,saldoAnterior-valorPago);
-    fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')},
-      body:JSON.stringify({divida_id:did,valor_pago:valorPago,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao})
-    }).catch(()=>{});
+    try {
+      const resp = await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
+        method:'POST',
+        headers:{
+          'Content-Type':'application/json',
+          'Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')
+        },
+        body:JSON.stringify({
+          divida_id:did,
+          valor_pago:valorPago,
+          saldo_anterior:saldoAnterior,
+          saldo_novo:saldoNovo,
+          data_pagamento:data,
+          descricao_divida:d.descricao
+        })
+      });
+      if(resp.ok) showToast('✅ Pago! Email enviado para confirmação 📧');
+      else showToast('✅ Pago! (falha ao enviar email)','info');
+    } catch(e) {
+      showToast('✅ Pago! (email não enviado)','info');
+    }
+  } else {
+    const economia=valorOriginal-valorPago;
+    showToast(economia>0?`✅ Pago! Você economizou ${fmt(economia)}`:'✅ Pagamento registrado!');
   }
-  const economia=valorOriginal-valorPago;
-  showToast(economia>0?`✅ Pago! Lançamento criado. Você economizou ${fmt(economia)}`:'✅ Pago! Lançamento criado em Lançamentos.');
 
   await loadAll(); renderDividas(); closeSheet();
 }
@@ -2618,20 +2637,23 @@ async function confirmarPagamentoDivida(did){
   if(e1||e2){showToast('Erro ao registrar.','err');return;}
   const novasPagas=dividaParcelas.filter(p=>p.divida_id===did).length+1;
   await sb.from('fin_dividas').update({parcelas_pagas:novasPagas,ativo:novasPagas<d.n_parcelas}).eq('id',did);
-  // Dispara email em background — silencioso
   if(d.envia_confirmacao && d.credor_email){
     const totalPagoAnterior=dividaParcelas.filter(p=>p.divida_id===did).reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
     const saldoOriginal=d.n_parcelas*parseFloat(d.valor_parcela||0);
     const saldoAnterior=saldoOriginal-totalPagoAnterior;
     const saldoNovo=Math.max(0,saldoAnterior-valorPago);
-    fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')},
-      body:JSON.stringify({divida_id:did,valor_pago:valorPago,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao,credor_email:d.credor_email})
-    }).catch(()=>{});
+    try{
+      await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')},
+        body:JSON.stringify({divida_id:did,valor_pago:valorPago,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao,credor_email:d.credor_email})
+      });
+      showToast('✅ Pago! Email enviado para confirmação 📧');
+    }catch(e){showToast('✅ Pago! (email não enviado)','info');}
+  } else {
+    const economia=valorOriginal-valorPago;
+    showToast(economia>0?`✅ Pago! Você economizou ${fmt(economia)}`:'✅ Pagamento registrado!');
   }
-  const economia=valorOriginal-valorPago;
-  showToast(economia>0?`✅ Pago! Lançamento criado. Você economizou ${fmt(economia)}`:'✅ Pago! Lançamento criado em Lançamentos.');
   await loadAll(); renderDividas(); closeSheet();
 }
 
@@ -2741,35 +2763,9 @@ function openSheetAbastecimento(vid, aid){
   const a=aid?abastecimentos.find(x=>x.id===aid):null;
   const ultimos=abastecimentos.filter(x=>x.veiculo_id===vid);
   const ultimoKm=ultimos.length?parseFloat(ultimos[0].km_odometro||0):0;
-
-  // Busca movimentação vinculada para preencher campos extras no modo editar
-  const linkedMov=a?movimentacoes.find(m=>
-    m.descricao===`Abastecimento — ${v.nome}`&&
-    (m.data||'').startsWith((a.data||'').split('T')[0])
-  ):null;
-
-  // Categoria — auto-seleciona Combustível se não estiver editando
-  const catCombustivel=categorias.find(c=>(c.tipo==='saida'||c.tipo==='ambos')&&c.nome.toLowerCase().includes('combustív'));
-  const catSelecionada=a?(linkedMov?.categoria_id||a.categoria_id||null):(catCombustivel?.id||null);
+  // Categorias de saída (combustível, manutenção, etc.)
   const catOpts=categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos')
-    .map(c=>`<option value="${c.id}"${c.id===catSelecionada?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
-
-  // Centro de custo — auto-seleciona o do veículo
-  const centroDefault=a?(linkedMov?.centro_id||v.centro_id||''):(v.centro_id||'');
-  const centroOpts=centros.map(c=>`<option value="${c.id}"${c.id===centroDefault?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
-
-  // Conta (carteira)
-  const carteiraDefault=linkedMov?.carteira_id||'';
-  const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}"${w.id===carteiraDefault?' selected':''}>${w.icone||'🏦'} ${w.nome}</option>`).join('');
-
-  // Forma de pagamento
-  const formaDefault=linkedMov?.forma_pagamento||'';
-  const formaOpts=[['Pix','💸 Pix'],['Boleto','📄 Boleto / Código de barras'],
-    ['Débito','💳 Débito'],['Débito Automático','🔄 Débito Automático'],
-    ['Transferência','↔️ Transferência'],['Cartão de Crédito','💳 Cartão de Crédito'],
-    ['Dinheiro','💵 Dinheiro']]
-    .map(([fv,fl])=>`<option value="${fv}"${fv===formaDefault?' selected':''}>${fl}</option>`).join('');
-
+    .map(c=>`<option value="${c.id}"${a?.categoria_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
   $('sheet-title').textContent=a?`✏️ Editar abastecimento — ${v.nome}`:`⛽ Abastecer — ${v.nome}`;
   $('sheet-body').innerHTML=`
     <div class="form-grid-2">
@@ -2784,19 +2780,8 @@ function openSheetAbastecimento(vid, aid){
     <div class="form-grid-2">
       <div class="field"><label>Posto</label><input type="text" id="ab-posto" placeholder="Nome do posto (opcional)" value="${a?.posto||''}"/></div>
       <div class="field"><label>Categoria</label>
-        <select id="ab-cat"><option value="">Sem categoria</option>${catOpts}</select>
+        <select id="ab-cat"><option value="">Combustível (sem categ.)</option>${catOpts}</select>
       </div>
-    </div>
-    <div class="form-grid-2" style="margin-top:2px">
-      <div class="field"><label>Centro de custo</label>
-        <select id="ab-centro"><option value="">Geral</option>${centroOpts}</select>
-      </div>
-      <div class="field"><label>De qual conta</label>
-        <select id="ab-carteira"><option value="">Sem vínculo</option>${wOpts}</select>
-      </div>
-    </div>
-    <div class="form-mb field"><label>Forma de pagamento</label>
-      <select id="ab-forma"><option value="">Selecione…</option>${formaOpts}</select>
     </div>
     ${ultimoKm&&!a?`<div style="font-size:11px;color:var(--gray);margin-bottom:8px">Último km registrado: ${ultimoKm.toLocaleString('pt-BR')}</div>`:''}
     <div id="ab-preview" style="display:none;background:var(--accent-bg);border-radius:8px;padding:10px;margin-bottom:12px;font-size:12px;color:var(--text)"></div>
@@ -2809,23 +2794,12 @@ function openSheetAbastecimento(vid, aid){
 }
 
 async function deletarAbastecimento(aid){
-  const ab=abastecimentos.find(x=>x.id===aid);
-  const vNome=ab?veiculos.find(x=>x.id===ab.veiculo_id)?.nome||'':'';
   closeSheet();
   setTimeout(()=>{
-    openConfirm('Remover abastecimento?','O lançamento vinculado também será excluído.',async()=>{
+    openConfirm('Remover abastecimento?','Esta ação não pode ser desfeita.',async()=>{
       const{error}=await sb.from('fin_abastecimentos').delete().eq('id',aid);
       if(error){showToast('Erro ao remover.','err');return;}
-      // Cascata: remove lançamento correspondente em fin_movimentacoes
-      if(vNome&&ab?.data){
-        const dataISO=(ab.data||'').split('T')[0];
-        const linked=movimentacoes.filter(m=>
-          m.descricao===`Abastecimento — ${vNome}`&&
-          (m.data||'').startsWith(dataISO)
-        );
-        for(const m of linked) await sb.from('fin_movimentacoes').delete().eq('id',m.id);
-      }
-      await loadAll(); renderVeiculos(); showToast('🗑 Abastecimento e lançamento excluídos.','info');
+      await loadAll(); renderVeiculos(); showToast('Removido.','info');
     },'🗑 Remover');
   },300);
 }
@@ -2856,17 +2830,13 @@ async function salvarAbastecimento(vid, ultimoKm, aid){
   const preco=getMaskValue($('ab-preco'))||null;
   const catId=$('ab-cat')?.value||null;
   const posto=$('ab-posto')?.value||null;
-  const centroId=$('ab-centro')?.value||null;
-  const carteiraId=$('ab-carteira')?.value||null;
-  const forma=$('ab-forma')?.value||null;
   const kmRodados=kmAtual&&ultimoKm&&!aid?(kmAtual-parseFloat(ultimoKm)):null;
   const custoPorKm=kmRodados&&kmRodados>0?(total/kmRodados):null;
   const v=veiculos.find(x=>x.id===vid);
   const vNome=v?.nome||'Veículo';
-  const centroFinal=centroId||v?.centro_id||null;
   const payload={veiculo_id:vid,data,litros,valor_total:total,preco_litro:preco,
     km_odometro:kmAtual,km_rodados:kmRodados,custo_por_km:custoPorKm,
-    posto,centro_id:centroFinal};
+    posto,centro_id:v?.centro_id||null};
   let error;
   if(aid){
     // Edição — atualiza abastecimento
@@ -2881,9 +2851,7 @@ async function salvarAbastecimento(vid, ultimoKm, aid){
         );
         if(movCandidatos.length>0){
           await sb.from('fin_movimentacoes').update({
-            valor:total, data, data_vencimento:data,
-            centro_id:centroFinal, categoria_id:catId,
-            carteira_id:carteiraId||null, forma_pagamento:forma||null
+            valor:total, data, centro_id:v?.centro_id||null, categoria_id:catId
           }).eq('id',movCandidatos[0].id);
         }
       }
@@ -2894,14 +2862,12 @@ async function salvarAbastecimento(vid, ultimoKm, aid){
     if(!error) await sb.from('fin_movimentacoes').insert([{
       descricao:`Abastecimento — ${vNome}`,valor:total,tipo:'saida',
       data,data_vencimento:data,status:'pago',
-      centro_id:centroFinal,categoria_id:catId,
-      carteira_id:carteiraId||null,forma_pagamento:forma||null,
-      origem:'manual'
+      centro_id:v?.centro_id||null,categoria_id:catId,origem:'manual'
     }]);
   }
   if(error){showToast('Erro ao salvar.','err');return;}
   await loadAll(); renderVeiculos(); closeSheet();
-  showToast(aid?'✅ Abastecimento e lançamento atualizados!':'✅ Abastecimento e lançamento registrados!');
+  showToast(aid?'Abastecimento atualizado e lançamento sincronizado!':'Abastecimento registrado!');
 }
 
 // ════════════════════════════════════════════════
@@ -3377,7 +3343,10 @@ function showShareModal() {
     : `<div style="background:#FEF3C7;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;font-size:13px;color:#92400E;font-weight:600">📄 ${f.name}</div>`;
   const centroOpts = centros.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   const wOpts = carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.icone||'🏦'} ${w.nome}</option>`).join('');
+  const catSaidaOpts = categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos').map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
+  const veiOpts = veiculos.map(v=>`<option value="${v.id}">${v.nome}</option>`).join('');
   const recentes = movsVisiveis().slice(0, 40);
+  const hoje = new Date().toISOString().split('T')[0];
 
   $('share-modal').innerHTML = `
     <div class="share-box">
@@ -3386,16 +3355,24 @@ function showShareModal() {
         <button onclick="fecharShareModal()" style="background:none;border:none;font-size:24px;color:var(--gray);cursor:pointer;padding:0;line-height:1">×</button>
       </div>
       ${previewHtml}
-      <div style="display:flex;gap:6px;margin-bottom:14px">
+
+      <!-- Tabs -->
+      <div style="display:flex;gap:5px;margin-bottom:14px">
         <button id="share-tab-existente" onclick="shareSetTab('existente')"
-          style="flex:1;padding:9px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-bg);color:var(--accent);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">
+          style="flex:1;padding:8px 4px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-bg);color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">
           📋 Já cadastrado
         </button>
         <button id="share-tab-novo" onclick="shareSetTab('novo')"
-          style="flex:1;padding:9px;border-radius:10px;border:2px solid var(--border);background:#fff;color:var(--gray);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">
-          ➕ Novo lançamento
+          style="flex:1;padding:8px 4px;border-radius:10px;border:2px solid var(--border);background:#fff;color:var(--gray);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">
+          ➕ Novo
+        </button>
+        <button id="share-tab-abastecimento" onclick="shareSetTab('abastecimento')"
+          style="flex:1;padding:8px 4px;border-radius:10px;border:2px solid var(--border);background:#fff;color:var(--gray);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">
+          ⛽ Abastecer
         </button>
       </div>
+
+      <!-- Painel: já cadastrado -->
       <div id="share-panel-existente">
         <input type="text" id="share-search" placeholder="Buscar por descrição…"
           oninput="filtrarShareMovs(this.value)"
@@ -3405,6 +3382,8 @@ function showShareModal() {
         </div>
         <div id="share-selecionado" style="display:none;background:var(--accent-bg);border-radius:10px;padding:10px 12px;margin-top:8px;font-size:12px;color:var(--accent);font-weight:700"></div>
       </div>
+
+      <!-- Painel: novo lançamento -->
       <div id="share-panel-novo" style="display:none">
         <div style="display:flex;gap:6px;margin-bottom:10px">
           <button id="snl-saida" onclick="shareNlTipo('saida')"
@@ -3414,14 +3393,34 @@ function showShareModal() {
         </div>
         <div class="form-grid-2" style="margin-bottom:8px">
           <div class="field"><label>Valor (R$) *</label><input type="text" data-money="1" id="snl-valor" placeholder="0,00" inputmode="decimal"/></div>
-          <div class="field"><label>Data *</label><input type="date" id="snl-data" value="${new Date().toISOString().split('T')[0]}"/></div>
+          <div class="field"><label>Data *</label><input type="date" id="snl-data" value="${hoje}"/></div>
         </div>
         <div class="form-mb field"><label>Descrição *</label><input type="text" id="snl-desc" placeholder="Ex: Pagamento aluguel…"/></div>
-        <div class="form-grid-2">
+        <div class="form-grid-2" style="margin-bottom:8px">
           <div class="field"><label>Carteira</label><select id="snl-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
           <div class="field"><label>Centro de custo</label><select id="snl-centro"><option value="">Geral</option>${centroOpts}</select></div>
         </div>
+        <div class="form-mb field"><label>Categoria</label><select id="snl-cat"><option value="">Sem categoria</option>${catSaidaOpts}</select></div>
       </div>
+
+      <!-- Painel: abastecimento -->
+      <div id="share-panel-abastecimento" style="display:none">
+        <div class="form-grid-2" style="margin-bottom:8px">
+          <div class="field"><label>Veículo *</label><select id="snl-vei"><option value="">Selecione…</option>${veiOpts}</select></div>
+          <div class="field"><label>Data *</label><input type="date" id="snl-ab-data" value="${hoje}"/></div>
+        </div>
+        <div class="form-grid-2" style="margin-bottom:8px">
+          <div class="field"><label>Litros</label><input type="text" data-money="1" id="snl-ab-litros" placeholder="0,00" inputmode="decimal" oninput="snlAbCalc()"/></div>
+          <div class="field"><label>Preço/litro (R$)</label><input type="text" data-money="1" id="snl-ab-preco" placeholder="6,99" inputmode="decimal" oninput="snlAbCalc()"/></div>
+        </div>
+        <div class="form-mb field"><label>Valor total (R$) *</label><input type="text" data-money="1" id="snl-ab-total" placeholder="0,00" inputmode="decimal"/></div>
+        <div class="form-grid-2" style="margin-bottom:8px">
+          <div class="field"><label>Km odômetro</label><input type="number" id="snl-ab-km" placeholder="Ex: 45320"/></div>
+          <div class="field"><label>Posto</label><input type="text" id="snl-ab-posto" placeholder="Nome do posto"/></div>
+        </div>
+        <div class="form-mb field"><label>Categoria</label><select id="snl-ab-cat"><option value="">Combustível (sem categ.)</option>${catSaidaOpts}</select></div>
+      </div>
+
       <button id="share-salvar-btn" onclick="salvarShareComprovante()" disabled
         style="width:100%;margin-top:12px;padding:14px;border-radius:14px;border:none;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit;color:#fff;background:linear-gradient(135deg,#10B981,#059669);opacity:.4;transition:opacity .15s">
         💾 Salvar comprovante
@@ -3429,6 +3428,7 @@ function showShareModal() {
     </div>
   `;
   $('share-modal').classList.add('open');
+  setTimeout(applyAllMoneyMasks, 30);
   if (isImg) {
     const reader = new FileReader();
     reader.onload = ev => { const img = $('share-preview-img'); if (img) img.src = ev.target.result; };
@@ -3449,16 +3449,32 @@ function shareNlTipo(t) {
 
 function shareSetTab(tab) {
   shareTab = tab;
-  const isExistente = tab === 'existente';
-  $('share-panel-existente').style.display = isExistente ? 'block' : 'none';
-  $('share-panel-novo').style.display      = isExistente ? 'none'  : 'block';
+  const tabs = ['existente','novo','abastecimento'];
   const ativo   = { border:'var(--accent)', bg:'var(--accent-bg)', color:'var(--accent)' };
   const inativo = { border:'var(--border)',  bg:'#fff',             color:'var(--gray)'   };
-  const applyTab = (id, s) => { const el=$(id); if(!el) return; el.style.borderColor=s.border; el.style.background=s.bg; el.style.color=s.color; };
-  applyTab('share-tab-existente', isExistente ? ativo : inativo);
-  applyTab('share-tab-novo',      isExistente ? inativo : ativo);
+  tabs.forEach(t => {
+    const el = $('share-tab-'+t); if (!el) return;
+    const s = t === tab ? ativo : inativo;
+    el.style.borderColor = s.border; el.style.background = s.bg; el.style.color = s.color;
+    const panel = $('share-panel-'+t);
+    if (panel) panel.style.display = t === tab ? 'block' : 'none';
+  });
   const btn = $('share-salvar-btn');
-  if (btn) { btn.disabled = isExistente && !shareMovSelecionado; btn.style.opacity = (isExistente && !shareMovSelecionado) ? '.4' : '1'; }
+  if (!btn) return;
+  // "Já cadastrado" só habilita após selecionar; os outros habilitam direto
+  const desabilitar = tab === 'existente' && !shareMovSelecionado;
+  btn.disabled = desabilitar; btn.style.opacity = desabilitar ? '.4' : '1';
+  if (tab === 'abastecimento') setTimeout(applyAllMoneyMasks, 30);
+}
+
+function snlAbCalc() {
+  const litros = getMaskValue($('snl-ab-litros')) || 0;
+  const preco  = getMaskValue($('snl-ab-preco'))  || 0;
+  if (litros && preco) {
+    const total = litros * preco;
+    const el = $('snl-ab-total');
+    if (el) { el._maskCents = Math.round(total * 100); el._maskActive = true; el.value = _fmtCentavos(el._maskCents); }
+  }
 }
 
 function _shareListHtml(lista) {
@@ -3499,24 +3515,61 @@ async function salvarShareComprovante() {
   try {
     const url = await _uploadComprovanteFile(sharedFileObj);
     if (!url) throw new Error('Upload retornou vazio');
+
     if (shareTab === 'existente') {
-      if (!shareMovSelecionado) { showToast('Selecione um lançamento.','err'); return; }
+      if (!shareMovSelecionado) { showToast('Selecione um lançamento.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
       const { error } = await sb.from('fin_movimentacoes').update({ comprovante_url:url }).eq('id', shareMovSelecionado);
       if (error) throw error;
       showToast('✅ Comprovante salvo!');
-    } else {
+
+    } else if (shareTab === 'novo') {
       const valor=getMaskValue($('snl-valor'));
       const desc=($('snl-desc')?.value||'').trim();
       const data=$('snl-data')?.value;
       if(!valor||!desc||!data){ showToast('Preencha valor, descrição e data.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
       const { error } = await sb.from('fin_movimentacoes').insert([{
-        descricao:desc, valor, tipo:shareNlTipoAtual, data, status:'pago',
-        carteira_id:$('snl-carteira')?.value||null, centro_id:$('snl-centro')?.value||null,
+        descricao:desc, valor, tipo:shareNlTipoAtual, data, data_vencimento:data, status:'pago',
+        carteira_id:$('snl-carteira')?.value||null,
+        centro_id:$('snl-centro')?.value||null,
+        categoria_id:$('snl-cat')?.value||null,
         origem:'manual', comprovante_url:url
       }]);
       if (error) throw error;
       showToast('✅ Lançamento criado com comprovante!');
+
+    } else if (shareTab === 'abastecimento') {
+      const vid=$('snl-vei')?.value;
+      const data=$('snl-ab-data')?.value;
+      const total=getMaskValue($('snl-ab-total'));
+      if(!vid){ showToast('Selecione o veículo.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
+      if(!total){ showToast('Informe o valor total.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
+      if(!data){ showToast('Informe a data.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
+      const v=veiculos.find(x=>x.id===vid);
+      const litros=getMaskValue($('snl-ab-litros'))||null;
+      const preco=getMaskValue($('snl-ab-preco'))||null;
+      const kmAtual=parseFloat($('snl-ab-km')?.value)||null;
+      const catId=$('snl-ab-cat')?.value||null;
+      const posto=$('snl-ab-posto')?.value||null;
+      const ultimos=abastecimentos.filter(x=>x.veiculo_id===vid);
+      const ultimoKm=ultimos.length?parseFloat(ultimos[0].km_odometro||0):0;
+      const kmRodados=kmAtual&&ultimoKm?(kmAtual-ultimoKm):null;
+      const custoPorKm=kmRodados&&kmRodados>0?(total/kmRodados):null;
+      const {error:e1}=await sb.from('fin_abastecimentos').insert([{
+        veiculo_id:vid, data, litros, valor_total:total, preco_litro:preco,
+        km_odometro:kmAtual, km_rodados:kmRodados, custo_por_km:custoPorKm,
+        posto, centro_id:v?.centro_id||null
+      }]);
+      if(e1) throw e1;
+      const {error:e2}=await sb.from('fin_movimentacoes').insert([{
+        descricao:`Abastecimento — ${v?.nome||'Veículo'}`, valor:total,
+        tipo:'saida', data, data_vencimento:data, status:'pago',
+        centro_id:v?.centro_id||null, categoria_id:catId,
+        origem:'manual', comprovante_url:url
+      }]);
+      if(e2) throw e2;
+      showToast('✅ Abastecimento registrado com comprovante!');
     }
+
     await loadAll(); fecharShareModal();
   } catch(e) {
     console.error('salvarShareComprovante:', e);
@@ -3752,11 +3805,7 @@ function applyMaskMoeda(el, valorInicial){
   // Se valorInicial não passado, tenta ler do value atual do campo
   const src=valorInicial!==undefined?valorInicial:el.value;
   if(src!==undefined&&src!==null&&src!==''){
-    const s=String(src).trim();
-    // Se contém vírgula → formato BR (1.234,56); senão → número JS/DB (1234.56)
-    const n=s.includes(',')
-      ? parseFloat(s.replace(/\./g,'').replace(',','.'))||0
-      : parseFloat(s)||0;
+    const n=parseFloat(String(src).replace(/\./g,'').replace(',','.'))||0;
     if(n>0){
       el.value=n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
       el._maskCents=Math.round(n*100);

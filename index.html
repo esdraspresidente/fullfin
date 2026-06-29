@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.17 · Naiarha</div>
+        <div class="sb-version">v3.18 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -3350,12 +3350,24 @@ let shareTab = 'existente';
 let shareNlTipoAtual = 'saida';
 
 async function checkSharedFile() {
-  if (!location.search.includes('share=1')) return;
-  history.replaceState({}, '', '/fullfin/');
   try {
+    // Verifica o cache SEMPRE — não depende do ?share=1 na URL
+    // (alguns Android no modo standalone cortam o query param)
+    if (!('caches' in window)) return;
     const cache = await caches.open('fullfin-share');
     const response = await cache.match('/fullfin/shared-file');
-    if (!response) return;
+    if (!response) {
+      // Se não tem arquivo no cache mas tem ?share=1, loga para debug
+      if (location.search.includes('share=1')) {
+        console.warn('[Share] ?share=1 presente mas cache vazio');
+        showToast('Comprovante não encontrado no cache. Tente compartilhar novamente.','err');
+      }
+      return;
+    }
+    // Limpa a URL se tiver o parâmetro
+    if (location.search.includes('share=1')) {
+      history.replaceState({}, '', '/fullfin/');
+    }
     const blob = await response.blob();
     const rawName = response.headers.get('X-File-Name') || 'comprovante';
     const fileName = decodeURIComponent(rawName);
@@ -3363,7 +3375,10 @@ async function checkSharedFile() {
     sharedFileObj = new File([blob], fileName, { type: tipo });
     await cache.delete('/fullfin/shared-file');
     showShareModal();
-  } catch(e) { console.error('checkSharedFile:', e); }
+  } catch(e) {
+    console.error('[Share] checkSharedFile erro:', e);
+    showToast('Erro ao abrir comprovante compartilhado.','err');
+  }
 }
 
 function _mimeFromExt(nome) {
@@ -3894,6 +3909,14 @@ function applyAllMoneyMasks(){
 $('login-senha').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 $('login-email').addEventListener('keydown',e=>{if(e.key==='Enter')$('login-senha').focus();});
 if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+
+// Detecta share quando o app já estava aberto em background e volta ao foco
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='visible' && currentUser) checkSharedFile();
+});
+window.addEventListener('focus', ()=>{
+  if(currentUser) checkSharedFile();
+});
 </script>
 </body>
 </html>

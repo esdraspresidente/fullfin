@@ -1,4 +1,4 @@
-const CACHE = 'fullfin-v3.16';
+const CACHE = 'fullfin-v3.18';
 const SHARE_CACHE = 'fullfin-share';
 const ASSETS = [
   '/fullfin/',
@@ -7,14 +7,12 @@ const ASSETS = [
   '/fullfin/icon-192.png'
 ];
 
-// Instala e faz cache dos assets principais
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
   );
 });
 
-// Remove caches antigos (mas preserva o share cache)
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
@@ -24,7 +22,7 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // ── Intercepta POST do Share Target ──
+  // Intercepta POST do Share Target
   if (e.request.url.includes('/fullfin/share-target') && e.request.method === 'POST') {
     e.respondWith((async () => {
       try {
@@ -42,15 +40,17 @@ self.addEventListener('fetch', e => {
       } catch (err) {
         console.error('[SW] Share target error:', err);
       }
-      return Response.redirect('/fullfin/?share=1', 303);
+      // Redireciona para URL base SEM query param
+      // O app verifica o cache diretamente ao carregar
+      return Response.redirect('/fullfin/', 303);
     })());
     return;
   }
 
-  // Ignora requisições ao Supabase (sempre direto na rede)
+  // Ignora Supabase
   if (e.request.url.includes('supabase.co')) return;
 
-  // Network first — sempre tenta buscar versão nova, cai no cache só se offline
+  // Network first
   e.respondWith(
     fetch(e.request)
       .then(res => {

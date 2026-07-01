@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.18 · Naiarha</div>
+        <div class="sb-version">v3.19 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -3349,35 +3349,36 @@ let shareMovSelecionado = null;
 let shareTab = 'existente';
 let shareNlTipoAtual = 'saida';
 
+let _checkingShare = false;
 async function checkSharedFile() {
+  if (_checkingShare) return; // evita corrida entre visibilitychange + focus + load
+  _checkingShare = true;
   try {
-    // Verifica o cache SEMPRE — não depende do ?share=1 na URL
-    // (alguns Android no modo standalone cortam o query param)
     if (!('caches' in window)) return;
     const cache = await caches.open('fullfin-share');
     const response = await cache.match('/fullfin/shared-file');
     if (!response) {
-      // Se não tem arquivo no cache mas tem ?share=1, loga para debug
       if (location.search.includes('share=1')) {
-        console.warn('[Share] ?share=1 presente mas cache vazio');
-        showToast('Comprovante não encontrado no cache. Tente compartilhar novamente.','err');
+        history.replaceState({}, '', '/fullfin/');
       }
       return;
     }
-    // Limpa a URL se tiver o parâmetro
     if (location.search.includes('share=1')) {
       history.replaceState({}, '', '/fullfin/');
     }
+    // Deleta do cache ANTES de processar — garante que outra chamada concorrente não pegue o mesmo arquivo
+    await cache.delete('/fullfin/shared-file');
     const blob = await response.blob();
     const rawName = response.headers.get('X-File-Name') || 'comprovante';
     const fileName = decodeURIComponent(rawName);
     const tipo = blob.type || _mimeFromExt(fileName);
     sharedFileObj = new File([blob], fileName, { type: tipo });
-    await cache.delete('/fullfin/shared-file');
     showShareModal();
   } catch(e) {
     console.error('[Share] checkSharedFile erro:', e);
-    showToast('Erro ao abrir comprovante compartilhado.','err');
+    // Erro silencioso se for só corrida de concorrência (arquivo já consumido)
+  } finally {
+    _checkingShare = false;
   }
 }
 

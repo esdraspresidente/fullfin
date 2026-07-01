@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.19 · Naiarha</div>
+        <div class="sb-version">v3.20 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -796,6 +796,13 @@
           <button class="fpill"        id="cfg-cat-entrada" onclick="setCatFiltro('entrada')">▲ Entrada</button>
         </div>
         <div id="config-cats"></div>
+
+        <!-- DEBUG SHARE -->
+        <div class="section-label" style="margin-top:24px">🔧 Diagnóstico do Compartilhamento</div>
+        <div class="card pad" style="margin-bottom:12px">
+          <button class="btn btn-secondary" style="width:100%;margin-bottom:10px" onclick="debugShare()">▶ Rodar diagnóstico</button>
+          <div id="debug-share-out" style="font-size:12px;font-family:monospace;white-space:pre-wrap;color:var(--text);background:#F9FAFB;border-radius:8px;padding:12px;min-height:40px">Toque em "Rodar diagnóstico"</div>
+        </div>
       </div>
 
     </div>
@@ -3350,6 +3357,54 @@ let shareTab = 'existente';
 let shareNlTipoAtual = 'saida';
 
 let _checkingShare = false;
+async function debugShare(){
+  const out=$('debug-share-out');
+  const linhas=[];
+  const add=(t)=>{linhas.push(t);out.textContent=linhas.join('\n');};
+
+  if('serviceWorker' in navigator){
+    const reg=await navigator.serviceWorker.getRegistration();
+    if(reg&&reg.active){
+      add('✅ Service Worker ATIVO');
+      add('   Escopo: '+reg.scope);
+    } else { add('❌ Service Worker NÃO está ativo'); }
+  } else { add('❌ Navegador não suporta Service Worker'); }
+
+  if('caches' in window){
+    const keys=await caches.keys();
+    add('\n📦 Caches existentes:');
+    keys.forEach(k=>add('   • '+k));
+    if(!keys.length) add('   (nenhum)');
+    const temShareCache=keys.includes('fullfin-share');
+    add('\n🔗 Cache "fullfin-share": '+(temShareCache?'EXISTE':'NÃO existe ainda'));
+    if(temShareCache){
+      const cache=await caches.open('fullfin-share');
+      const resp=await cache.match('/fullfin/shared-file');
+      if(resp){
+        const blob=await resp.blob();
+        add('   ✅ Arquivo no cache: '+(blob.size/1024).toFixed(1)+' KB');
+        add('   Tipo: '+(blob.type||'(vazio)'));
+        add('   Nome: '+decodeURIComponent(resp.headers.get('X-File-Name')||'?'));
+      } else { add('   ⚠️ Cache existe mas está VAZIO'); }
+    }
+  } else { add('❌ Navegador não suporta Cache API'); }
+
+  add('\n📄 Verificando manifest...');
+  try{
+    const r=await fetch('/fullfin/manifest.json');
+    const mani=await r.json();
+    if(mani.share_target){
+      add('   ✅ share_target configurado');
+      add('   action: '+mani.share_target.action);
+    } else { add('   ❌ share_target NÃO está no manifest'); }
+  }catch(e){ add('   ⚠️ Erro ao ler manifest: '+e.message); }
+
+  add('\n──────────');
+  add('Agora: compartilhe um comprovante,');
+  add('volte aqui e rode de novo.');
+  add('O arquivo deve aparecer em "fullfin-share".');
+}
+
 async function checkSharedFile() {
   if (_checkingShare) return; // evita corrida entre visibilitychange + focus + load
   _checkingShare = true;

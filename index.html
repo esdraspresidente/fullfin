@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.20 · Naiarha</div>
+        <div class="sb-version">v3.21 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -3964,7 +3964,11 @@ function applyAllMoneyMasks(){
 // ════════════════════════════════════════════════
 $('login-senha').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin();});
 $('login-email').addEventListener('keydown',e=>{if(e.key==='Enter')$('login-senha').focus();});
-if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
+if('serviceWorker' in navigator) window.addEventListener('load',()=>{
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    reg.update(); // força checagem de nova versão a cada abertura
+  }).catch(()=>{});
+});
 
 // Detecta share quando o app já estava aberto em background e volta ao foco
 document.addEventListener('visibilitychange', ()=>{
@@ -3972,6 +3976,15 @@ document.addEventListener('visibilitychange', ()=>{
 });
 window.addEventListener('focus', ()=>{
   if(currentUser) checkSharedFile();
+});
+// Verifica logo ao carregar (com pequeno retry caso o cache demore a ser escrito)
+window.addEventListener('load', ()=>{
+  let tentativas=0;
+  const tentar=()=>{
+    checkSharedFile();
+    if(++tentativas<3) setTimeout(tentar, 600);
+  };
+  setTimeout(tentar, 400);
 });
 </script>
 </body>

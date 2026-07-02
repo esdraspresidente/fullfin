@@ -1,4 +1,4 @@
-const CACHE = 'fullfin-v3.18';
+const CACHE = 'fullfin-v3.21';
 const SHARE_CACHE = 'fullfin-share';
 const ASSETS = [
   '/fullfin/',
@@ -40,17 +40,14 @@ self.addEventListener('fetch', e => {
       } catch (err) {
         console.error('[SW] Share target error:', err);
       }
-      // Redireciona para URL base SEM query param
-      // O app verifica o cache diretamente ao carregar
-      return Response.redirect('/fullfin/', 303);
+      // Redireciona com query param para o app saber que veio de share
+      return Response.redirect('/fullfin/?share=1', 303);
     })());
     return;
   }
 
-  // Ignora Supabase
   if (e.request.url.includes('supabase.co')) return;
 
-  // Network first
   e.respondWith(
     fetch(e.request)
       .then(res => {

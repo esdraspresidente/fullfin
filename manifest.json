@@ -29,10 +29,11 @@
     "params": {
       "title": "title",
       "text": "text",
+      "url": "url",
       "files": [
         {
           "name": "file",
-          "accept": ["image/png", "image/jpeg", "image/jpg", "application/pdf"]
+          "accept": ["image/*", "application/pdf", "application/octet-stream", "*/*"]
         }
       ]
     }

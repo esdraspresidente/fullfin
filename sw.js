@@ -1,4 +1,4 @@
-const CACHE = 'fullfin-v3.21';
+const CACHE = 'fullfin-v3.22';
 const SHARE_CACHE = 'fullfin-share';
 const ASSETS = [
   '/fullfin/',
@@ -22,31 +22,17 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
-  // Intercepta POST do Share Target
-  if (e.request.url.includes('/fullfin/share-target') && e.request.method === 'POST') {
-    e.respondWith((async () => {
-      try {
-        const formData = await e.request.formData();
-        const file = formData.get('file');
-        if (file && file.size > 0) {
-          const cache = await caches.open(SHARE_CACHE);
-          await cache.put('/fullfin/shared-file', new Response(file, {
-            headers: {
-              'Content-Type': file.type || 'application/octet-stream',
-              'X-File-Name': encodeURIComponent(file.name || 'comprovante')
-            }
-          }));
-        }
-      } catch (err) {
-        console.error('[SW] Share target error:', err);
-      }
-      // Redireciona com query param para o app saber que veio de share
-      return Response.redirect('/fullfin/?share=1', 303);
-    })());
+  const url = e.request.url;
+
+  // ── Intercepta POST do Share Target ──
+  if (url.includes('/fullfin/share-target') && e.request.method === 'POST') {
+    // CRÍTICO: waitUntil garante que o SW não seja morto antes de terminar de escrever o cache.
+    // respondWith só resolve DEPOIS que o arquivo foi 100% gravado.
+    e.respondWith(handleShare(e));
     return;
   }
 
-  if (e.request.url.includes('supabase.co')) return;
+  if (url.includes('supabase.co')) return;
 
   e.respondWith(
     fetch(e.request)
@@ -60,3 +46,35 @@ self.addEventListener('fetch', e => {
       .catch(() => caches.match(e.request))
   );
 });
+
+async function handleShare(e) {
+  let salvou = false;
+  try {
+    const formData = await e.request.formData();
+    // Tenta pegar o arquivo por qualquer nome de campo (file, files, etc.)
+    let file = formData.get('file');
+    if (!file || !file.size) {
+      // fallback: procura qualquer entrada que seja um File
+      for (const [, v] of formData.entries()) {
+        if (v && typeof v === 'object' && 'size' in v && v.size > 0) { file = v; break; }
+      }
+    }
+    if (file && file.size > 0) {
+      const cache = await caches.open(SHARE_CACHE);
+      // Grava o arquivo E ESPERA terminar antes de redirecionar
+      await cache.put('/fullfin/shared-file', new Response(file, {
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream',
+          'X-File-Name': encodeURIComponent(file.name || 'comprovante.pdf')
+        }
+      }));
+      // Confirma que gravou
+      const check = await cache.match('/fullfin/shared-file');
+      salvou = !!check;
+    }
+  } catch (err) {
+    console.error('[SW] Share error:', err);
+  }
+  // Só redireciona DEPOIS de gravar. Passa flag de status na URL.
+  return Response.redirect('/fullfin/?share=' + (salvou ? '1' : 'erro'), 303);
+}

@@ -666,6 +666,10 @@
               <select id="imp-centro-default"><option value="">Selecione…</option></select>
             </div>
           </div>
+          <div class="field" style="margin-top:10px">
+            <label>Data de corte (busca pagamentos a partir desta data)</label>
+            <input type="date" id="imp-data-corte" onchange="salvarDataCorte()"/>
+          </div>
           <div style="font-size:11px;color:var(--gray);margin-top:8px">Aplica a todos os itens selecionados. Você pode alterar individualmente depois.</div>
         </div>
         <!-- Tabs -->
@@ -1919,9 +1923,11 @@ async function initImportar(){
   $('imp-list').innerHTML=`<div class="empty"><div class="empty-icon">⏳</div><div class="empty-title">Carregando dados…</div></div>`;
   $('imp-btn').disabled=true; $('imp-btn').textContent='Importar selecionados (0)';
 
-  // Data de corte: data em que cada app começou a ser usado com o Fullfin.
-  // Só aparece o que for desta data em diante. Configurável aqui:
-  const DATA_CORTE = localStorage.getItem('fullfin_data_corte') || new Date().toISOString().split('T')[0];
+  // Data de corte: definida manualmente pelo usuário no campo da tela.
+  // Fica salva e fixa — NUNCA recalcula sozinha para "hoje", senão itens
+  // antigos ainda não aprovados desaparecem da lista com o passar dos dias.
+  const DATA_CORTE = localStorage.getItem('fullfin_data_corte') || '';
+  if($('imp-data-corte')) $('imp-data-corte').value = DATA_CORTE;
 
   const importados=new Set(
     movimentacoes
@@ -1937,19 +1943,28 @@ async function initImportar(){
 
   importDiligData=(rDilig.data||[]).filter(d=>{
     if(d.status!=='pago') return false;
-    const dataRef=(d.data||'').split('T')[0];
-    if(dataRef < DATA_CORTE) return false;
+    // Usa a data de previsão de pagamento (proxy de quando foi recebido);
+    // cai para a data da diligência só se não houver previsão registrada.
+    const dataRef=(d.previsao_pagamento||d.data||'').split('T')[0];
+    if(DATA_CORTE && dataRef < DATA_CORTE) return false;
     return !importados.has('diligencia:'+String(d.id));
   });
   importPreviData=(rParc.data||[]).filter(p=>{
     if(p.status!=='recebido') return false;
     const dataRef=(p.data_pagamento||p.data_vencimento||'').split('T')[0];
-    if(dataRef < DATA_CORTE) return false;
+    if(DATA_CORTE && dataRef < DATA_CORTE) return false;
     return !importados.has('previmater:'+String(p.id));
   });
 
   importSelected.clear();
   setImportTab(importTab);
+}
+
+function salvarDataCorte(){
+  const v = $('imp-data-corte').value || '';
+  localStorage.setItem('fullfin_data_corte', v);
+  showToast(v ? `Data de corte definida: ${fmtDate(v)}` : 'Data de corte removida — mostrando tudo que está pago/recebido.');
+  initImportar();
 }
 
 function setImportTab(tab){

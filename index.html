@@ -519,7 +519,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.21 · Naiarha</div>
+        <div class="sb-version">v3.22 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -976,8 +976,11 @@ sb.auth.onAuthStateChange(async(event,session)=>{
     if($('sb-uemail')) $('sb-uemail').textContent=session.user.email;
     $('login-screen').classList.add('hidden');
     $('app').classList.add('visible');
-    await loadAll(); renderAll(); checkSharedFile();
-    setTimeout(applyAllMoneyMasks, 100); // campos estáticos (dízimo etc.)
+    await loadAll(); renderAll();
+    await checkSharedFile();
+    // Se um comprovante foi compartilhado antes do login, abre o modal agora
+    if (_sharePendente && sharedFileObj) { _sharePendente = false; showShareModal(); }
+    setTimeout(applyAllMoneyMasks, 100);
   } else {
     currentUser=null; $('app').classList.remove('visible');
     $('login-screen').classList.remove('hidden');
@@ -3357,6 +3360,7 @@ let shareTab = 'existente';
 let shareNlTipoAtual = 'saida';
 
 let _checkingShare = false;
+let _sharePendente = false;
 async function debugShare(){
   const out=$('debug-share-out');
   const linhas=[];
@@ -3406,32 +3410,29 @@ async function debugShare(){
 }
 
 async function checkSharedFile() {
-  if (_checkingShare) return; // evita corrida entre visibilitychange + focus + load
+  if (_checkingShare) return;
   _checkingShare = true;
   try {
     if (!('caches' in window)) return;
     const cache = await caches.open('fullfin-share');
     const response = await cache.match('/fullfin/shared-file');
     if (!response) {
-      if (location.search.includes('share=1')) {
-        history.replaceState({}, '', '/fullfin/');
-      }
+      if (location.search.includes('share=')) history.replaceState({}, '', '/fullfin/');
       return;
     }
-    if (location.search.includes('share=1')) {
-      history.replaceState({}, '', '/fullfin/');
-    }
-    // Deleta do cache ANTES de processar — garante que outra chamada concorrente não pegue o mesmo arquivo
-    await cache.delete('/fullfin/shared-file');
+    // Achou! Lê o blob antes de deletar
     const blob = await response.blob();
-    const rawName = response.headers.get('X-File-Name') || 'comprovante';
+    const rawName = response.headers.get('X-File-Name') || 'comprovante.pdf';
     const fileName = decodeURIComponent(rawName);
     const tipo = blob.type || _mimeFromExt(fileName);
+    await cache.delete('/fullfin/shared-file');
+    if (location.search.includes('share=')) history.replaceState({}, '', '/fullfin/');
     sharedFileObj = new File([blob], fileName, { type: tipo });
-    showShareModal();
+    // Se logado, abre modal. Senão, marca pendente para abrir logo apos login.
+    if (currentUser) showShareModal();
+    else _sharePendente = true;
   } catch(e) {
     console.error('[Share] checkSharedFile erro:', e);
-    // Erro silencioso se for só corrida de concorrência (arquivo já consumido)
   } finally {
     _checkingShare = false;
   }

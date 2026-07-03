@@ -265,6 +265,33 @@
     .dizimo-label b{display:block;font-size:15px;color:#fff;margin-top:1px;}
     .dizimo-btn{background:#fff;color:#1D4ED8;border:none;padding:7px 14px;border-radius:8px;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;}
 
+    /* ── SALDO GERAL ── */
+    .saldo-geral-card{background:linear-gradient(135deg,#064E3B,#047857);border-radius:var(--radius);padding:16px 20px;color:#fff;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px;}
+    .saldo-geral-label{font-size:10px;font-weight:700;color:rgba(255,255,255,.6);text-transform:uppercase;letter-spacing:.7px;}
+    .saldo-geral-value{font-size:24px;font-weight:800;color:#fff;letter-spacing:-.5px;margin-top:2px;}
+    .saldo-geral-sub{font-size:10px;color:rgba(255,255,255,.45);margin-top:2px;}
+
+    /* ── PENDÊNCIAS ── */
+    .pendencias-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:14px;overflow:hidden;}
+    .pendencias-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--border2);cursor:pointer;}
+    .pendencias-titulo{font-size:13px;font-weight:700;color:var(--text);}
+    .pendencias-badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;}
+    .pendencias-badge.atrasado{background:#FEE2E2;color:#B91C1C;}
+    .pendencias-badge.pendente{background:#FEF3C7;color:#B45309;}
+    .pendencias-list{max-height:300px;overflow-y:auto;}
+    .pendencia-item{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border2);gap:10px;cursor:pointer;transition:background .12s;}
+    .pendencia-item:last-child{border-bottom:none;}
+    .pendencia-item:active{background:#F9FAFB;}
+    .pendencia-desc{font-size:12px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;}
+    .pendencia-meta{font-size:10px;color:var(--gray);margin-top:2px;}
+    .pendencia-valor{font-size:13px;font-weight:700;flex-shrink:0;}
+    .pendencia-valor.entrada{color:var(--accent);}
+    .pendencia-valor.saida{color:var(--red);}
+    .pendencia-tag{font-size:9px;font-weight:700;padding:2px 6px;border-radius:10px;margin-top:3px;display:inline-block;}
+    .pendencia-tag.atrasado{background:#FEE2E2;color:#B91C1C;}
+    .pendencia-tag.hoje{background:#DBEAFE;color:#1D4ED8;}
+    .pendencia-tag.futuro{background:#FEF3C7;color:#B45309;}
+
     /* ── CENTRO PILLS ── */
     .centro-pills{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin-bottom:14px;}
     .centro-pills::-webkit-scrollbar{display:none;}
@@ -607,6 +634,14 @@
         </div>
         <div class="section-label">Carteiras</div>
         <div class="carteiras-scroll" id="carteiras-scroll"></div>
+        <div class="saldo-geral-card" id="saldo-geral-card">
+          <div>
+            <div class="saldo-geral-label">💰 Saldo Geral</div>
+            <div class="saldo-geral-value" id="saldo-geral-value">R$ 0,00</div>
+            <div class="saldo-geral-sub" id="saldo-geral-sub">soma de todas as carteiras</div>
+          </div>
+        </div>
+        <div id="pendencias-section"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <div class="section-label" style="margin:0">Lançamentos recentes</div>
           <button style="background:none;border:none;font-size:12px;font-weight:700;color:var(--accent);cursor:pointer;font-family:inherit" onclick="goPage('lancamentos')">Ver todos →</button>
@@ -1153,9 +1188,95 @@ function renderHome(){
     const s=calcSaldoCarteira(c.id); const cor=s<0?'var(--red)':'var(--accent)';
     return`<div class="carteira-chip"><div class="carteira-chip-name">${c.icone||'🏦'} ${c.nome}</div><div class="carteira-chip-banco">${c.banco||''}</div><div class="carteira-chip-saldo" style="color:${cor}">${fmt(s)}</div></div>`;
   }).join('')+`<button class="carteira-chip-add" onclick="openSheetCarteira()"><span>+</span><span>Nova carteira</span></button>`;
+  // Saldo Geral — soma de todas as carteiras ativas
+  const saldoGeral = carteiras.filter(c=>c.ativo!==false).reduce((s,c)=>s+calcSaldoCarteira(c.id),0);
+  const sgEl=$('saldo-geral-value');
+  if(sgEl){
+    sgEl.textContent=fmt(saldoGeral);
+    sgEl.style.color=saldoGeral<0?'#FCA5A5':'#fff';
+    $('saldo-geral-sub').textContent=carteiras.filter(c=>c.ativo!==false).length+' carteira(s) ativa(s)';
+  }
+  // Pendências — contas em aberto de qualquer mês
+  renderPendencias();
   // Recentes — sem fantasmas
   const recent = movsVisiveis().filter(m=>(m.data||'').startsWith(mesISO)).slice(0,10);
   renderMovs('home-recent', recent, true);
+}
+
+// ════════════════════════════════════════════════
+//  PENDÊNCIAS (contas em aberto de qualquer mês)
+// ════════════════════════════════════════════════
+function renderPendencias(){
+  const el=$('pendencias-section'); if(!el) return;
+  const hojeISO = new Date().toISOString().split('T')[0];
+  // Tudo que não está pago, de qualquer mês
+  const pendentes = movsVisiveis().filter(m=>m.status!=='pago'&&m.status!=='cancelado');
+  if(!pendentes.length){ el.innerHTML=''; return; }
+
+  // Classifica: atrasado (vencimento < hoje), hoje, futuro
+  const classificar = m => {
+    const venc = (m.data_vencimento||m.data||'').split('T')[0];
+    if(!venc) return 'futuro';
+    if(venc < hojeISO) return 'atrasado';
+    if(venc === hojeISO) return 'hoje';
+    return 'futuro';
+  };
+
+  // Separa a receber e a pagar
+  const aReceber = pendentes.filter(m=>m.tipo==='entrada');
+  const aPagar   = pendentes.filter(m=>m.tipo==='saida');
+
+  // Ordena: atrasados primeiro, depois por data
+  const ordenar = (a,b) => {
+    const ca=classificar(a), cb=classificar(b);
+    const ordem={atrasado:0,hoje:1,futuro:2};
+    if(ordem[ca]!==ordem[cb]) return ordem[ca]-ordem[cb];
+    const da=(a.data_vencimento||a.data||''), db=(b.data_vencimento||b.data||'');
+    return da.localeCompare(db);
+  };
+  aReceber.sort(ordenar);
+  aPagar.sort(ordenar);
+
+  const tagClass={atrasado:'atrasado',hoje:'hoje',futuro:'futuro'};
+  const tagLabel={atrasado:'Atrasado',hoje:'Hoje',futuro:'A vencer'};
+
+  const renderLista = (lista, tipoLabel) => {
+    const atrasados = lista.filter(m=>classificar(m)==='atrasado').length;
+    const total = lista.reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const tipoClasse = tipoLabel==='A Receber' ? 'entrada' : 'saida';
+    const headerBg = atrasados>0 ? 'atrasado' : 'pendente';
+
+    let html = `<div class="pendencias-card">`;
+    html += `<div class="pendencias-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">`;
+    html += `<div class="pendencias-titulo">${tipoLabel==='A Receber'?'⏰':'⚠️'} ${tipoLabel} — ${fmt(total)}</div>`;
+    html += `<div style="display:flex;gap:6px;align-items:center">`;
+    if(atrasados>0) html += `<span class="pendencias-badge atrasado">${atrasados} atrasado(s)</span>`;
+    html += `<span class="pendencias-badge pendente">${lista.length} item(ns)</span>`;
+    html += `<span style="font-size:12px;color:var(--gray)">▼</span>`;
+    html += `</div></div>`;
+    html += `<div class="pendencias-list">`;
+    lista.forEach(m => {
+      const cat = classificar(m);
+      const venc = (m.data_vencimento||m.data||'').split('T')[0];
+      const centro = getCName(m.centro_id);
+      const catNome = getCatNome(m.categoria_id);
+      html += `<div class="pendencia-item" onclick="openSheetMov('${m.id}')">`;
+      html += `<div style="flex:1;min-width:0">`;
+      html += `<div class="pendencia-desc">${getCatIcon(m.categoria_id)} ${m.descricao||catNome||'—'}</div>`;
+      html += `<div class="pendencia-meta">${fmtDate(venc)}${centro?' · '+centro:''}${catNome?' · '+catNome:''}</div>`;
+      html += `<span class="pendencia-tag ${tagClass[cat]}">${tagLabel[cat]}</span>`;
+      html += `</div>`;
+      html += `<div class="pendencia-valor ${tipoClasse}">${fmt(m.valor)}</div>`;
+      html += `</div>`;
+    });
+    html += `</div></div>`;
+    return html;
+  };
+
+  let html = '';
+  if(aPagar.length)   html += renderLista(aPagar, 'A Pagar');
+  if(aReceber.length) html += renderLista(aReceber, 'A Receber');
+  el.innerHTML = html;
 }
 
 // ════════════════════════════════════════════════

@@ -1813,8 +1813,12 @@ function closeSheet(){ $('sheet-overlay').classList.remove('open'); $('sheet').c
 
 function buildSheetForm(preCartaoId){
   const centroOpts=centros.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
-  const wOpts=carteiras.length?carteiras.map(c=>`<option value="${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join(''):'<option value="">Cadastre uma carteira</option>';
-  const ctOpts=cartoes.length?cartoes.map(c=>`<option value="${c.id}"${c.id===preCartaoId?' selected':''}>${c.nome}</option>`).join(''):'<option value="">Sem cartões cadastrados</option>';
+  // Monta dropdown unificado: contas + cartões de crédito
+  const contaOpts=carteiras.filter(w=>w.ativo!==false).map(c=>`<option value="conta:${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join('');
+  const ccOpts=cartoes.filter(c=>c.ativo!==false).map(c=>`<option value="cartao:${c.id}"${c.id===preCartaoId?' selected':''}> 💳 ${c.nome} (${c.bandeira||'Crédito'})</option>`).join('');
+  const walletOpts=`<option value="">Selecione…</option>`
+    +(contaOpts?`<optgroup label="🏦 Contas">${contaOpts}</optgroup>`:'')
+    +(ccOpts?`<optgroup label="💳 Cartões de Crédito">${ccOpts}</optgroup>`:'');
   const cats=sheetTipo==='entrada'?categorias.filter(c=>c.tipo==='entrada'||c.tipo==='ambos'):categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos');
   const catOpts=cats.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   $('sheet-body').innerHTML=`
@@ -1846,7 +1850,10 @@ function buildSheetForm(preCartaoId){
         <input type="number" id="sh-repeticoes" placeholder="Ex: 12" min="2" max="360"/>
       </div>
     </div>
-    <div class="form-grid-2">
+    <div class="form-mb field"><label>💰 Carteira / Cartão *</label>
+      <select id="sh-carteira-unif" onchange="onCarteiraChange()">${walletOpts}</select>
+    </div>
+    <div id="sh-forma-wrap" class="form-grid-2" style="margin-bottom:10px">
       <div class="field"><label>Forma de pagamento</label>
         <select id="sh-forma">
           <option value="">Selecione…</option>
@@ -1859,10 +1866,6 @@ function buildSheetForm(preCartaoId){
           <option value="Dinheiro">💵 Dinheiro</option>
         </select>
       </div>
-      <div class="field"><label>De qual conta</label><select id="sh-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
-    </div>
-    <div class="form-mb field"><label>💳 Lançar no cartão (opcional)</label>
-      <select id="sh-cartao"><option value="">Não — débito direto</option>${ctOpts}</select>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
       <div class="field"><label id="sh-data-label">📅 Vencimento *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
@@ -1870,6 +1873,7 @@ function buildSheetForm(preCartaoId){
     <div class="field form-mb" id="sh-data-pag-wrap" style="display:${sheetStatus==='pago'?'block':'none'}">
       <label>✅ Data do pagamento</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/>
     </div>
+    <div id="sh-venc-auto-info" style="display:none;background:#DBEAFE;border:1px solid #93C5FD;border-radius:10px;padding:10px 12px;font-size:12px;color:#1E40AF;margin-bottom:12px"></div>
     <div id="sh-parc-bloco" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
       <input type="checkbox" id="sh-parc-chk" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer" onchange="toggleParcelas()"/>
       <label for="sh-parc-chk" style="font-size:13px;font-weight:600;color:var(--text);cursor:pointer">Parcelado</label>
@@ -1877,16 +1881,90 @@ function buildSheetForm(preCartaoId){
         <input type="number" id="sh-nparc" placeholder="Nº parcelas" min="2" max="120" style="width:110px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit"/>
       </div>
     </div>
-    <div class="section-label">Status</div>
-    <div class="status-btns">
-      <button class="status-btn${sheetStatus==='pago'?' active pago':''}" onclick="setSheetStatus('pago')">✓ Pago</button>
-      <button class="status-btn${sheetStatus==='pendente'?' active pendente':''}" onclick="setSheetStatus('pendente')">⏰ Pendente</button>
-      <button class="status-btn${sheetStatus==='agendado'?' active agendado':''}" onclick="setSheetStatus('agendado')">📅 Agendado</button>
+    <div id="sh-status-bloco">
+      <div class="section-label">Status</div>
+      <div class="status-btns">
+        <button class="status-btn${sheetStatus==='pago'?' active pago':''}" onclick="setSheetStatus('pago')">✓ Pago</button>
+        <button class="status-btn${sheetStatus==='pendente'?' active pendente':''}" onclick="setSheetStatus('pendente')">⏰ Pendente</button>
+        <button class="status-btn${sheetStatus==='agendado'?' active agendado':''}" onclick="setSheetStatus('agendado')">📅 Agendado</button>
+      </div>
     </div>
     <div class="form-mb field"><label>Observação</label><textarea id="sh-obs" placeholder="Opcional…" rows="2"></textarea></div>
     <button class="salvar-btn ${sheetTipo}" onclick="salvarLancamento()">Salvar lançamento</button>
   `;
+  // Se veio com preCartaoId, selecionar e disparar adaptação
+  if(preCartaoId){
+    setTimeout(()=>{
+      const sel=$('sh-carteira-unif');
+      if(sel){ sel.value='cartao:'+preCartaoId; onCarteiraChange(); }
+    },50);
+  }
   setTimeout(()=>$('sh-valor')?.focus(),100);
+}
+
+// Adapta o formulário quando a carteira selecionada é um cartão de crédito
+function onCarteiraChange(){
+  const sel=$('sh-carteira-unif');
+  if(!sel) return;
+  const val=sel.value||'';
+  const isCartao=val.startsWith('cartao:');
+  const statusBloco=$('sh-status-bloco');
+  const dataPagWrap=$('sh-data-pag-wrap');
+  const dataLabel=$('sh-data-label');
+  const formaWrap=$('sh-forma-wrap');
+  const infoVenc=$('sh-venc-auto-info');
+
+  if(isCartao){
+    // Adapta formulário para cartão de crédito
+    const cartaoId=val.replace('cartao:','');
+    const cartao=cartoes.find(c=>c.id===cartaoId);
+    if(dataLabel) dataLabel.textContent='🛒 Data da compra *';
+    if(statusBloco) statusBloco.style.display='none';
+    if(dataPagWrap) dataPagWrap.style.display='none';
+    if(formaWrap) formaWrap.style.display='none';
+    sheetStatus='pendente'; // compra no cartão é sempre pendente
+    // Calcula vencimento automático e mostra info
+    if(cartao && infoVenc){
+      calcVencCartao(cartao);
+      $('sh-venc').addEventListener('change', ()=>calcVencCartao(cartao));
+    }
+  } else {
+    // Formulário normal (conta bancária)
+    if(dataLabel) dataLabel.textContent='📅 Vencimento *';
+    if(statusBloco) statusBloco.style.display='block';
+    if(formaWrap) formaWrap.style.display='grid';
+    if(infoVenc) infoVenc.style.display='none';
+    // Restaura status visual
+    setSheetStatus(sheetStatus);
+  }
+}
+
+function calcVencCartao(cartao){
+  const dataCompra=$('sh-venc')?.value;
+  const infoVenc=$('sh-venc-auto-info');
+  if(!dataCompra||!cartao||!infoVenc) return;
+  const diaFecha=cartao.dia_fechamento||1;
+  const diaVence=cartao.dia_vencimento||10;
+  const [y,m,d]=(dataCompra).split('-').map(Number);
+  const diaCompra=d;
+  // Lógica: se a compra é antes do fechamento, cai na fatura do mês atual → vence no dia X do próximo mês
+  // Se a compra é no dia do fechamento ou depois, cai na fatura do próximo mês → vence no dia X do mês seguinte
+  let mesVenc, anoVenc;
+  if(diaCompra < diaFecha){
+    // Fatura do mês atual → vence próximo mês
+    mesVenc=m+1; anoVenc=y;
+    if(mesVenc>12){mesVenc=1;anoVenc++;}
+  } else {
+    // Fatura do próximo mês → vence no mês seguinte
+    mesVenc=m+2; anoVenc=y;
+    if(mesVenc>12){mesVenc-=12;anoVenc++;}
+  }
+  const diaReal=Math.min(diaVence, new Date(anoVenc,mesVenc,0).getDate());
+  const vencISO=`${anoVenc}-${String(mesVenc).padStart(2,'0')}-${String(diaReal).padStart(2,'0')}`;
+  infoVenc.innerHTML=`💳 Fecha dia <b>${diaFecha}</b> · Vence dia <b>${diaVence}</b><br>📅 Vencimento da fatura: <b>${fmtDate(vencISO)}</b>`;
+  infoVenc.style.display='block';
+  // Guarda o vencimento calculado em um campo hidden
+  infoVenc.dataset.vencCalculado=vencISO;
 }
 function setSheetTipo(t){
   sheetTipo=t;
@@ -1969,6 +2047,22 @@ async function salvarLancamento(){
   if(!desc){showToast('Informe a descrição.','err');return;}
   if(!venc){showToast('Informe a data de vencimento.','err');return;}
 
+  // Resolve carteira/cartão do dropdown unificado
+  const unifVal=$('sh-carteira-unif')?.value||'';
+  const isCartao=unifVal.startsWith('cartao:');
+  const carteiraId=unifVal.startsWith('conta:')?unifVal.replace('conta:',''):(isCartao?null:null);
+  const cartaoId=isCartao?unifVal.replace('cartao:',''):null;
+
+  // Se é cartão, usa o vencimento calculado automaticamente
+  let vencFinal=venc;
+  let dataCompra=null;
+  if(isCartao){
+    const infoVenc=$('sh-venc-auto-info');
+    if(infoVenc?.dataset?.vencCalculado) vencFinal=infoVenc.dataset.vencCalculado;
+    dataCompra=venc; // o que o usuário informou é a data da compra
+    sheetStatus='pendente'; // forçar pendente
+  }
+
   const recorrente=$('sh-recorrente')?.value; // 'mensal','trimestral','semestral','anual' ou ''
   const intervalMap={mensal:1,trimestral:3,semestral:6,anual:12};
   const intervalo=intervalMap[recorrente]||1;
@@ -1983,13 +2077,13 @@ async function salvarLancamento(){
 
   // Se recorrente, salva em fin_recorrentes para aparecer em Custos Fixos
   if(recorrente){
-    const diaVenc=new Date(venc+'T12:00:00').getDate();
+    const diaVenc=new Date(vencFinal+'T12:00:00').getDate();
     await sb.from('fin_recorrentes').insert([{
       descricao:desc, valor, tipo:sheetTipo||'saida',
       dia_vencimento:diaVenc,
       categoria_id:$('sh-cat')?.value||null,
       centro_id:$('sh-centro')?.value||null,
-      carteira_id:$('sh-carteira')?.value||null,
+      carteira_id:carteiraId||null,
       forma_pagamento:$('sh-forma')?.value||null,
       ativo:true
     }]);
@@ -1997,7 +2091,7 @@ async function salvarLancamento(){
 
   let erros=0;
   for(let i=0;i<nParc;i++){
-    const dtVenc=new Date(venc+'T12:00:00');
+    const dtVenc=new Date(vencFinal+'T12:00:00');
     dtVenc.setMonth(dtVenc.getMonth()+(i*(recorrente?intervalo:1)));
     const vencISO=dtVenc.toISOString().split('T')[0];
     // Status: primeira parcela mantém o escolhido; demais sempre pendentes
@@ -2005,20 +2099,20 @@ async function salvarLancamento(){
     // Data de pagamento: só preenche se a parcela estiver paga
     let dataPagParc=null;
     if(statusParc==='pago'){
-      const dtP=new Date((dataPag||venc)+'T12:00:00');
+      const dtP=new Date((dataPag||vencFinal)+'T12:00:00');
       dtP.setMonth(dtP.getMonth()+(i*(recorrente?intervalo:1)));
       dataPagParc=dtP.toISOString().split('T')[0];
     }
     const{error}=await sb.from('fin_movimentacoes').insert([{
       descricao:desc, valor, tipo:sheetTipo,
-      data:dataPagParc, data_vencimento:vencISO,
+      data:isCartao?(dataCompra||null):dataPagParc, data_vencimento:vencISO,
       status:statusParc,
-      carteira_id:$('sh-carteira')?.value||null, cartao_id:$('sh-cartao')?.value||null,
+      carteira_id:carteiraId||null, cartao_id:cartaoId||null,
       categoria_id:$('sh-cat')?.value||null,
       centro_id:$('sh-centro')?.value||null,
-      forma_pagamento:$('sh-forma')?.value||null,
+      forma_pagamento:isCartao?'Cartão de Crédito':($('sh-forma')?.value||null),
       parcela_atual:nParc>1?i+1:null, total_parcelas:nParc>1?nParc:null, grupo_parcelas:grupoId,
-      observacao:$('sh-obs')?.value||null, origem:recorrente?'recorrente':'manual'
+      observacao:$('sh-obs')?.value||null, origen:recorrente?'recorrente':'manual'
     }]);
     if(error) erros++;
   }
@@ -3302,7 +3396,7 @@ function renderCartoes() {
         <div style="width:${pctUsado}%;height:100%;background:${pctUsado>80?'#FCA5A5':'#6EE7B7'};border-radius:4px;transition:width .4s"></div>
       </div>
       <div class="cartao-actions">
-        <button class="cartao-action-btn" onclick="openSheetCartao()">✏️ Editar</button>
+        <button class="cartao-action-btn" onclick="openSheetCartao('${c.id}')">✏️ Editar</button>
         <button class="cartao-action-btn" onclick="novaCompraCartao('${c.id}')">➕ Compra</button>
         <button class="cartao-action-btn" style="background:rgba(252,165,165,.15);border-color:rgba(252,165,165,.3)" onclick="abrirParcelarFatura('${c.id}')">💸 Parcelar fatura</button>
         <button class="cartao-action-btn" style="background:rgba(252,165,165,.1);border-color:rgba(252,165,165,.2)" onclick="deleteCartao('${c.id}')">🗑</button>

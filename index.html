@@ -1813,12 +1813,9 @@ function closeSheet(){ $('sheet-overlay').classList.remove('open'); $('sheet').c
 
 function buildSheetForm(preCartaoId){
   const centroOpts=centros.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
-  // Monta dropdown unificado: contas + cartões de crédito
   const contaOpts=carteiras.filter(w=>w.ativo!==false).map(c=>`<option value="conta:${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join('');
   const ccOpts=cartoes.filter(c=>c.ativo!==false).map(c=>`<option value="cartao:${c.id}"${c.id===preCartaoId?' selected':''}> 💳 ${c.nome} (${c.bandeira||'Crédito'})</option>`).join('');
-  const walletOpts=`<option value="">Selecione…</option>`
-    +(contaOpts?`<optgroup label="🏦 Contas">${contaOpts}</optgroup>`:'')
-    +(ccOpts?`<optgroup label="💳 Cartões de Crédito">${ccOpts}</optgroup>`:'');
+  const walletOpts=`<option value="">Selecione…</option>`+(contaOpts?`<optgroup label="🏦 Contas">${contaOpts}</optgroup>`:'')+(ccOpts?`<optgroup label="💳 Cartões de Crédito">${ccOpts}</optgroup>`:'');
   const cats=sheetTipo==='entrada'?categorias.filter(c=>c.tipo==='entrada'||c.tipo==='ambos'):categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos');
   const catOpts=cats.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   $('sheet-body').innerHTML=`
@@ -1827,18 +1824,15 @@ function buildSheetForm(preCartaoId){
       <button class="tipo-btn entrada${sheetTipo==='entrada'?' active':''}" onclick="setSheetTipo('entrada')">▲ Entrada</button>
       <button class="tipo-btn transf${sheetTipo==='transferencia'?' active':''}" onclick="setSheetTipo('transferencia')">⇄ Transf.</button>
     </div>
-    <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="text" data-money="1" id="sh-valor" placeholder="0,00" inputmode="decimal"/></div>
-    <div class="form-grid-2" style="margin-bottom:10px">
-      <div class="field form-full"><label>Descrição *</label><input type="text" id="sh-desc" placeholder="Ex: Conta de luz…"/></div>
-      <div class="field"><label>Categoria</label><select id="sh-cat"><option value="">Sem categoria</option>${catOpts}</select></div>
-      <div class="field"><label>Centro de custo</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
+    <div class="form-mb field"><label>💰 Carteira / Cartão *</label>
+      <select id="sh-carteira-unif" onchange="onCarteiraChange()">${walletOpts}</select>
     </div>
-
     <div class="form-grid-2" style="margin-bottom:10px">
       <div class="field">
         <label>Recorrência</label>
         <select id="sh-recorrente" onchange="shToggleRecorrente()">
           <option value="">Não recorrente</option>
+          <option value="parcelado">📦 Parcelado</option>
           <option value="mensal">🔄 Mensal</option>
           <option value="trimestral">🔄 Trimestral</option>
           <option value="semestral">🔄 Semestral</option>
@@ -1846,40 +1840,37 @@ function buildSheetForm(preCartaoId){
         </select>
       </div>
       <div class="field" id="sh-rep-wrap" style="display:none">
-        <label>Repetições</label>
-        <input type="number" id="sh-repeticoes" placeholder="Ex: 12" min="2" max="360"/>
-      </div>
-    </div>
-    <div class="form-mb field"><label>💰 Carteira / Cartão *</label>
-      <select id="sh-carteira-unif" onchange="onCarteiraChange()">${walletOpts}</select>
-    </div>
-    <div id="sh-forma-wrap" class="form-grid-2" style="margin-bottom:10px">
-      <div class="field"><label>Forma de pagamento</label>
-        <select id="sh-forma">
-          <option value="">Selecione…</option>
-          <option value="Pix">💸 Pix</option>
-          <option value="Boleto">📄 Boleto / Código de barras</option>
-          <option value="Débito">💳 Débito</option>
-          <option value="Débito Automático">🔄 Débito Automático</option>
-          <option value="Transferência">↔️ Transferência</option>
-          <option value="Cartão de Crédito">💳 Cartão de Crédito</option>
-          <option value="Dinheiro">💵 Dinheiro</option>
-        </select>
+        <label id="sh-rep-label">Nº de parcelas</label>
+        <input type="number" id="sh-nparc" placeholder="Ex: 12" min="2" max="360"/>
       </div>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
-      <div class="field"><label id="sh-data-label">📅 Vencimento *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
+      <div class="field"><label>Centro de custo</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
+      <div class="field"><label id="sh-data-label">📅 Data da compra *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
+    </div>
+    <div id="sh-venc-auto-info" style="display:none;background:#DBEAFE;border:1px solid #93C5FD;border-radius:10px;padding:10px 12px;font-size:12px;color:#1E40AF;margin-bottom:12px"></div>
+    <div id="sh-venc-manual-wrap" class="form-grid-2" style="margin-bottom:10px">
+      <div class="field"><label>📅 Data de vencimento</label><input type="date" id="sh-venc-manual"/></div>
+    </div>
+    <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="text" data-money="1" id="sh-valor" placeholder="0,00" inputmode="decimal"/></div>
+    <div class="form-grid-2" style="margin-bottom:10px">
+      <div class="field"><label>Categoria</label><select id="sh-cat"><option value="">Sem categoria</option>${catOpts}</select></div>
+      <div class="field"><label>Descrição *</label><input type="text" id="sh-desc" placeholder="Ex: Conta de luz…"/></div>
+    </div>
+    <div id="sh-forma-wrap" class="form-mb field">
+      <label>Forma de pagamento</label>
+      <select id="sh-forma">
+        <option value="">Selecione…</option>
+        <option value="Pix">💸 Pix</option>
+        <option value="Boleto">📄 Boleto</option>
+        <option value="Débito">💳 Débito</option>
+        <option value="Débito Automático">🔄 Débito Automático</option>
+        <option value="Transferência">↔️ Transferência</option>
+        <option value="Dinheiro">💵 Dinheiro</option>
+      </select>
     </div>
     <div class="field form-mb" id="sh-data-pag-wrap" style="display:${sheetStatus==='pago'?'block':'none'}">
       <label>✅ Data do pagamento</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/>
-    </div>
-    <div id="sh-venc-auto-info" style="display:none;background:#DBEAFE;border:1px solid #93C5FD;border-radius:10px;padding:10px 12px;font-size:12px;color:#1E40AF;margin-bottom:12px"></div>
-    <div id="sh-parc-bloco" style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-      <input type="checkbox" id="sh-parc-chk" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer" onchange="toggleParcelas()"/>
-      <label for="sh-parc-chk" style="font-size:13px;font-weight:600;color:var(--text);cursor:pointer">Parcelado</label>
-      <div id="sh-parc-wrap" style="display:none">
-        <input type="number" id="sh-nparc" placeholder="Nº parcelas" min="2" max="120" style="width:110px;padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit"/>
-      </div>
     </div>
     <div id="sh-status-bloco">
       <div class="section-label">Status</div>
@@ -1892,20 +1883,17 @@ function buildSheetForm(preCartaoId){
     <div class="form-mb field"><label>Observação</label><textarea id="sh-obs" placeholder="Opcional…" rows="2"></textarea></div>
     <button class="salvar-btn ${sheetTipo}" onclick="salvarLancamento()">Salvar lançamento</button>
   `;
-  // Se veio com preCartaoId, selecionar e disparar adaptação
   if(preCartaoId){
     setTimeout(()=>{
       const sel=$('sh-carteira-unif');
       if(sel){ sel.value='cartao:'+preCartaoId; onCarteiraChange(); }
     },50);
   }
-  setTimeout(()=>$('sh-valor')?.focus(),100);
+  setTimeout(applyAllMoneyMasks,30);
 }
 
-// Adapta o formulário quando a carteira selecionada é um cartão de crédito
 function onCarteiraChange(){
-  const sel=$('sh-carteira-unif');
-  if(!sel) return;
+  const sel=$('sh-carteira-unif'); if(!sel) return;
   const val=sel.value||'';
   const isCartao=val.startsWith('cartao:');
   const statusBloco=$('sh-status-bloco');
@@ -1914,7 +1902,6 @@ function onCarteiraChange(){
   const formaWrap=$('sh-forma-wrap');
   const infoVenc=$('sh-venc-auto-info');
   const vencManualWrap=$('sh-venc-manual-wrap');
-
   if(isCartao){
     const cartaoId=val.replace('cartao:','');
     const cartao=cartoes.find(c=>c.id===cartaoId);
@@ -1926,10 +1913,10 @@ function onCarteiraChange(){
     sheetStatus='pendente';
     if(cartao && infoVenc){
       calcVencCartao(cartao);
-      $('sh-venc').removeEventListener('change', $('sh-venc')._ccHandler||function(){});
-      const handler = ()=>calcVencCartao(cartao);
-      $('sh-venc')._ccHandler = handler;
-      $('sh-venc').addEventListener('change', handler);
+      if($('sh-venc')._ccHandler) $('sh-venc').removeEventListener('change',$('sh-venc')._ccHandler);
+      const handler=()=>calcVencCartao(cartao);
+      $('sh-venc')._ccHandler=handler;
+      $('sh-venc').addEventListener('change',handler);
     }
   } else {
     if(dataLabel) dataLabel.textContent='📅 Data da compra *';
@@ -1941,73 +1928,6 @@ function onCarteiraChange(){
   }
 }
 
-function calcVencCartao(cartao){
-  const dataCompra=$('sh-venc')?.value;
-  const infoVenc=$('sh-venc-auto-info');
-  if(!dataCompra||!cartao||!infoVenc) return;
-  const diaFecha=cartao.dia_fechamento||1;
-  const diaVence=cartao.dia_vencimento||10;
-  const [y,m,d]=(dataCompra).split('-').map(Number);
-  const diaCompra=d;
-  // Lógica brasileira de fatura:
-  // Compra ANTES do fechamento → fatura do mês atual
-  // Compra NO DIA ou DEPOIS do fechamento → fatura do próximo mês
-  // A fatura vence no dia_vencimento: se vence >= fecha, mesmo mês da fatura; senão, mês seguinte
-  let mesOffset;
-  if(diaCompra < diaFecha){
-    mesOffset = (diaVence >= diaFecha) ? 0 : 1;
-  } else {
-    mesOffset = (diaVence >= diaFecha) ? 1 : 2;
-  }
-  let mesVenc = m + mesOffset;
-  let anoVenc = y;
-  while(mesVenc > 12){ mesVenc -= 12; anoVenc++; }
-  const diaReal=Math.min(diaVence, new Date(anoVenc,mesVenc,0).getDate());
-  const vencISO=`${anoVenc}-${String(mesVenc).padStart(2,'0')}-${String(diaReal).padStart(2,'0')}`;
-  infoVenc.innerHTML=`💳 Fecha dia <b>${diaFecha}</b> · Vence dia <b>${diaVence}</b><br>📅 Vencimento da fatura: <b>${fmtDate(vencISO)}</b>`;
-  infoVenc.style.display='block';
-  // Guarda o vencimento calculado em um campo hidden
-  infoVenc.dataset.vencCalculado=vencISO;
-}
-function setSheetTipo(t){
-  sheetTipo=t;
-  if(t==='transferencia'){
-    // Form simplificado de transferência
-    const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.icone||'🏦'} ${w.nome}</option>`).join('');
-    $('sheet-body').innerHTML=`
-      <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="text" data-money="1" id="sh-valor" placeholder="0,00" inputmode="decimal"/></div>
-      <div class="form-mb field"><label>📅 Data da transferência *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
-      <div class="form-mb field"><label>De qual conta *</label>
-        <select id="sh-cart-origem"><option value="">Selecione…</option>${wOpts}</select>
-      </div>
-      <div class="form-mb field"><label>Para qual conta *</label>
-        <select id="sh-cart-destino"><option value="">Selecione…</option>${wOpts}</select>
-      </div>
-      <div class="tipo-btns" style="margin-bottom:14px">
-        <button class="tipo-btn saida" onclick="setSheetTipo('saida')" style="opacity:.6">▼ Saída</button>
-        <button class="tipo-btn entrada" onclick="setSheetTipo('entrada')" style="opacity:.6">▲ Entrada</button>
-        <button class="tipo-btn transf active">⇄ Transf.</button>
-      </div>
-      <button class="salvar-btn transf" onclick="salvarTransferencia()">Registrar transferência</button>
-    `;
-    return;
-  }
-  buildSheetForm();
-}
-function setSheetStatus(s){
-  sheetStatus=s;
-  // Atualiza visual dos botões sem reconstruir o form (preserva dados digitados)
-  document.querySelectorAll('.status-btns .status-btn').forEach(b=>b.classList.remove('active','pago','pendente','agendado'));
-  const map={pago:0,pendente:1,agendado:2};
-  const btns=document.querySelectorAll('.status-btns .status-btn');
-  const idx=map[s];
-  if(btns[idx]){ btns[idx].classList.add('active',s); }
-  // Mostra/esconde campo de data de pagamento
-  const wrap=$('sh-data-pag-wrap');
-  if(wrap) wrap.style.display = (s==='pago') ? 'block' : 'none';
-}
-function toggleParcelas(){const c=$('sh-parc-chk'); if($('sh-parc-wrap')) $('sh-parc-wrap').style.display=c?.checked?'block':'none';}
-
 function shToggleRecorrente(){
   const rec=$('sh-recorrente')?.value;
   const repWrap=$('sh-rep-wrap');
@@ -2015,6 +1935,7 @@ function shToggleRecorrente(){
   if(repWrap) repWrap.style.display=(rec&&rec!=='')?'block':'none';
   if(repLabel) repLabel.textContent=(rec==='parcelado')?'Nº de parcelas':'Repetições';
 }
+
 
 async function salvarTransferencia(){
   const valor=getMaskValue($('sh-valor'));

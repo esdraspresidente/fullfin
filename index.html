@@ -1263,7 +1263,7 @@ function renderPendencias(){
       const venc = (m.data_vencimento||m.data||'').split('T')[0];
       const centro = getCName(m.centro_id);
       const catNome = getCatNome(m.categoria_id);
-      html += `<div class="pendencia-item" onclick="openSheetMov('${m.id}')">`;
+      html += `<div class="pendencia-item" onclick="abreDetalhe('${m.id}')">`;
       html += `<div style="flex:1;min-width:0">`;
       html += `<div class="pendencia-desc">${getCatIcon(m.categoria_id)} ${m.descricao||catNome||'—'}</div>`;
       html += `<div class="pendencia-meta">${fmtDate(venc)}${centro?' · '+centro:''}${catNome?' · '+catNome:''}</div>`;
@@ -1975,6 +1975,46 @@ function shToggleRecorrente(){
   if(repLabel) repLabel.textContent=(rec==='parcelado')?'Nº de parcelas':'Repetições';
 }
 
+function setSheetTipo(t){
+  sheetTipo=t;
+  if(t==='transferencia'){
+    const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.icone||'🏦'} ${w.nome}</option>`).join('');
+    $('sheet-body').innerHTML=`
+      <div class="tipo-btns">
+        <button class="tipo-btn saida" onclick="setSheetTipo('saida')">▼ Saída</button>
+        <button class="tipo-btn entrada" onclick="setSheetTipo('entrada')">▲ Entrada</button>
+        <button class="tipo-btn transf active" onclick="setSheetTipo('transferencia')">⇄ Transf.</button>
+      </div>
+      <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="text" data-money="1" id="sh-valor" placeholder="0,00" inputmode="decimal"/></div>
+      <div class="form-mb field"><label>📅 Data da transferência *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
+      <div class="form-mb field"><label>De qual conta *</label>
+        <select id="sh-cart-origem"><option value="">Selecione…</option>${wOpts}</select>
+      </div>
+      <div class="form-mb field"><label>Para qual conta *</label>
+        <select id="sh-cart-destino"><option value="">Selecione…</option>${wOpts}</select>
+      </div>
+      <button class="salvar-btn transferencia" onclick="salvarTransferencia()">Registrar transferência</button>
+    `;
+    setTimeout(applyAllMoneyMasks,30);
+  } else {
+    buildSheetForm();
+  }
+}
+
+function setSheetStatus(s){
+  sheetStatus=s;
+  const bloco=$('sh-status-bloco');
+  if(bloco){
+    const ordem=['pago','pendente','agendado'];
+    const btns=bloco.querySelectorAll('.status-btn');
+    btns.forEach((b,i)=>{
+      b.classList.remove('active','pago','pendente','agendado');
+      if(ordem[i]===s) b.classList.add('active',s);
+    });
+  }
+  const dataPagWrap=$('sh-data-pag-wrap');
+  if(dataPagWrap) dataPagWrap.style.display = (s==='pago') ? 'block' : 'none';
+}
 
 async function salvarTransferencia(){
   const valor=getMaskValue($('sh-valor'));

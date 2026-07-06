@@ -3088,10 +3088,7 @@ function abCalc(){
     const total=litros*preco;
     const el=$('ab-total');
     if(el){
-      // Atualiza estado interno da máscara para que getMaskValue leia correto
-      el._maskCents=Math.round(total*100);
-      el._maskActive=true;
-      el.value=_fmtCentavos(el._maskCents);
+      el.value = total>0 ? _fmtCentavos(Math.round(total*100)) : '';
     }
   }
   const km=parseFloat($('ab-km')?.value)||0;
@@ -3818,7 +3815,7 @@ function snlAbCalc() {
   if (litros && preco) {
     const total = litros * preco;
     const el = $('snl-ab-total');
-    if (el) { el._maskCents = Math.round(total * 100); el._maskActive = true; el.value = _fmtCentavos(el._maskCents); }
+    if (el) { el.value = total>0 ? _fmtCentavos(Math.round(total * 100)) : ''; }
   }
 }
 
@@ -4133,59 +4130,33 @@ function _fmtCentavos(c){
 
 function getMaskValue(el){
   if(!el) return 0;
-  if(el._maskActive) return el._maskCents/100;
-  // Não mascarado ainda — parse do valor exibido
-  const v=(el.value||'').trim().replace(/\./g,'').replace(',','.');
-  return parseFloat(v)||0;
+  // Sempre deriva o valor dos dígitos presentes no campo — fonte única de verdade.
+  const digits=(el.value||'').replace(/\D/g,'');
+  if(!digits) return 0;
+  return parseInt(digits,10)/100;
 }
 
 function applyMaskMoeda(el, valorInicial){
   if(!el||el._maskApplied) return;
   el._maskApplied=true;
   el.type='text';
-  el.setAttribute('inputmode','decimal');
+  el.setAttribute('inputmode','numeric');
   el.autocomplete='off';
-  el._maskActive=false;
-  el._maskCents=0;
-  // Se valorInicial não passado, tenta ler do value atual do campo
+  // Valor inicial (ao editar): normaliza para o formato mascarado
   const src=valorInicial!==undefined?valorInicial:el.value;
-  if(src!==undefined&&src!==null&&src!==''){
+  if(src!==undefined&&src!==null&&String(src).trim()!==''){
     const n=parseFloat(String(src).replace(/\./g,'').replace(',','.'))||0;
-    if(n>0){
-      el.value=n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
-      el._maskCents=Math.round(n*100);
-    } else {
-      el.value='';
-    }
+    el.value = n>0 ? _fmtCentavos(Math.round(n*100)) : '';
   }
-  el.addEventListener('keydown',e=>{
-    if(e.key>='0'&&e.key<='9'){
-      e.preventDefault();
-      if(!el._maskActive){el._maskCents=0;el._maskActive=true;}
-      el._maskCents=el._maskCents*10+parseInt(e.key);
-      if(el._maskCents>9999999999) return;
-      el.value=_fmtCentavos(el._maskCents);
-      el.dispatchEvent(new Event('input',{bubbles:true}));
-    } else if(e.key==='Backspace'){
-      e.preventDefault();
-      el._maskActive=true;
-      el._maskCents=Math.floor(el._maskCents/10);
-      el.value=el._maskCents>0?_fmtCentavos(el._maskCents):'';
-      el.dispatchEvent(new Event('input',{bubbles:true}));
-    } else if(e.key==='Delete'){
-      e.preventDefault();
-      el._maskCents=0;el._maskActive=true;el.value='';
-      el.dispatchEvent(new Event('input',{bubbles:true}));
-    }
-  });
-  el.addEventListener('paste',e=>{
-    e.preventDefault();
-    const digits=(e.clipboardData||window.clipboardData).getData('text').replace(/\D/g,'');
-    if(digits){
-      el._maskCents=Math.min(parseInt(digits),9999999999);
-      el._maskActive=true;
-      el.value=_fmtCentavos(el._maskCents);
-    }
+  // Evento 'input' — dispara para QUALQUER forma de entrada (teclado físico,
+  // teclado virtual Android/iOS, colar, ditado). Bem mais confiável que keydown.
+  el.addEventListener('input',()=>{
+    const digits=(el.value||'').replace(/\D/g,'').replace(/^0+/,'');
+    if(!digits){ el.value=''; return; }
+    const cents=parseInt(digits.slice(0,12),10); // limite de segurança
+    el.value=_fmtCentavos(cents);
+    // Coloca o cursor sempre no fim (evita saltos estranhos no mobile)
+    requestAnimationFrame(()=>{ try{ el.setSelectionRange(el.value.length, el.value.length); }catch(e){} });
   });
 }
 

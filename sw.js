@@ -1,4 +1,4 @@
-const CACHE = 'fullfin-v3.28';
+const CACHE = 'fullfin-v3.29';
 const SHARE_CACHE = 'fullfin-share';
 const ASSETS = [
   '/fullfin/',

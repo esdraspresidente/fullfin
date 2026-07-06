@@ -1913,28 +1913,30 @@ function onCarteiraChange(){
   const dataLabel=$('sh-data-label');
   const formaWrap=$('sh-forma-wrap');
   const infoVenc=$('sh-venc-auto-info');
+  const vencManualWrap=$('sh-venc-manual-wrap');
 
   if(isCartao){
-    // Adapta formulário para cartão de crédito
     const cartaoId=val.replace('cartao:','');
     const cartao=cartoes.find(c=>c.id===cartaoId);
     if(dataLabel) dataLabel.textContent='🛒 Data da compra *';
     if(statusBloco) statusBloco.style.display='none';
     if(dataPagWrap) dataPagWrap.style.display='none';
     if(formaWrap) formaWrap.style.display='none';
-    sheetStatus='pendente'; // compra no cartão é sempre pendente
-    // Calcula vencimento automático e mostra info
+    if(vencManualWrap) vencManualWrap.style.display='none';
+    sheetStatus='pendente';
     if(cartao && infoVenc){
       calcVencCartao(cartao);
-      $('sh-venc').addEventListener('change', ()=>calcVencCartao(cartao));
+      $('sh-venc').removeEventListener('change', $('sh-venc')._ccHandler||function(){});
+      const handler = ()=>calcVencCartao(cartao);
+      $('sh-venc')._ccHandler = handler;
+      $('sh-venc').addEventListener('change', handler);
     }
   } else {
-    // Formulário normal (conta bancária)
-    if(dataLabel) dataLabel.textContent='📅 Vencimento *';
+    if(dataLabel) dataLabel.textContent='📅 Data da compra *';
     if(statusBloco) statusBloco.style.display='block';
-    if(formaWrap) formaWrap.style.display='grid';
+    if(formaWrap) formaWrap.style.display='block';
     if(infoVenc) infoVenc.style.display='none';
-    // Restaura status visual
+    if(vencManualWrap) vencManualWrap.style.display='grid';
     setSheetStatus(sheetStatus);
   }
 }
@@ -1947,18 +1949,19 @@ function calcVencCartao(cartao){
   const diaVence=cartao.dia_vencimento||10;
   const [y,m,d]=(dataCompra).split('-').map(Number);
   const diaCompra=d;
-  // Lógica: se a compra é antes do fechamento, cai na fatura do mês atual → vence no dia X do próximo mês
-  // Se a compra é no dia do fechamento ou depois, cai na fatura do próximo mês → vence no dia X do mês seguinte
-  let mesVenc, anoVenc;
+  // Lógica brasileira de fatura:
+  // Compra ANTES do fechamento → fatura do mês atual
+  // Compra NO DIA ou DEPOIS do fechamento → fatura do próximo mês
+  // A fatura vence no dia_vencimento: se vence >= fecha, mesmo mês da fatura; senão, mês seguinte
+  let mesOffset;
   if(diaCompra < diaFecha){
-    // Fatura do mês atual → vence próximo mês
-    mesVenc=m+1; anoVenc=y;
-    if(mesVenc>12){mesVenc=1;anoVenc++;}
+    mesOffset = (diaVence >= diaFecha) ? 0 : 1;
   } else {
-    // Fatura do próximo mês → vence no mês seguinte
-    mesVenc=m+2; anoVenc=y;
-    if(mesVenc>12){mesVenc-=12;anoVenc++;}
+    mesOffset = (diaVence >= diaFecha) ? 1 : 2;
   }
+  let mesVenc = m + mesOffset;
+  let anoVenc = y;
+  while(mesVenc > 12){ mesVenc -= 12; anoVenc++; }
   const diaReal=Math.min(diaVence, new Date(anoVenc,mesVenc,0).getDate());
   const vencISO=`${anoVenc}-${String(mesVenc).padStart(2,'0')}-${String(diaReal).padStart(2,'0')}`;
   infoVenc.innerHTML=`💳 Fecha dia <b>${diaFecha}</b> · Vence dia <b>${diaVence}</b><br>📅 Vencimento da fatura: <b>${fmtDate(vencISO)}</b>`;
@@ -2008,11 +2011,9 @@ function toggleParcelas(){const c=$('sh-parc-chk'); if($('sh-parc-wrap')) $('sh-
 function shToggleRecorrente(){
   const rec=$('sh-recorrente')?.value;
   const repWrap=$('sh-rep-wrap');
-  const parcBloco=$('sh-parc-bloco');
-  const dataLabel=$('sh-data-label');
-  if(repWrap) repWrap.style.display=rec?'block':'none';
-  if(parcBloco) parcBloco.style.display=rec?'none':'flex';
-  if(dataLabel) dataLabel.textContent=rec?'📅 1º vencimento *':'📅 Vencimento *';
+  const repLabel=$('sh-rep-label');
+  if(repWrap) repWrap.style.display=(rec&&rec!=='')?'block':'none';
+  if(repLabel) repLabel.textContent=(rec==='parcelado')?'Nº de parcelas':'Repetições';
 }
 
 async function salvarTransferencia(){
@@ -2041,42 +2042,41 @@ async function salvarTransferencia(){
 }
 async function salvarLancamento(){
   const valor=getMaskValue($('sh-valor')), desc=$('sh-desc')?.value.trim();
-  const venc=$('sh-venc')?.value;
-  const dataPag=(sheetStatus==='pago')?($('sh-data')?.value||venc):null;
+  const dataCompra=$('sh-venc')?.value;
+  const dataPag=(sheetStatus==='pago')?($('sh-data')?.value||dataCompra):null;
   if(!valor||isNaN(valor)){showToast('Informe o valor.','err');return;}
   if(!desc){showToast('Informe a descrição.','err');return;}
-  if(!venc){showToast('Informe a data de vencimento.','err');return;}
+  if(!dataCompra){showToast('Informe a data.','err');return;}
 
   // Resolve carteira/cartão do dropdown unificado
   const unifVal=$('sh-carteira-unif')?.value||'';
   const isCartao=unifVal.startsWith('cartao:');
-  const carteiraId=unifVal.startsWith('conta:')?unifVal.replace('conta:',''):(isCartao?null:null);
+  const carteiraId=unifVal.startsWith('conta:')?unifVal.replace('conta:',''):null;
   const cartaoId=isCartao?unifVal.replace('cartao:',''):null;
 
-  // Se é cartão, usa o vencimento calculado automaticamente
-  let vencFinal=venc;
-  let dataCompra=null;
+  // Vencimento: se é cartão, usa o calculado; senão, usa o manual ou a data da compra
+  let vencFinal;
   if(isCartao){
     const infoVenc=$('sh-venc-auto-info');
-    if(infoVenc?.dataset?.vencCalculado) vencFinal=infoVenc.dataset.vencCalculado;
-    dataCompra=venc; // o que o usuário informou é a data da compra
-    sheetStatus='pendente'; // forçar pendente
+    vencFinal = infoVenc?.dataset?.vencCalculado || dataCompra;
+  } else {
+    vencFinal = $('sh-venc-manual')?.value || dataCompra;
   }
 
-  const recorrente=$('sh-recorrente')?.value; // 'mensal','trimestral','semestral','anual' ou ''
+  const recorrente=$('sh-recorrente')?.value||'';
+  const isParcelado = recorrente==='parcelado';
+  const isRecorrente = recorrente && !isParcelado;
   const intervalMap={mensal:1,trimestral:3,semestral:6,anual:12};
-  const intervalo=intervalMap[recorrente]||1;
+  const intervalo=isRecorrente?intervalMap[recorrente]:1;
 
-  const parChk=$('sh-parc-chk')?.checked && !recorrente;
-  const nParc=recorrente
-    ?(parseInt($('sh-repeticoes')?.value)||1)
-    :(parChk?(parseInt($('sh-nparc')?.value)||1):1);
+  const nParc = (isParcelado||isRecorrente) ? (parseInt($('sh-nparc')?.value)||1) : 1;
+  if((isParcelado||isRecorrente) && nParc<2){showToast('Informe o número de parcelas/repetições.','err');return;}
 
   const grupoId=(nParc>1)?crypto.randomUUID():null;
   const btn=document.querySelector('.salvar-btn'); if(btn){btn.textContent='Salvando…';btn.disabled=true;}
 
   // Se recorrente, salva em fin_recorrentes para aparecer em Custos Fixos
-  if(recorrente){
+  if(isRecorrente){
     const diaVenc=new Date(vencFinal+'T12:00:00').getDate();
     await sb.from('fin_recorrentes').insert([{
       descricao:desc, valor, tipo:sheetTipo||'saida',
@@ -2092,34 +2092,32 @@ async function salvarLancamento(){
   let erros=0;
   for(let i=0;i<nParc;i++){
     const dtVenc=new Date(vencFinal+'T12:00:00');
-    dtVenc.setMonth(dtVenc.getMonth()+(i*(recorrente?intervalo:1)));
+    dtVenc.setMonth(dtVenc.getMonth()+(i*(isRecorrente?intervalo:1)));
     const vencISO=dtVenc.toISOString().split('T')[0];
-    // Status: primeira parcela mantém o escolhido; demais sempre pendentes
     const statusParc = nParc===1 ? sheetStatus : (i===0 ? sheetStatus : 'pendente');
-    // Data de pagamento: só preenche se a parcela estiver paga
     let dataPagParc=null;
     if(statusParc==='pago'){
       const dtP=new Date((dataPag||vencFinal)+'T12:00:00');
-      dtP.setMonth(dtP.getMonth()+(i*(recorrente?intervalo:1)));
+      dtP.setMonth(dtP.getMonth()+(i*(isRecorrente?intervalo:1)));
       dataPagParc=dtP.toISOString().split('T')[0];
     }
     const{error}=await sb.from('fin_movimentacoes').insert([{
       descricao:desc, valor, tipo:sheetTipo,
-      data:isCartao?(dataCompra||null):dataPagParc, data_vencimento:vencISO,
-      status:statusParc,
+      data:isCartao?dataCompra:dataPagParc, data_vencimento:vencISO,
+      status:isCartao?'pendente':statusParc,
       carteira_id:carteiraId||null, cartao_id:cartaoId||null,
       categoria_id:$('sh-cat')?.value||null,
       centro_id:$('sh-centro')?.value||null,
       forma_pagamento:isCartao?'Cartão de Crédito':($('sh-forma')?.value||null),
       parcela_atual:nParc>1?i+1:null, total_parcelas:nParc>1?nParc:null, grupo_parcelas:grupoId,
-      observacao:$('sh-obs')?.value||null, origen:recorrente?'recorrente':'manual'
+      observacao:$('sh-obs')?.value||null, origem:isRecorrente?'recorrente':'manual'
     }]);
     if(error) erros++;
   }
   if(erros){showToast('Erro ao salvar.','err');}else{
     await loadAll(); renderAll(); closeSheet();
-    if(recorrente) showToast(`✅ ${nParc} lançamento(s) gerado(s) + adicionado em Custos Fixos!`);
-    else showToast(nParc>1?`${nParc} parcelas criadas! ✓`:'Lançamento salvo! ✓');
+    if(isRecorrente) showToast('✅ '+nParc+' lançamento(s) gerado(s) + adicionado em Custos Fixos!');
+    else showToast(nParc>1?nParc+' parcelas criadas! ✓':'Lançamento salvo! ✓');
   }
 }
 

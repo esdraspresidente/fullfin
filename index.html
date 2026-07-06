@@ -408,6 +408,8 @@
     .import-empty-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px;}
 
     /* ── CARTÕES ── */
+    .cal-nav-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--text2);transition:all .12s;flex-shrink:0;}
+    .cal-nav-btn:hover{border-color:var(--accent);color:var(--accent);}
     .cartao-card{background:linear-gradient(135deg,#1A1A2E,#16213E);border-radius:var(--radius);padding:20px;margin-bottom:12px;color:#fff;position:relative;overflow:hidden;cursor:pointer;}
     .cartao-card::after{content:'';position:absolute;top:-20px;right:-20px;width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,.04);}
     .cartao-bandeira{font-size:10px;font-weight:700;color:rgba(255,255,255,.5);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;}
@@ -546,7 +548,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version">v3.22 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.26 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1102,6 +1104,7 @@ function mudaMes(delta){
   if(page==='home') renderHome();
   if(page==='lancamentos') renderLancamentos();
   if(page==='relatorio') renderRelatorio();
+  if(page==='cartoes') renderCartoes();
 }
 
 function renderAll(){ atualizaMesLabels(); renderCentroPills(); renderHome(); }
@@ -3265,9 +3268,10 @@ async function deleteRecorrente(rid){
 //  CARTÕES DE CRÉDITO
 // ════════════════════════════════════════════════
 function calcFaturaCartao(cartaoId, mesISO) {
-  // Soma todas as saídas lançadas neste cartão no mês
+  // Soma todas as saídas cuja FATURA (data_vencimento) cai neste mês —
+  // não a data da compra em si, que pode ser de um mês diferente
   return movimentacoes
-    .filter(m=>m.cartao_id===cartaoId && (m.data||'').startsWith(mesISO) && m.tipo==='saida')
+    .filter(m=>m.cartao_id===cartaoId && (m.data_vencimento||'').startsWith(mesISO) && m.tipo==='saida')
     .reduce((s,m)=>s+parseFloat(m.valor||0),0);
 }
 
@@ -3278,22 +3282,27 @@ function renderCartoes() {
     return;
   }
   const mesISO = isoMes(mesAtual);
-  el.innerHTML = cartoes.filter(c=>c.ativo!==false).map(c=>{
+  el.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-bottom:16px">
+      <button class="cal-nav-btn" onclick="mudaMes(-1)">‹</button>
+      <span style="font-size:14px;font-weight:700;color:var(--text)">Fatura de ${MESES[mesAtual.getMonth()]} ${mesAtual.getFullYear()}</span>
+      <button class="cal-nav-btn" onclick="mudaMes(1)">›</button>
+    </div>` +
+  cartoes.filter(c=>c.ativo!==false).map(c=>{
     const fatura = calcFaturaCartao(c.id, mesISO);
     const disponivel = parseFloat(c.limite||0) - fatura;
     const pctUsado = c.limite ? Math.min(100,(fatura/c.limite*100)) : 0;
     const carteiraNome = carteiras.find(w=>w.id===c.carteira_pagamento_id)?.nome||'';
-    // Compras do mês
-    const compras = movimentacoes.filter(m=>m.cartao_id===c.id&&(m.data||'').startsWith(mesISO)&&m.tipo==='saida');
+    // Compras cuja FATURA (data_vencimento) cai no mês selecionado
+    const compras = movimentacoes.filter(m=>m.cartao_id===c.id&&(m.data_vencimento||'').startsWith(mesISO)&&m.tipo==='saida');
     const comprasHtml = compras.length ? compras.map(m=>`
       <div class="mov-item" style="border-bottom:1px solid rgba(255,255,255,.06)" onclick="abreDetalhe('${m.id}')">
         <div class="mov-icon-wrap" style="background:rgba(255,255,255,.08)">${getCatIcon(m.categoria_id)}</div>
         <div class="mov-body">
           <div class="mov-desc" style="color:#fff">${m.descricao}</div>
-          <div class="mov-meta" style="color:rgba(255,255,255,.5)">${fmtDate(m.data)}${m.total_parcelas?` · ${m.parcela_atual}/${m.total_parcelas}`:''}</div>
+          <div class="mov-meta" style="color:rgba(255,255,255,.5)">🛒 ${fmtDate(m.data)}${m.total_parcelas?` · ${m.parcela_atual}/${m.total_parcelas}`:''}</div>
         </div>
         <div class="mov-right"><div class="mov-value saida" style="color:#FCA5A5">-${fmt(m.valor)}</div></div>
-      </div>`).join('') : `<div style="padding:12px;font-size:12px;color:rgba(255,255,255,.4);text-align:center">Nenhuma compra neste mês</div>`;
+      </div>`).join('') : `<div style="padding:12px;font-size:12px;color:rgba(255,255,255,.4);text-align:center">Nenhuma compra nesta fatura</div>`;
     return `<div class="cartao-card">
       <div class="cartao-bandeira">${c.bandeira||'Crédito'}</div>
       <div class="cartao-nome">💳 ${c.nome}</div>
@@ -3320,9 +3329,9 @@ function renderCartoes() {
         <button class="cartao-action-btn" style="background:rgba(252,165,165,.15);border-color:rgba(252,165,165,.3)" onclick="abrirParcelarFatura('${c.id}')">💸 Parcelar fatura</button>
         <button class="cartao-action-btn" style="background:rgba(252,165,165,.1);border-color:rgba(252,165,165,.2)" onclick="deleteCartao('${c.id}')">🗑</button>
       </div>
-      <!-- Compras do mês -->
+      <!-- Fatura do mês -->
       <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.08);padding-top:10px">
-        <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Compras de ${MESES_S[mesAtual.getMonth()]}</div>
+        <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Fatura de ${MESES_S[mesAtual.getMonth()]}</div>
         ${comprasHtml}
       </div>
     </div>`;
@@ -4119,6 +4128,21 @@ if('serviceWorker' in navigator) window.addEventListener('load',()=>{
     reg.update(); // força checagem de nova versão a cada abertura
   }).catch(()=>{});
 });
+
+// Atualiza a etiqueta de versão no sidebar lendo direto do cache ativo do SW,
+// assim ela nunca mais fica desatualizada — segue automaticamente a versão do sw.js
+async function atualizaVersaoSidebar(){
+  try{
+    if(!('caches' in window)) return;
+    const keys=await caches.keys();
+    const cacheVersao=keys.find(k=>k.startsWith('fullfin-v'));
+    if(cacheVersao && $('sb-version')){
+      const versaoTxt=cacheVersao.replace('fullfin-','');
+      $('sb-version').textContent=versaoTxt+' · Naiarha';
+    }
+  }catch(e){}
+}
+window.addEventListener('load', atualizaVersaoSidebar);
 
 // Detecta share quando o app já estava aberto em background e volta ao foco
 document.addEventListener('visibilitychange', ()=>{

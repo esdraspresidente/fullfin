@@ -643,6 +643,7 @@
             <div class="saldo-geral-sub" id="saldo-geral-sub">soma de todas as carteiras</div>
           </div>
         </div>
+        <div id="faturas-section"></div>
         <div id="pendencias-section"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <div class="section-label" style="margin:0">Lançamentos recentes</div>
@@ -951,6 +952,7 @@ let lanceAba = 'todas';
 let lanceCentroPill = ''; // '' = todos, ou centro_id
 let lanceFiltros = { desc:'', carteira:'', centro:'', categoria:'', forma:'' };
 let cartoes = [], cartaoAtual = null;
+let pagamentosFatura = [];
 let dividas = [], veiculos = [], abastecimentos = [], recorrentes = [], dividaParcelas = [], dividaConfirmacoes = [];
 let recFiltro = 'todos';
 let confirmCallback = null;
@@ -1059,6 +1061,8 @@ async function loadAll(){
   if(!r11.error) dividaParcelas=r11.data||[];
   const r12=await sb.from('fin_divida_confirmacoes').select().order('created_at',{ascending:false});
   if(!r12.error) dividaConfirmacoes=r12.data||[];
+  const r13=await sb.from('fin_pagamentos_fatura').select().order('created_at',{ascending:false});
+  if(!r13.error) pagamentosFatura=r13.data||[];
 }
 
 // ════════════════════════════════════════════════
@@ -1127,6 +1131,50 @@ function setRelCentro(id){relCentro=id;renderCentroPills();renderRelatorio();}
 // Filtra registros fantasma [ANTIGO] de todos os cálculos e exibições
 const movsVisiveis = () => movimentacoes.filter(m => m.descricao !== '[ANTIGO]' && m.origem !== 'ignorado');
 
+// Uma compra lançada no cartão de crédito NÃO conta como saída direta do fluxo:
+// ela compõe a fatura, e é a FATURA (lançamento próprio) que vira a saída real
+// quando paga. Isso evita contar o mesmo gasto duas vezes.
+const ehCompraCartao = m => !!m.cartao_id && m.origem !== 'fatura';
+
+// ── FATURAS DE CARTÃO ──────────────────────────────
+// Total já pago de uma fatura (soma dos pagamentos parciais registrados)
+function totalPagoFatura(cartaoId, mesRef){
+  return (pagamentosFatura||[])
+    .filter(p=>p.cartao_id===cartaoId && p.mes_referencia===mesRef)
+    .reduce((s,p)=>s+parseFloat(p.valor||0),0);
+}
+
+// Determina se a fatura de um mês de referência já FECHOU.
+// Fecha no dia_fechamento do ciclo anterior ao vencimento. Simplificação segura:
+// a fatura que vence em MM fechou por volta do dia_fechamento do mês anterior.
+function faturaJaFechou(cartao, mesRefISO){
+  const diaFecha=parseInt(cartao.dia_fechamento)||1;
+  const [y,m]=mesRefISO.split('-').map(Number);
+  // fechamento ocorre no mês anterior ao vencimento
+  let mesF=m-1, anoF=y;
+  if(mesF<1){ mesF=12; anoF--; }
+  const diaReal=Math.min(diaFecha, new Date(anoF,mesF,0).getDate());
+  const dataFecha=new Date(anoF, mesF-1, diaReal, 23, 59, 59);
+  return new Date() > dataFecha;
+}
+
+// Status da fatura: aberta | fechada | atrasada | paga | parcial
+function statusFatura(cartao, mesRefISO, total, pago){
+  const hoje=new Date();
+  const restante=total-pago;
+  if(total<=0) return {key:'vazia', label:'Sem compras', cor:'#9CA3AF'};
+  if(restante<=0.001) return {key:'paga', label:'Paga', cor:'#059669'};
+  const fechou=faturaJaFechou(cartao, mesRefISO);
+  if(!fechou) return {key:'aberta', label: pago>0?'Aberta · parcial':'Aberta', cor:'#D97706'};
+  // Fechou — verifica vencimento
+  const [y,m]=mesRefISO.split('-').map(Number);
+  const diaVence=parseInt(cartao.dia_vencimento)||10;
+  const diaReal=Math.min(diaVence, new Date(y,m,0).getDate());
+  const dataVenc=new Date(y, m-1, diaReal, 23, 59, 59);
+  if(hoje>dataVenc) return {key:'atrasada', label: pago>0?`Atrasada · falta ${fmt(restante)}`:'Atrasada', cor:'#DC2626'};
+  return {key:'fechada', label: pago>0?`A pagar · falta ${fmt(restante)}`:'A pagar', cor:'#DC2626'};
+}
+
 // Mês de referência de um lançamento: pago→data pagamento; pendente→vencimento
 const mesRefMov = m => (m.status==='pago' ? (m.data||m.data_vencimento||'') : (m.data_vencimento||m.data||''));
 
@@ -1136,26 +1184,26 @@ function calcMes(){
   const fl=m=>(centroAtual==='GERAL'||m.centro_id===centroAtual)&&mesRefMov(m).startsWith(mesISO);
   const movsFil=movs.filter(fl);
   const ent=movsFil.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const aRec=movsFil.filter(m=>m.tipo==='entrada'&&m.status!=='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const aPag=movsFil.filter(m=>m.tipo==='saida'  &&m.status!=='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const aPag=movsFil.filter(m=>m.tipo==='saida'  &&m.status!=='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   return{ent,sai,aRec,aPag,saldo:ent-sai,mesISO,movs:movsFil};
 }
 
 function calcLucroReal(mesISO){
   const movs=movsVisiveis().filter(m=>mesRefMov(m).startsWith(mesISO));
   const receita=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const custos =movs.filter(m=>m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const custos =movs.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const lucro=receita-custos;
   const porCentro=centros.map(c=>({
     nome:c.nome,icone:c.icone,id:c.id,
     ent:movs.filter(m=>m.centro_id===c.id&&m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0),
-    sai:movs.filter(m=>m.centro_id===c.id&&m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0),
+    sai:movs.filter(m=>m.centro_id===c.id&&m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
   })).map(c=>({...c,saldo:c.ent-c.sai}));
   // Pró-labore = saídas pagas com centro Casa/Família
   const centroCasa=centros.find(c=>c.nome?.toLowerCase().includes('casa')||c.nome?.toLowerCase().includes('fam'));
   const prolabore=centroCasa
-    ? movs.filter(m=>m.centro_id===centroCasa.id&&m.tipo==='saida'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0)
+    ? movs.filter(m=>m.centro_id===centroCasa.id&&m.tipo==='saida'&&m.status==='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0)
     : 0;
   return{receita,custos,lucro,prolabore,centroCasaNome:centroCasa?.nome||'Casa/Família',dizimo:prolabore*0.1,porCentro};
 }
@@ -1199,6 +1247,8 @@ function renderHome(){
     sgEl.style.color=saldoGeral<0?'#FCA5A5':'#fff';
     $('saldo-geral-sub').textContent=carteiras.filter(c=>c.ativo!==false).length+' carteira(s) ativa(s)';
   }
+  // Faturas de cartão — visão consolidada (aberta/fechada/atrasada/paga)
+  renderFaturas();
   // Pendências — contas em aberto de qualquer mês
   renderPendencias();
   // Recentes — sem fantasmas
@@ -1207,13 +1257,159 @@ function renderHome(){
 }
 
 // ════════════════════════════════════════════════
+//  PAGAR FATURA
+// ════════════════════════════════════════════════
+let pagFaturaCtx=null;
+
+function abrirPagarFatura(cartaoId, mesRef){
+  const cartao=cartoes.find(c=>c.id===cartaoId); if(!cartao) return;
+  const total=calcFaturaCartao(cartaoId, mesRef);
+  const pago=totalPagoFatura(cartaoId, mesRef);
+  const restante=Math.max(0, total-pago);
+  pagFaturaCtx={cartaoId, mesRef, total, pago, restante};
+
+  const [y,m]=mesRef.split('-').map(Number);
+  const wOpts=carteiras.filter(w=>w.ativo!==false)
+    .map(w=>`<option value="${w.id}"${w.id===cartao.carteira_pagamento_id?' selected':''}>${w.icone||'🏦'} ${w.nome}</option>`).join('');
+
+  // Lista dos pagamentos já feitos
+  const feitos=(pagamentosFatura||[]).filter(p=>p.cartao_id===cartaoId && p.mes_referencia===mesRef)
+    .sort((a,b)=>(b.data_pagamento||'').localeCompare(a.data_pagamento||''));
+  const feitosHtml=feitos.length?`<div style="margin-top:14px"><div class="section-label">Pagamentos já feitos</div>`+
+    feitos.map(p=>{
+      const wNome=carteiras.find(w=>w.id===p.carteira_id)?.nome||'—';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border2);font-size:12px">
+        <span>${fmtDate(p.data_pagamento)} · ${wNome}</span>
+        <span style="display:flex;gap:8px;align-items:center"><b>${fmt(p.valor)}</b>
+        <button onclick="removerPagamentoFatura('${p.id}')" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:14px">🗑</button></span>
+      </div>`;
+    }).join('')+`</div>`:'';
+
+  $('sheet-title').textContent='Pagar fatura';
+  $('sheet-body').innerHTML=`
+    <div style="background:#F5F3FF;border:1px solid #DDD6FE;border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:8px">💳 ${cartao.nome} · ${MESES[m-1]} ${y}</div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Total da fatura</span><b>${fmt(total)}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>Já pago</span><b style="color:#059669">${fmt(pago)}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;border-top:1px solid #DDD6FE;padding-top:6px;margin-top:6px"><span><b>Restante</b></span><b style="color:#DC2626">${fmt(restante)}</b></div>
+    </div>
+    <div class="form-mb field"><label>💰 Valor a pagar agora *</label>
+      <input type="text" data-money="1" id="pf-valor" inputmode="numeric" value="${restante>0?_fmtCentavos(Math.round(restante*100)):''}"/>
+    </div>
+    <div class="form-mb field"><label>De qual carteira *</label>
+      <select id="pf-carteira"><option value="">Selecione…</option>${wOpts}</select>
+    </div>
+    <div class="form-mb field"><label>📅 Data do pagamento *</label>
+      <input type="date" id="pf-data" value="${new Date().toISOString().split('T')[0]}"/>
+    </div>
+    <button class="salvar-btn saida" onclick="confirmarPagamentoFatura()">Confirmar pagamento</button>
+    ${feitosHtml}
+  `;
+  openSheetRaw();
+}
+
+async function confirmarPagamentoFatura(){
+  if(!pagFaturaCtx) return;
+  const valor=getMaskValue($('pf-valor'));
+  const carteiraId=$('pf-carteira')?.value;
+  const dataPag=$('pf-data')?.value;
+  if(!valor||valor<=0) return showToast('Informe o valor a pagar.','err');
+  if(!carteiraId) return showToast('Selecione a carteira.','err');
+  if(!dataPag) return showToast('Informe a data.','err');
+
+  const {cartaoId, mesRef}=pagFaturaCtx;
+  const cartao=cartoes.find(c=>c.id===cartaoId);
+  const btn=document.querySelector('.salvar-btn'); if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+
+  // 1. Gera a SAÍDA real na carteira escolhida (é isso que baixa o saldo)
+  const {data:movData, error:movErr}=await sb.from('fin_movimentacoes').insert([{
+    descricao:`Pagamento fatura ${cartao.nome} — ${mesRef}`,
+    valor, tipo:'saida', data:dataPag, data_vencimento:dataPag,
+    status:'pago', carteira_id:carteiraId, cartao_id:null,
+    categoria_id:null, centro_id:null,
+    forma_pagamento:'Pagamento de fatura', origem:'fatura'
+  }]);
+  if(movErr){ showToast('Erro ao registrar saída.','err'); if(btn){btn.disabled=false;btn.textContent='Confirmar pagamento';} return; }
+  const movId=movData?.[0]?.id||null;
+
+  // 2. Registra o pagamento da fatura (permite parcial/parcelado + reabertura)
+  const {error:pagErr}=await sb.from('fin_pagamentos_fatura').insert([{
+    cartao_id:cartaoId, mes_referencia:mesRef, valor,
+    carteira_id:carteiraId, data_pagamento:dataPag, movimentacao_id:movId
+  }]);
+  if(pagErr){ showToast('Erro ao registrar pagamento.','err'); if(btn){btn.disabled=false;btn.textContent='Confirmar pagamento';} return; }
+
+  await loadAll(); renderAll(); closeSheet();
+  showToast('✅ Pagamento registrado!');
+}
+
+async function removerPagamentoFatura(pagId){
+  if(!confirm('Remover este pagamento? A saída correspondente também será removida.')) return;
+  const pag=(pagamentosFatura||[]).find(p=>p.id===pagId);
+  if(pag?.movimentacao_id){
+    await sb.from('fin_movimentacoes').delete().eq('id', pag.movimentacao_id);
+  }
+  await sb.from('fin_pagamentos_fatura').delete().eq('id', pagId);
+  await loadAll(); renderAll();
+  // Reabre o modal atualizado
+  if(pagFaturaCtx) abrirPagarFatura(pagFaturaCtx.cartaoId, pagFaturaCtx.mesRef);
+  showToast('Pagamento removido.','info');
+}
+
+// ════════════════════════════════════════════════
+//  FATURAS DE CARTÃO (bloco no dashboard)
+// ════════════════════════════════════════════════
+function renderFaturas(){
+  const el=$('faturas-section'); if(!el) return;
+  if(!cartoes.length){ el.innerHTML=''; return; }
+  const mesISO=isoMes(mesAtual);
+
+  const linhas=[];
+  cartoes.filter(c=>c.ativo!==false).forEach(c=>{
+    const total=calcFaturaCartao(c.id, mesISO);
+    const pago=totalPagoFatura(c.id, mesISO);
+    if(total<=0 && pago<=0) return; // não mostra cartão sem fatura no mês
+    const st=statusFatura(c, mesISO, total, pago);
+    const restante=Math.max(0,total-pago);
+    linhas.push({c, total, pago, restante, st});
+  });
+
+  if(!linhas.length){ el.innerHTML=''; return; }
+
+  // Ordena: atrasada > fechada > aberta > paga
+  const ordem={atrasada:0, fechada:1, aberta:2, parcial:2, paga:3, vazia:4};
+  linhas.sort((a,b)=>(ordem[a.st.key]??9)-(ordem[b.st.key]??9));
+
+  const totalAberto=linhas.filter(l=>l.st.key!=='paga').reduce((s,l)=>s+l.restante,0);
+
+  let html=`<div class="pendencias-card">`;
+  html+=`<div class="pendencias-header" style="cursor:default">`;
+  html+=`<div class="pendencias-titulo">💳 Faturas de cartão — ${fmt(totalAberto)} a pagar</div>`;
+  html+=`<span class="pendencias-badge pendente">${linhas.length} cartão(ões)</span>`;
+  html+=`</div><div class="pendencias-list">`;
+  linhas.forEach(l=>{
+    html+=`<div class="pendencia-item" onclick="abrirPagarFatura('${l.c.id}','${mesISO}')">`;
+    html+=`<div style="flex:1;min-width:0">`;
+    html+=`<div class="pendencia-desc">💳 ${l.c.nome}</div>`;
+    html+=`<div class="pendencia-meta">Fatura de ${MESES[mesAtual.getMonth()]}${l.pago>0?` · pago ${fmt(l.pago)}`:''}</div>`;
+    html+=`<span class="pendencia-tag" style="background:${l.st.cor}22;color:${l.st.cor}">${l.st.label}</span>`;
+    html+=`</div>`;
+    html+=`<div class="pendencia-valor saida">${fmt(l.st.key==='paga'?l.total:l.restante)}</div>`;
+    html+=`</div>`;
+  });
+  html+=`</div></div>`;
+  el.innerHTML=html;
+}
+
+// ════════════════════════════════════════════════
 //  PENDÊNCIAS (contas em aberto de qualquer mês)
 // ════════════════════════════════════════════════
 function renderPendencias(){
   const el=$('pendencias-section'); if(!el) return;
   const hojeISO = new Date().toISOString().split('T')[0];
-  // Tudo que não está pago, de qualquer mês
-  const pendentes = movsVisiveis().filter(m=>m.status!=='pago'&&m.status!=='cancelado');
+  // Tudo que não está pago, de qualquer mês — mas SEM as compras individuais
+  // de cartão (elas viram fatura; é a fatura que aparece como pendência)
+  const pendentes = movsVisiveis().filter(m=>m.status!=='pago'&&m.status!=='cancelado'&&!ehCompraCartao(m));
   if(!pendentes.length){ el.innerHTML=''; return; }
 
   // Classifica: atrasado (vencimento < hoje), hoje, futuro
@@ -3400,6 +3596,7 @@ function renderCartoes() {
       <div class="cartao-actions">
         <button class="cartao-action-btn" onclick="openSheetCartao('${c.id}')">✏️ Editar</button>
         <button class="cartao-action-btn" onclick="novaCompraCartao('${c.id}')">➕ Compra</button>
+        <button class="cartao-action-btn" style="background:rgba(110,231,183,.15);border-color:rgba(110,231,183,.35)" onclick="abrirPagarFatura('${c.id}','${mesISO}')">💰 Pagar fatura</button>
         <button class="cartao-action-btn" style="background:rgba(252,165,165,.15);border-color:rgba(252,165,165,.3)" onclick="abrirParcelarFatura('${c.id}')">💸 Parcelar fatura</button>
         <button class="cartao-action-btn" style="background:rgba(252,165,165,.1);border-color:rgba(252,165,165,.2)" onclick="deleteCartao('${c.id}')">🗑</button>
       </div>

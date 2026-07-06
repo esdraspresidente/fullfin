@@ -4135,10 +4135,15 @@ async function atualizaVersaoSidebar(){
   try{
     if(!('caches' in window)) return;
     const keys=await caches.keys();
-    const cacheVersao=keys.find(k=>k.startsWith('fullfin-v'));
-    if(cacheVersao && $('sb-version')){
-      const versaoTxt=cacheVersao.replace('fullfin-','');
-      $('sb-version').textContent=versaoTxt+' · Naiarha';
+    // Pode existir mais de um cache fullfin-vX.Y ao mesmo tempo (navegador não limpa sozinho).
+    // Escolhe sempre o de NÚMERO MAIS ALTO, nunca o primeiro que aparecer na lista.
+    const versoes=keys
+      .map(k=>k.match(/^fullfin-v(\d+)\.(\d+)$/))
+      .filter(Boolean)
+      .map(m=>({texto:'v'+m[1]+'.'+m[2], score:parseInt(m[1])*1000+parseInt(m[2])}));
+    if(versoes.length && $('sb-version')){
+      versoes.sort((a,b)=>b.score-a.score);
+      $('sb-version').textContent=versoes[0].texto+' · Naiarha';
     }
   }catch(e){}
 }

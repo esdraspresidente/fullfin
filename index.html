@@ -1931,6 +1931,42 @@ function onCarteiraChange(){
   }
 }
 
+// Função PURA: calcula o vencimento da fatura a partir da data da compra e do cartão.
+// Não depende do DOM — pode ser chamada tanto na exibição quanto no salvamento.
+function calcVencFaturaISO(dataCompra, cartao){
+  if(!dataCompra || !cartao) return dataCompra;
+  const diaFecha=parseInt(cartao.dia_fechamento)||1;
+  const diaVence=parseInt(cartao.dia_vencimento)||10;
+  const [y,m,d]=dataCompra.split('-').map(Number);
+  const diaCompra=d;
+  // Lógica brasileira de fatura:
+  // Compra ANTES do fechamento → cai na fatura que ainda vai fechar neste ciclo
+  // Compra NO DIA ou DEPOIS do fechamento → cai no PRÓXIMO ciclo de fatura
+  let mesOffset;
+  if(diaCompra < diaFecha){
+    mesOffset = (diaVence >= diaFecha) ? 0 : 1;
+  } else {
+    mesOffset = (diaVence >= diaFecha) ? 1 : 2;
+  }
+  let mesVenc = m + mesOffset;
+  let anoVenc = y;
+  while(mesVenc > 12){ mesVenc -= 12; anoVenc++; }
+  const diaReal=Math.min(diaVence, new Date(anoVenc,mesVenc,0).getDate());
+  return `${anoVenc}-${String(mesVenc).padStart(2,'0')}-${String(diaReal).padStart(2,'0')}`;
+}
+
+function calcVencCartao(cartao){
+  const dataCompra=$('sh-venc')?.value;
+  const infoVenc=$('sh-venc-auto-info');
+  if(!dataCompra||!cartao||!infoVenc) return;
+  const diaFecha=parseInt(cartao.dia_fechamento)||1;
+  const diaVence=parseInt(cartao.dia_vencimento)||10;
+  const vencISO=calcVencFaturaISO(dataCompra, cartao);
+  infoVenc.innerHTML=`💳 Fecha dia <b>${diaFecha}</b> · Vence dia <b>${diaVence}</b><br>📅 Vencimento da fatura: <b>${fmtDate(vencISO)}</b>`;
+  infoVenc.style.display='block';
+  infoVenc.dataset.vencCalculado=vencISO;
+}
+
 function shToggleRecorrente(){
   const rec=$('sh-recorrente')?.value;
   const repWrap=$('sh-rep-wrap');
@@ -1978,11 +2014,12 @@ async function salvarLancamento(){
   const carteiraId=unifVal.startsWith('conta:')?unifVal.replace('conta:',''):null;
   const cartaoId=isCartao?unifVal.replace('cartao:',''):null;
 
-  // Vencimento: se é cartão, usa o calculado; senão, usa o manual ou a data da compra
+  // Vencimento: se é cartão, CALCULA na hora a partir da data da compra + regras do cartão
+  // (não depende de nenhum estado do DOM — garante que sempre sai certo)
   let vencFinal;
   if(isCartao){
-    const infoVenc=$('sh-venc-auto-info');
-    vencFinal = infoVenc?.dataset?.vencCalculado || dataCompra;
+    const cartao=cartoes.find(c=>c.id===cartaoId);
+    vencFinal = calcVencFaturaISO(dataCompra, cartao);
   } else {
     vencFinal = $('sh-venc-manual')?.value || dataCompra;
   }

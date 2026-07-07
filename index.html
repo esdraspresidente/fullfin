@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.40 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.45 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -781,6 +781,7 @@
           <button class="btn btn-primary" onclick="openSheetDivida()">+ Nova Dívida</button>
         </div>
         <div id="dividas-resumo" style="margin-bottom:16px"></div>
+        <div id="dividas-resumo-mensal" style="margin-bottom:16px"></div>
         <div id="dividas-lista"></div>
       </div>
 
@@ -2774,6 +2775,90 @@ async function deleteDizimo(did){
 // ════════════════════════════════════════════════
 //  DÍVIDAS & FINANCIAMENTOS
 // ════════════════════════════════════════════════
+
+// Resumo "o que tem pra pagar em cada mês" — mesmo padrão visual/comportamento das
+// Faturas de cartão no dashboard (bloco fixo de atrasadas + um card por mês, expansível).
+// Calcula a partir de fin_dividas + fin_divida_parcelas (mesma lógica da grade de parcelas
+// de cada card), e NÃO a partir de fin_movimentacoes — assim fica imune a qualquer
+// inconsistência que possa existir nas movimentações geradas/atualizadas.
+// Só entra dívida no modo "Por parcelas" (empréstimo, financiamento, cartão parcelado);
+// dívidas no modo "Valor livre" não têm parcela numerada e ficam de fora deste resumo.
+function renderResumoMensalDividas(){
+  const el=$('dividas-resumo-mensal'); if(!el) return;
+  const hojeISO=new Date().toISOString().split('T')[0];
+  const ativas=dividas.filter(d=>d.ativo!==false && d.tipo_controle!=='livre' && (d.n_parcelas||0)>0);
+
+  const itens=[];
+  ativas.forEach(d=>{
+    const pagas=dividaParcelas.filter(p=>p.divida_id===d.id);
+    const numsPagos=new Set(pagas.map(p=>p.num_parcela));
+    const tipoIcon={'emprestimo':'🤝','financiamento':'🏠','cartao_parcelado':'💳'}[d.tipo]||'📉';
+    for(let n=1;n<=d.n_parcelas;n++){
+      if(numsPagos.has(n)) continue;
+      const dt=new Date(d.data_inicio+'T12:00:00'); dt.setMonth(dt.getMonth()+(n-1));
+      const vencISO=dt.toISOString().split('T')[0];
+      itens.push({
+        dividaId:d.id, descricao:d.descricao, valor:parseFloat(d.valor_parcela||0),
+        venc:vencISO, num:n, total:d.n_parcelas, tipoIcon
+      });
+    }
+  });
+
+  if(!itens.length){ el.innerHTML=''; return; }
+
+  const atrasadas=itens.filter(i=>i.venc<hojeISO).sort((a,b)=>a.venc.localeCompare(b.venc));
+  const futuras=itens.filter(i=>i.venc>=hojeISO);
+
+  const porMes={};
+  futuras.forEach(i=>{
+    const mes=i.venc.slice(0,7); // YYYY-MM
+    (porMes[mes]=porMes[mes]||[]).push(i);
+  });
+  const mesesOrdenados=Object.keys(porMes).sort();
+
+  const itemLinha = i => `
+    <div class="pendencia-item" onclick="registrarPagamentoDivida('${i.dividaId}')">
+      <div style="min-width:0">
+        <div class="pendencia-desc">${i.tipoIcon} ${i.descricao}</div>
+        <div class="pendencia-meta">Parcela ${i.num}/${i.total} · ${i.venc<hojeISO?'venceu':'vence'} ${fmtDate(i.venc)}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="pendencia-valor saida">${fmt(i.valor)}</div>
+        ${i.venc<hojeISO?'<span class="pendencia-tag atrasado">Atrasada</span>':''}
+      </div>
+    </div>`;
+
+  let html='';
+
+  if(atrasadas.length){
+    const totalAtrasado=atrasadas.reduce((s,i)=>s+i.valor,0);
+    html+=`<div class="pendencias-card">
+      <div class="pendencias-header" style="cursor:default">
+        <div class="pendencias-titulo" style="color:#DC2626">⚠️ Parcelas atrasadas — ${fmt(totalAtrasado)}</div>
+        <span class="pendencias-badge atrasado">${atrasadas.length} parcela(s)</span>
+      </div>
+      <div class="pendencias-list">${atrasadas.map(itemLinha).join('')}</div>
+    </div>`;
+  }
+
+  mesesOrdenados.forEach((mes,idx)=>{
+    const lista=porMes[mes];
+    const total=lista.reduce((s,i)=>s+i.valor,0);
+    const [ano,mesNum]=mes.split('-');
+    const label=`${MESES[parseInt(mesNum)-1]} ${ano}`;
+    const aberto=idx===0; // expande o mês mais próximo por padrão; os demais ficam fechados
+    html+=`<div class="pendencias-card">
+      <div class="pendencias-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+        <div class="pendencias-titulo">📅 ${label} — ${fmt(total)}</div>
+        <span class="pendencias-badge pendente">${lista.length} parcela(s)</span>
+      </div>
+      <div class="pendencias-list" style="display:${aberto?'block':'none'}">${lista.map(itemLinha).join('')}</div>
+    </div>`;
+  });
+
+  el.innerHTML=html;
+}
+
 function renderDividas(){
   const el=$('dividas-lista'); if(!el) return;
   const resumoEl=$('dividas-resumo');
@@ -2795,6 +2880,8 @@ function renderDividas(){
       <div class="stat-card"><div class="stat-label">💸 Total devendo</div><div class="stat-value vermelho">${fmt(totalDevendo)}</div></div>
       <div class="stat-card"><div class="stat-label">💚 Economizado com antecipações</div><div class="stat-value verde">${fmt(economiasTotal)}</div></div>
     </div>`;
+
+  renderResumoMensalDividas();
 
   if(!ativas.length){el.innerHTML=`<div class="empty"><div class="empty-icon">📉</div><div class="empty-title">Nenhuma dívida cadastrada</div></div>`;return;}
 
@@ -3227,6 +3314,13 @@ async function confirmarPagamentoDivida(did){
   if(!numParcela){showToast('Selecione a parcela.','err');return;}
   if(!valorPago){showToast('Informe o valor pago.','err');return;}
 
+  // Upload comprovante
+  let comprovanteUrl=null;
+  const fileInput=$('dpag-comprovante');
+  if(fileInput?.files?.length){
+    comprovanteUrl=await uploadComprovante(fileInput.files[0],did+'-parc'+numParcela+'-'+Date.now());
+  }
+
   // Salva na tabela de parcelas
   const{error:e1}=await sb.from('fin_divida_parcelas').insert([{
     divida_id:did, num_parcela:numParcela,
@@ -3234,10 +3328,12 @@ async function confirmarPagamentoDivida(did){
     data_pagamento:data,
     carteira_id:$('dpag-carteira')?.value||null,
     forma_pagamento:$('dpag-forma')?.value||null,
-    observacao:$('dpag-obs')?.value||null
+    observacao:$('dpag-obs')?.value||null,
+    comprovante_url:comprovanteUrl
   }]);
 
-  // Se essa parcela já existe em Lançamentos (dívida criada após a integração), atualiza ela.
+  // Se essa parcela já existe em Lançamentos (dívida criada após a integração), ATUALIZA ela
+  // para 'pago' em vez de criar uma linha nova — evita parcela "fantasma" agendada para sempre.
   // Senão (dívida antiga, sem parcelas pré-geradas), cria uma nova — comportamento de antes.
   const movExistente=movimentacoes.find(m=>m.divida_id===did && m.parcela_atual===numParcela && m.status!=='pago');
   let e2;
@@ -3246,7 +3342,8 @@ async function confirmarPagamentoDivida(did){
       status:'pago', data, valor:valorPago,
       carteira_id:$('dpag-carteira')?.value||null,
       forma_pagamento:$('dpag-forma')?.value||null,
-      observacao:$('dpag-obs')?.value||null
+      observacao:$('dpag-obs')?.value||null,
+      comprovante_url:comprovanteUrl
     }).eq('id',movExistente.id));
   } else {
     ({error:e2}=await sb.from('fin_movimentacoes').insert([{
@@ -3255,7 +3352,7 @@ async function confirmarPagamentoDivida(did){
       carteira_id:$('dpag-carteira')?.value||null,
       centro_id:d.centro_id||null,
       forma_pagamento:$('dpag-forma')?.value||null,
-      origem:'manual'
+      origem:'manual', comprovante_url:comprovanteUrl
     }]));
   }
 
@@ -3266,7 +3363,7 @@ async function confirmarPagamentoDivida(did){
   await sb.from('fin_dividas').update({parcelas_pagas:novasPagas,ativo:novasPagas<d.n_parcelas}).eq('id',did);
 
   // Se dívida tem confirmação bilateral, dispara email para o credor
-  if(d.envia_confirmacao) {
+  if(d.envia_confirmacao && d.credor_email) {
     const pagas2=dividaParcelas.filter(p=>p.divida_id===did);
     const totalPagoAnterior=pagas2.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
     const saldoOriginal=parseFloat(d.valor_total||0)||(d.n_parcelas*parseFloat(d.valor_parcela||0));
@@ -3285,7 +3382,8 @@ async function confirmarPagamentoDivida(did){
           saldo_anterior:saldoAnterior,
           saldo_novo:saldoNovo,
           data_pagamento:data,
-          descricao_divida:d.descricao
+          descricao_divida:d.descricao,
+          credor_email:d.credor_email
         })
       });
       if(resp.ok) showToast('✅ Pago! Email enviado para confirmação 📧');
@@ -3298,62 +3396,6 @@ async function confirmarPagamentoDivida(did){
     showToast(economia>0?`✅ Pago! Você economizou ${fmt(economia)}`:'✅ Pagamento registrado!');
   }
 
-  await loadAll(); renderDividas(); closeSheet();
-}
-
-async function confirmarPagamentoDivida(did){
-  const d=dividas.find(x=>x.id===did); if(!d) return;
-  const numParcela=parseInt($('dpag-num')?.value);
-  const valorPago=getMaskValue($('dpag-valor'))||0;
-  const valorOriginal=parseFloat(d.valor_parcela)||0;
-  const data=$('dpag-data')?.value||new Date().toISOString().split('T')[0];
-  if(!numParcela){showToast('Selecione a parcela.','err');return;}
-  if(!valorPago){showToast('Informe o valor pago.','err');return;}
-
-  // Upload comprovante
-  let comprovanteUrl=null;
-  const fileInput=$('dpag-comprovante');
-  if(fileInput?.files?.length){
-    comprovanteUrl=await uploadComprovante(fileInput.files[0],did+'-parc'+numParcela+'-'+Date.now());
-  }
-
-  const{error:e1}=await sb.from('fin_divida_parcelas').insert([{
-    divida_id:did, num_parcela:numParcela,
-    valor_original:valorOriginal, valor_pago:valorPago,
-    data_pagamento:data,
-    carteira_id:$('dpag-carteira')?.value||null,
-    forma_pagamento:$('dpag-forma')?.value||null,
-    observacao:$('dpag-obs')?.value||null,
-    comprovante_url:comprovanteUrl
-  }]);
-  const{error:e2}=await sb.from('fin_movimentacoes').insert([{
-    descricao:`${d.descricao} — Parcela ${numParcela}/${d.n_parcelas}`,
-    valor:valorPago, tipo:'saida', data, status:'pago',
-    carteira_id:$('dpag-carteira')?.value||null,
-    centro_id:d.centro_id||null,
-    forma_pagamento:$('dpag-forma')?.value||null,
-    origem:'manual', comprovante_url:comprovanteUrl
-  }]);
-  if(e1||e2){showToast('Erro ao registrar.','err');return;}
-  const novasPagas=dividaParcelas.filter(p=>p.divida_id===did).length+1;
-  await sb.from('fin_dividas').update({parcelas_pagas:novasPagas,ativo:novasPagas<d.n_parcelas}).eq('id',did);
-  if(d.envia_confirmacao && d.credor_email){
-    const totalPagoAnterior=dividaParcelas.filter(p=>p.divida_id===did).reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
-    const saldoOriginal=d.n_parcelas*parseFloat(d.valor_parcela||0);
-    const saldoAnterior=saldoOriginal-totalPagoAnterior;
-    const saldoNovo=Math.max(0,saldoAnterior-valorPago);
-    try{
-      await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')},
-        body:JSON.stringify({divida_id:did,valor_pago:valorPago,saldo_anterior:saldoAnterior,saldo_novo:saldoNovo,data_pagamento:data,descricao_divida:d.descricao,credor_email:d.credor_email})
-      });
-      showToast('✅ Pago! Email enviado para confirmação 📧');
-    }catch(e){showToast('✅ Pago! (email não enviado)','info');}
-  } else {
-    const economia=valorOriginal-valorPago;
-    showToast(economia>0?`✅ Pago! Você economizou ${fmt(economia)}`:'✅ Pagamento registrado!');
-  }
   await loadAll(); renderDividas(); closeSheet();
 }
 

@@ -24,6 +24,27 @@
       return h;
     }
     function notify(ev,s){_listeners.forEach(fn=>{try{fn(ev,s);}catch(e){}});}
+    // Notifica por e-mail quando a NAIARHA cadastra uma movimentação (fire-and-forget, nunca bloqueia o salvamento)
+    function notificaMovimentacaoSeNaiarha(rows){
+      try{
+        const email=(_session?.user?.email||'').toLowerCase();
+        if(!email.includes('naiarha')) return; // só dispara se quem está logado é a Naiarha
+        const lista=Array.isArray(rows)?rows:[rows];
+        lista.forEach(row=>{
+          fetch(url+'/functions/v1/notificar-movimentacao',{
+            method:'POST',
+            headers:{'Content-Type':'application/json','apikey':key,'Authorization':'Bearer '+(_session?.access_token||'')},
+            body:JSON.stringify({
+              descricao:row.descricao||'',
+              valor:row.valor||0,
+              tipo:row.tipo||'',
+              data:row.data||row.data_vencimento||'',
+              forma_pagamento:row.forma_pagamento||''
+            })
+          }).catch(()=>{}); // silencioso: falha no e-mail nunca afeta o fluxo do app
+        });
+      }catch(e){}
+    }
     function init(){
       try{
         const raw=localStorage.getItem('supa_sess');
@@ -57,11 +78,15 @@
         async insert(rows){
           const body=Array.isArray(rows)?rows[0]:rows;
           const r=await fetch(url+'/rest/v1/'+table,{method:'POST',headers:{...hdrs(),'Prefer':'return=representation'},body:JSON.stringify(body)});
-          const d=await r.json();return r.ok?{data:d,error:null}:{data:null,error:d};
+          const d=await r.json();
+          if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(body);
+          return r.ok?{data:d,error:null}:{data:null,error:d};
         },
         async insertMany(rows){
           const r=await fetch(url+'/rest/v1/'+table,{method:'POST',headers:{...hdrs(),'Prefer':'return=representation'},body:JSON.stringify(rows)});
-          const d=await r.json();return r.ok?{data:d,error:null}:{data:null,error:d};
+          const d=await r.json();
+          if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(rows);
+          return r.ok?{data:d,error:null}:{data:null,error:d};
         },
         update(obj){return{
           eq(c,v){_filters=[c+'=eq.'+encodeURIComponent(v)];return this;},

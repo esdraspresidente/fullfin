@@ -953,6 +953,7 @@ let lanceCentroPill = ''; // '' = todos, ou centro_id
 let lanceFiltros = { desc:'', carteira:'', centro:'', categoria:'', forma:'' };
 let cartoes = [], cartaoAtual = null;
 let pagamentosFatura = [];
+let cartoesExpandidos = new Set();
 let dividas = [], veiculos = [], abastecimentos = [], recorrentes = [], dividaParcelas = [], dividaConfirmacoes = [];
 let recFiltro = 'todos';
 let confirmCallback = null;
@@ -1374,30 +1375,79 @@ function renderFaturas(){
     linhas.push({c, total, pago, restante, st});
   });
 
-  if(!linhas.length){ el.innerHTML=''; return; }
+  // Faturas ATRASADAS de qualquer mês PASSADO (independente do mês navegado).
+  // Varre todos os meses de vencimento que existem nas compras de cada cartão.
+  const atrasadas=[];
+  cartoes.filter(c=>c.ativo!==false).forEach(c=>{
+    const mesesComFatura=new Set(
+      movsVisiveis()
+        .filter(m=>m.cartao_id===c.id && ehCompraCartao(m) && m.data_vencimento)
+        .map(m=>m.data_vencimento.slice(0,7))
+    );
+    mesesComFatura.forEach(mRef=>{
+      if(mRef===mesISO) return; // o mês atual já está em "linhas"
+      const total=calcFaturaCartao(c.id, mRef);
+      const pago=totalPagoFatura(c.id, mRef);
+      const restante=Math.max(0,total-pago);
+      if(restante<=0.001) return; // quitada
+      const st=statusFatura(c, mRef, total, pago);
+      if(st.key==='atrasada'){
+        atrasadas.push({c, mRef, total, pago, restante, st});
+      }
+    });
+  });
 
-  // Ordena: atrasada > fechada > aberta > paga
+  if(!linhas.length && !atrasadas.length){ el.innerHTML=''; return; }
+
   const ordem={atrasada:0, fechada:1, aberta:2, parcial:2, paga:3, vazia:4};
   linhas.sort((a,b)=>(ordem[a.st.key]??9)-(ordem[b.st.key]??9));
 
-  const totalAberto=linhas.filter(l=>l.st.key!=='paga').reduce((s,l)=>s+l.restante,0);
+  let html='';
 
-  let html=`<div class="pendencias-card">`;
-  html+=`<div class="pendencias-header" style="cursor:default">`;
-  html+=`<div class="pendencias-titulo">💳 Faturas de cartão — ${fmt(totalAberto)} a pagar</div>`;
-  html+=`<span class="pendencias-badge pendente">${linhas.length} cartão(ões)</span>`;
-  html+=`</div><div class="pendencias-list">`;
-  linhas.forEach(l=>{
-    html+=`<div class="pendencia-item" onclick="abrirPagarFatura('${l.c.id}','${mesISO}')">`;
-    html+=`<div style="flex:1;min-width:0">`;
-    html+=`<div class="pendencia-desc">💳 ${l.c.nome}</div>`;
-    html+=`<div class="pendencia-meta">Fatura de ${MESES[mesAtual.getMonth()]}${l.pago>0?` · pago ${fmt(l.pago)}`:''}</div>`;
-    html+=`<span class="pendencia-tag" style="background:${l.st.cor}22;color:${l.st.cor}">${l.st.label}</span>`;
-    html+=`</div>`;
-    html+=`<div class="pendencia-valor saida">${fmt(l.st.key==='paga'?l.total:l.restante)}</div>`;
-    html+=`</div>`;
-  });
-  html+=`</div></div>`;
+  // Bloco de ATRASADAS (fixo no topo, de qualquer mês)
+  if(atrasadas.length){
+    atrasadas.sort((a,b)=>a.mRef.localeCompare(b.mRef));
+    const totalAtrasado=atrasadas.reduce((s,l)=>s+l.restante,0);
+    html+=`<div class="pendencias-card">`;
+    html+=`<div class="pendencias-header" style="cursor:default">`;
+    html+=`<div class="pendencias-titulo" style="color:#DC2626">⚠️ Faturas atrasadas — ${fmt(totalAtrasado)}</div>`;
+    html+=`<span class="pendencias-badge atrasado">${atrasadas.length} fatura(s)</span>`;
+    html+=`</div><div class="pendencias-list">`;
+    atrasadas.forEach(l=>{
+      const [y,m]=l.mRef.split('-').map(Number);
+      html+=`<div class="pendencia-item" onclick="abrirPagarFatura('${l.c.id}','${l.mRef}')">`;
+      html+=`<div style="flex:1;min-width:0">`;
+      html+=`<div class="pendencia-desc">💳 ${l.c.nome}</div>`;
+      html+=`<div class="pendencia-meta">Fatura de ${MESES[m-1]} ${y}${l.pago>0?` · pago ${fmt(l.pago)}`:''}</div>`;
+      html+=`<span class="pendencia-tag atrasado">Atrasada · falta ${fmt(l.restante)}</span>`;
+      html+=`</div>`;
+      html+=`<div class="pendencia-valor saida">${fmt(l.restante)}</div>`;
+      html+=`</div>`;
+    });
+    html+=`</div></div>`;
+  }
+
+  // Bloco de faturas do MÊS navegado
+  if(linhas.length){
+    const totalAberto=linhas.filter(l=>l.st.key!=='paga').reduce((s,l)=>s+l.restante,0);
+    html+=`<div class="pendencias-card">`;
+    html+=`<div class="pendencias-header" style="cursor:default">`;
+    html+=`<div class="pendencias-titulo">💳 Faturas de ${MESES[mesAtual.getMonth()]} — ${fmt(totalAberto)} a pagar</div>`;
+    html+=`<span class="pendencias-badge pendente">${linhas.length} cartão(ões)</span>`;
+    html+=`</div><div class="pendencias-list">`;
+    linhas.forEach(l=>{
+      html+=`<div class="pendencia-item" onclick="abrirPagarFatura('${l.c.id}','${mesISO}')">`;
+      html+=`<div style="flex:1;min-width:0">`;
+      html+=`<div class="pendencia-desc">💳 ${l.c.nome}</div>`;
+      html+=`<div class="pendencia-meta">Fatura de ${MESES[mesAtual.getMonth()]}${l.pago>0?` · pago ${fmt(l.pago)}`:''}</div>`;
+      html+=`<span class="pendencia-tag" style="background:${l.st.cor}22;color:${l.st.cor}">${l.st.label}</span>`;
+      html+=`</div>`;
+      html+=`<div class="pendencia-valor saida">${fmt(l.st.key==='paga'?l.total:l.restante)}</div>`;
+      html+=`</div>`;
+    });
+    html+=`</div></div>`;
+  }
+
   el.innerHTML=html;
 }
 
@@ -3561,8 +3611,7 @@ function renderCartoes() {
     const fatura = calcFaturaCartao(c.id, mesISO);
     const disponivel = parseFloat(c.limite||0) - fatura;
     const pctUsado = c.limite ? Math.min(100,(fatura/c.limite*100)) : 0;
-    const carteiraNome = carteiras.find(w=>w.id===c.carteira_pagamento_id)?.nome||'';
-    // Compras cuja FATURA (data_vencimento) cai no mês selecionado
+    const expandido = cartoesExpandidos.has(c.id);
     const compras = movimentacoes.filter(m=>m.cartao_id===c.id&&(m.data_vencimento||'').startsWith(mesISO)&&m.tipo==='saida');
     const comprasHtml = compras.length ? compras.map(m=>`
       <div class="mov-item" style="border-bottom:1px solid rgba(255,255,255,.06)" onclick="abreDetalhe('${m.id}')">
@@ -3573,40 +3622,61 @@ function renderCartoes() {
         </div>
         <div class="mov-right"><div class="mov-value saida" style="color:#FCA5A5">-${fmt(m.valor)}</div></div>
       </div>`).join('') : `<div style="padding:12px;font-size:12px;color:rgba(255,255,255,.4);text-align:center">Nenhuma compra nesta fatura</div>`;
-    return `<div class="cartao-card">
-      <div class="cartao-bandeira">${c.bandeira||'Crédito'}</div>
-      <div class="cartao-nome">💳 ${c.nome}</div>
-      <div class="cartao-stats">
-        <div>
+
+    // Cabeçalho sempre visível (clicável para expandir/recolher)
+    const header=`<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleCartao('${c.id}')">
+        <div style="flex:1;min-width:0">
+          <div class="cartao-bandeira">${c.bandeira||'Crédito'}</div>
+          <div class="cartao-nome" style="margin-bottom:0">💳 ${c.nome}</div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;margin-left:12px">
           <div class="cartao-stat-label">Fatura ${MESES_S[mesAtual.getMonth()]}</div>
-          <div class="cartao-stat-value fatura">${fmt(fatura)}</div>
+          <div class="cartao-stat-value fatura" style="font-size:17px">${fmt(fatura)}</div>
         </div>
-        <div>
-          <div class="cartao-stat-label">Limite disponível</div>
-          <div class="cartao-stat-value disponivel">${fmt(disponivel)}</div>
+        <div style="margin-left:12px;font-size:16px;color:rgba(255,255,255,.5);flex-shrink:0">${expandido?'▲':'▼'}</div>
+      </div>`;
+
+    // Corpo (só quando expandido)
+    const body = expandido ? `
+      <div style="margin-top:14px">
+        <div class="cartao-stats">
+          <div>
+            <div class="cartao-stat-label">Fatura ${MESES_S[mesAtual.getMonth()]}</div>
+            <div class="cartao-stat-value fatura">${fmt(fatura)}</div>
+          </div>
+          <div>
+            <div class="cartao-stat-label">Limite disponível</div>
+            <div class="cartao-stat-value disponivel">${fmt(disponivel)}</div>
+          </div>
+          <div>
+            <div class="cartao-stat-label">Limite total</div>
+            <div class="cartao-stat-value">${fmt(c.limite)}</div>
+          </div>
         </div>
-        <div>
-          <div class="cartao-stat-label">Limite total</div>
-          <div class="cartao-stat-value">${fmt(c.limite)}</div>
+        <div style="margin-top:10px;background:rgba(255,255,255,.1);border-radius:4px;height:4px;overflow:hidden">
+          <div style="width:${pctUsado}%;height:100%;background:${pctUsado>80?'#FCA5A5':'#6EE7B7'};border-radius:4px;transition:width .4s"></div>
         </div>
-      </div>
-      <div style="margin-top:10px;background:rgba(255,255,255,.1);border-radius:4px;height:4px;overflow:hidden">
-        <div style="width:${pctUsado}%;height:100%;background:${pctUsado>80?'#FCA5A5':'#6EE7B7'};border-radius:4px;transition:width .4s"></div>
-      </div>
-      <div class="cartao-actions">
-        <button class="cartao-action-btn" onclick="openSheetCartao('${c.id}')">✏️ Editar</button>
-        <button class="cartao-action-btn" onclick="novaCompraCartao('${c.id}')">➕ Compra</button>
-        <button class="cartao-action-btn" style="background:rgba(110,231,183,.15);border-color:rgba(110,231,183,.35)" onclick="abrirPagarFatura('${c.id}','${mesISO}')">💰 Pagar fatura</button>
-        <button class="cartao-action-btn" style="background:rgba(252,165,165,.15);border-color:rgba(252,165,165,.3)" onclick="abrirParcelarFatura('${c.id}')">💸 Parcelar fatura</button>
-        <button class="cartao-action-btn" style="background:rgba(252,165,165,.1);border-color:rgba(252,165,165,.2)" onclick="deleteCartao('${c.id}')">🗑</button>
-      </div>
-      <!-- Fatura do mês -->
-      <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.08);padding-top:10px">
-        <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Fatura de ${MESES_S[mesAtual.getMonth()]}</div>
-        ${comprasHtml}
-      </div>
-    </div>`;
+        <div class="cartao-actions">
+          <button class="cartao-action-btn" onclick="openSheetCartao('${c.id}')">✏️ Editar</button>
+          <button class="cartao-action-btn" onclick="novaCompraCartao('${c.id}')">➕ Compra</button>
+          <button class="cartao-action-btn" style="background:rgba(110,231,183,.15);border-color:rgba(110,231,183,.35)" onclick="abrirPagarFatura('${c.id}','${mesISO}')">💰 Pagar fatura</button>
+          <button class="cartao-action-btn" style="background:rgba(252,165,165,.15);border-color:rgba(252,165,165,.3)" onclick="abrirParcelarFatura('${c.id}')">💸 Parcelar fatura</button>
+          <button class="cartao-action-btn" style="background:rgba(252,165,165,.1);border-color:rgba(252,165,165,.2)" onclick="deleteCartao('${c.id}')">🗑</button>
+        </div>
+        <div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.08);padding-top:10px">
+          <div style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.8px;margin-bottom:6px">Fatura de ${MESES_S[mesAtual.getMonth()]}</div>
+          ${comprasHtml}
+        </div>
+      </div>` : '';
+
+    return `<div class="cartao-card">${header}${body}</div>`;
   }).join('');
+}
+
+function toggleCartao(cid){
+  if(cartoesExpandidos.has(cid)) cartoesExpandidos.delete(cid);
+  else cartoesExpandidos.add(cid);
+  renderCartoes();
 }
 
 function openSheetCartao(cid) {

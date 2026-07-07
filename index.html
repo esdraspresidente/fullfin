@@ -1173,7 +1173,7 @@ function statusFatura(cartao, mesRefISO, total, pago){
   const diaReal=Math.min(diaVence, new Date(y,m,0).getDate());
   const dataVenc=new Date(y, m-1, diaReal, 23, 59, 59);
   if(hoje>dataVenc) return {key:'atrasada', label: pago>0?`Atrasada · falta ${fmt(restante)}`:'Atrasada', cor:'#DC2626'};
-  return {key:'fechada', label: pago>0?`A pagar · falta ${fmt(restante)}`:'A pagar', cor:'#DC2626'};
+  return {key:'fechada', label: pago>0?`A pagar · falta ${fmt(restante)}`:'A pagar', cor:'#2563EB'};
 }
 
 // Mês de referência de um lançamento: pago→data pagamento; pendente→vencimento
@@ -1860,8 +1860,33 @@ function renderLancamentos(){
       : (m.data_vencimento || m.data || '');
     return ref.startsWith(mesISO);
   };
-  // Aplica pill de centro
-  let base=movsVisiveis().filter(m=>noMes(m)&&(lanceCentroPill===''||m.centro_id===lanceCentroPill));
+  // Aplica pill de centro — SEM as compras individuais de cartão (elas viram
+  // uma linha única de "Fatura" por cartão, não aparecem uma a uma aqui)
+  let base=movsVisiveis().filter(m=>noMes(m)&&!ehCompraCartao(m)&&(lanceCentroPill===''||m.centro_id===lanceCentroPill));
+
+  // Injeta UMA linha por cartão com fatura em aberto (aberta/fechada/atrasada/parcial)
+  cartoes.filter(c=>c.ativo!==false).forEach(c=>{
+    if(lanceCentroPill && c.centro_id!==lanceCentroPill) return;
+    const total=calcFaturaCartao(c.id, mesISO);
+    const pago=totalPagoFatura(c.id, mesISO);
+    const restante=Math.max(0,total-pago);
+    if(restante<=0.001) return; // sem saldo (quitada ou sem compras) — não mostra
+    const st=statusFatura(c, mesISO, total, pago);
+    const [y,m]=mesISO.split('-').map(Number);
+    const diaVence=parseInt(c.dia_vencimento)||10;
+    const vencISO=`${y}-${String(m).padStart(2,'0')}-${String(Math.min(diaVence,new Date(y,m,0).getDate())).padStart(2,'0')}`;
+    // Rótulo conforme o status: aberta = ainda acumulando (prévia, não definitivo)
+    const rotuloMap={aberta:'Em aberto · prévia', fechada:'Fechada', atrasada:'Atrasada'};
+    const corMap={aberta:'#D97706', fechada:'#2563EB', atrasada:'#DC2626'};
+    base.push({
+      id:'fatura-'+c.id+'-'+mesISO, _fatura:true, _cartaoId:c.id, _mRef:mesISO,
+      _statusLabel:(rotuloMap[st.key]||'')+(pago>0?' · parcial':''),
+      _statusCor:corMap[st.key]||'#D97706',
+      descricao:`Fatura ${c.nome}`,
+      valor:restante, tipo:'saida', status:'pendente',
+      data_vencimento:vencISO, centro_id:c.centro_id||null, categoria_id:null
+    });
+  });
 
   // Totais para as abas
   const todas=base;
@@ -1913,6 +1938,18 @@ function renderLancamentos(){
 
   // Layout cards (responsivo via CSS)
   el.innerHTML=lista.map(m=>{
+    if(m._fatura){
+      return`<div onclick="abrirPagarFatura('${m._cartaoId}','${m._mRef}')" style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:#F5F3FF;cursor:pointer">
+        <div style="flex:1;min-width:0;overflow:hidden">
+          <div style="font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">💳 ${m.descricao}</div>
+          <div style="font-size:10px;color:var(--gray);margin-top:2px">Vence ${fmtDate(m.data_vencimento)}</div>
+          <span style="display:inline-block;margin-top:4px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:${m._statusCor}22;color:${m._statusCor}">${m._statusLabel}</span>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:14px;font-weight:800;color:var(--red)">-${fmt(m.valor)}</div>
+        </div>
+      </div>`;
+    }
     const cat=categorias.find(c=>c.id===m.categoria_id);
     const centro=centros.find(c=>c.id===m.centro_id);
     const isPendente=m.status!=='pago';

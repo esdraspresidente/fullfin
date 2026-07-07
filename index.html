@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.46 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.47 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -707,7 +707,7 @@
         </div>
         <!-- Busca rápida por descrição — sempre visível, filtra ao digitar -->
         <div class="field" style="margin-bottom:10px">
-          <input type="search" id="lance-busca" placeholder="🔍 Buscar por descrição…" oninput="lanceFiltros.desc=this.value;renderLancamentos()"/>
+          <input type="search" id="lance-busca" placeholder="🔍 Buscar por descrição…" oninput="lanceFiltros.desc=this.value;renderLancamentosLista()"/>
         </div>
         <!-- Filtro rápido por centro de custo -->
         <div id="lance-centro-pills" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:10px;scrollbar-width:none;-webkit-overflow-scrolling:touch"></div>
@@ -1894,6 +1894,57 @@ async function deleteMov(mid){
 // ════════════════════════════════════════════════
 function renderLancamentos(){
   const mesISO=isoMes(mesAtual);
+  // Gera automaticamente os custos fixos do mês exibido que ainda não existem em Lançamentos.
+  // Não bloqueia a renderização: dispara e, quando terminar, re-renderiza.
+  autoGerarRecorrentesDoMes(mesISO);
+  renderLancamentosLista();
+}
+
+// Cria em fin_movimentacoes os lançamentos dos custos fixos ativos do mês informado
+// que ainda não foram gerados. Usa a marca observacao='recorrente:{id}' como trava
+// anti-duplicação (mesma lógica do botão "⚡ Gerar" da tela Custos Fixos).
+let _autoGerandoRec=false;
+async function autoGerarRecorrentesDoMes(mesISO){
+  if(_autoGerandoRec) return;
+  const ativos=recorrentes.filter(r=>r.ativo!==false);
+  if(!ativos.length) return;
+  const[y,m]=mesISO.split('-');
+  // IDs de recorrentes que já têm lançamento neste mês (por data OU por vencimento)
+  const geradosIds=new Set(
+    movimentacoes
+      .filter(mv=>mv.origem==='recorrente' && ((mv.data||mv.data_vencimento||'').startsWith(mesISO)))
+      .map(mv=>(mv.observacao||'').replace('recorrente:',''))
+  );
+  const pendentes=ativos.filter(r=>!geradosIds.has(r.id));
+  if(!pendentes.length) return;
+
+  _autoGerandoRec=true;
+  let criados=0;
+  for(const r of pendentes){
+    const dia=r.dia_vencimento||1;
+    const dataLanc=`${y}-${m}-${String(Math.min(dia,28)).padStart(2,'0')}`;
+    const{error}=await sb.from('fin_movimentacoes').insert([{
+      descricao:r.descricao, valor:r.valor, tipo:r.tipo||'saida',
+      data_vencimento:dataLanc, status:'pendente',
+      carteira_id:r.carteira_id||null, categoria_id:r.categoria_id||null,
+      centro_id:r.centro_id||null, forma_pagamento:r.forma_pagamento||null,
+      origem:'recorrente', observacao:'recorrente:'+r.id
+    }]);
+    if(!error) criados++;
+  }
+  _autoGerandoRec=false;
+  if(criados){
+    await loadAll();
+    // Só re-renderiza se o usuário ainda está em Lançamentos no mesmo mês
+    if(document.querySelector('.page.active')?.id==='page-lancamentos' && isoMes(mesAtual)===mesISO){
+      renderLancamentosLista();
+    }
+    showToast(`✅ ${criados} custo(s) fixo(s) lançado(s) automaticamente`,'info');
+  }
+}
+
+function renderLancamentosLista(){
+  const mesISO=isoMes(mesAtual);
   // Pills de centro de custo
   const pillsEl=$('lance-centro-pills');
   if(pillsEl){
@@ -2029,9 +2080,9 @@ function renderLancamentos(){
   }).join('');
 }
 
-function setLanceAba(aba){lanceAba=aba;renderLancamentos();}
-function setLanceCentro(cid){lanceCentroPill=cid;renderLancamentos();}
-function setFilter(tipo){filterTipo=tipo;renderLancamentos();}
+function setLanceAba(aba){lanceAba=aba;renderLancamentosLista();}
+function setLanceCentro(cid){lanceCentroPill=cid;renderLancamentosLista();}
+function setFilter(tipo){filterTipo=tipo;renderLancamentosLista();}
 
 function abrirFiltroLance(){
   const wOpts=carteiras.map(w=>`<option value="${w.id}"${lanceFiltros.carteira===w.id?' selected':''}>${w.nome}</option>`).join('');
@@ -2065,14 +2116,14 @@ function aplicarFiltroLance(){
     forma:    $('fl-forma')?.value||''
   };
   closeSheet();
-  renderLancamentos();
+  renderLancamentosLista();
 }
 
 function limparFiltroLance(){
   lanceFiltros={desc:'',carteira:'',categoria:'',forma:''};
   ['fl-carteira','fl-cat','fl-forma'].forEach(id=>{const el=$(id);if(el)el.value='';});
   const busca=$('lance-busca'); if(busca) busca.value='';
-  renderLancamentos();
+  renderLancamentosLista();
   closeSheet();
 }
 
@@ -3660,10 +3711,10 @@ function renderRecorrentes(){
     return (c?.nome||'Geral')===recFiltro;
   });
 
-  // Verifica quais já foram gerados este mês
+  // Verifica quais já foram gerados este mês (por data OU vencimento)
   const geradosIds=new Set(
     movimentacoes
-      .filter(mv=>mv.origem==='recorrente'&&(mv.data||'').startsWith(mesISO))
+      .filter(mv=>mv.origem==='recorrente'&&((mv.data||mv.data_vencimento||'').startsWith(mesISO)))
       .map(mv=>mv.observacao?.replace('recorrente:',''))
   );
 
@@ -3773,9 +3824,9 @@ async function gerarLancamentosDoMes(){
   const mesISO=isoMes(mesAtual);
   const[y,m]=mesISO.split('-');
   const ativos=recorrentes.filter(r=>r.ativo!==false);
-  // Quais já foram gerados?
+  // Quais já foram gerados? (checa data OU vencimento, cobrindo os auto-gerados)
   const geradosIds=new Set(
-    movimentacoes.filter(mv=>mv.origem==='recorrente'&&(mv.data||'').startsWith(mesISO))
+    movimentacoes.filter(mv=>mv.origem==='recorrente'&&((mv.data||mv.data_vencimento||'').startsWith(mesISO)))
       .map(mv=>mv.observacao?.replace('recorrente:',''))
   );
   const pendentes=ativos.filter(r=>!geradosIds.has(r.id));
@@ -3786,7 +3837,7 @@ async function gerarLancamentosDoMes(){
     const dia=r.dia_vencimento||1;
     const dataLanc=`${y}-${m}-${String(Math.min(dia,28)).padStart(2,'0')}`;
     const{error}=await sb.from('fin_movimentacoes').insert([{
-      descricao:r.descricao, valor:r.valor, tipo:r.tipo||'saida', data:dataLanc,
+      descricao:r.descricao, valor:r.valor, tipo:r.tipo||'saida', data_vencimento:dataLanc,
       status:'pendente', carteira_id:r.carteira_id||null, categoria_id:r.categoria_id||null,
       centro_id:r.centro_id||null, forma_pagamento:r.forma_pagamento||null,
       origem:'recorrente', observacao:'recorrente:'+r.id

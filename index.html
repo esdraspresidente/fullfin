@@ -93,7 +93,10 @@
           then(resolve){
             const qs=_filters.length?'?'+_filters.join('&'):'';
             fetch(url+'/rest/v1/'+table+qs,{method:'PATCH',headers:{...hdrs(),'Prefer':'return=representation'},body:JSON.stringify(obj)})
-              .then(r=>r.json().then(d=>resolve(r.ok?{data:d,error:null}:{data:null,error:d})))
+              .then(r=>r.json().then(d=>{
+                if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(Array.isArray(d)?d:[d]);
+                resolve(r.ok?{data:d,error:null}:{data:null,error:d});
+              }))
               .catch(e=>resolve({data:null,error:e}));
           }
         };},
@@ -976,7 +979,7 @@ let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos =
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
 let lanceAba = 'todas';
 let lanceCentroPill = ''; // '' = todos, ou centro_id
-let lanceFiltros = { desc:'', carteira:'', centro:'', categoria:'', forma:'' };
+let lanceFiltros = { desc:'', carteira:'', categoria:'', forma:'' };
 let cartoes = [], cartaoAtual = null;
 let pagamentosFatura = [];
 let cartoesExpandidos = new Set();
@@ -1923,9 +1926,12 @@ function renderLancamentos(){
   });
 
   // Totais para as abas
+  // "Entradas"/"Saídas" = só o que JÁ FOI PAGO (regime de caixa).
+  // "Contas a receber"/"Contas a pagar" = só o que está PENDENTE (ainda vai sair/entrar).
+  // Cada lançamento cai em UM dos dois grupos — nunca nos dois ao mesmo tempo.
   const todas=base;
-  const entradas=base.filter(m=>m.tipo==='entrada');
-  const saidas=base.filter(m=>m.tipo==='saida');
+  const entradas=base.filter(m=>m.tipo==='entrada'&&m.status==='pago');
+  const saidas=base.filter(m=>m.tipo==='saida'&&m.status==='pago');
   const aReceber=base.filter(m=>m.tipo==='entrada'&&m.status!=='pago');
   const aPagar=base.filter(m=>m.tipo==='saida'&&m.status!=='pago');
   const totAba=list=>list.reduce((s,m)=>s+parseFloat(m.valor||0),0);
@@ -1955,7 +1961,6 @@ function renderLancamentos(){
   // Aplica filtros extras
   if(lanceFiltros.desc)    lista=lista.filter(m=>(m.descricao||'').toLowerCase().includes(lanceFiltros.desc.toLowerCase()));
   if(lanceFiltros.carteira) lista=lista.filter(m=>m.carteira_id===lanceFiltros.carteira);
-  if(lanceFiltros.centro)   lista=lista.filter(m=>m.centro_id===lanceFiltros.centro);
   if(lanceFiltros.categoria)lista=lista.filter(m=>m.categoria_id===lanceFiltros.categoria);
   if(lanceFiltros.forma)    lista=lista.filter(m=>m.forma_pagamento===lanceFiltros.forma);
 
@@ -2014,7 +2019,6 @@ function setFilter(tipo){filterTipo=tipo;renderLancamentos();}
 
 function abrirFiltroLance(){
   const wOpts=carteiras.map(w=>`<option value="${w.id}"${lanceFiltros.carteira===w.id?' selected':''}>${w.nome}</option>`).join('');
-  const cOpts=centros.map(c=>`<option value="${c.id}"${lanceFiltros.centro===c.id?' selected':''}>${c.nome}</option>`).join('');
   const catOpts=categorias.map(c=>`<option value="${c.id}"${lanceFiltros.categoria===c.id?' selected':''}>${c.nome}</option>`).join('');
   const formas=['Pix','Boleto','Débito','Débito Automático','Transferência','Cartão de Crédito','Dinheiro'];
   const fOpts=formas.map(f=>`<option value="${f}"${lanceFiltros.forma===f?' selected':''}>${f}</option>`).join('');
@@ -2025,9 +2029,6 @@ function abrirFiltroLance(){
     </div>
     <div class="form-mb field"><label>Carteira</label>
       <select id="fl-carteira"><option value="">Todas</option>${wOpts}</select>
-    </div>
-    <div class="form-mb field"><label>Centro de custos</label>
-      <select id="fl-centro"><option value="">Todos</option>${cOpts}</select>
     </div>
     <div class="form-mb field"><label>Categoria</label>
       <select id="fl-cat"><option value="">Todas</option>${catOpts}</select>
@@ -2047,7 +2048,6 @@ function aplicarFiltroLance(){
   lanceFiltros={
     desc:  $('fl-desc')?.value||'',
     carteira: $('fl-carteira')?.value||'',
-    centro:   $('fl-centro')?.value||'',
     categoria:$('fl-cat')?.value||'',
     forma:    $('fl-forma')?.value||''
   };
@@ -2056,8 +2056,8 @@ function aplicarFiltroLance(){
 }
 
 function limparFiltroLance(){
-  lanceFiltros={desc:'',carteira:'',centro:'',categoria:'',forma:''};
-  ['fl-desc','fl-carteira','fl-centro','fl-cat','fl-forma'].forEach(id=>{const el=$(id);if(el)el.value='';});
+  lanceFiltros={desc:'',carteira:'',categoria:'',forma:''};
+  ['fl-desc','fl-carteira','fl-cat','fl-forma'].forEach(id=>{const el=$(id);if(el)el.value='';});
   renderLancamentos();
   closeSheet();
 }

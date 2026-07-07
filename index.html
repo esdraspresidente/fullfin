@@ -548,7 +548,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.26 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.39 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -2969,7 +2969,7 @@ async function salvarDivida(did){
   let error;
   if(did){({error}=await sb.from('fin_dividas').update(payload).eq('id',did));}
   else{({error}=await sb.from('fin_dividas').insert([payload]));}
-  if(error){showToast('Erro ao salvar.','err');return;}
+  if(error){console.error('Erro ao salvar dívida:',error);showToast(error.message?('Erro: '+error.message):'Erro ao salvar.','err');return;}
   await loadAll(); renderDividas(); closeSheet(); showToast(did?'Atualizado!':'Dívida adicionada!');
 }
 
@@ -4503,10 +4503,13 @@ function applyMaskMoeda(el, valorInicial){
   el.type='text';
   el.setAttribute('inputmode','numeric');
   el.autocomplete='off';
-  // Valor inicial (ao editar): normaliza para o formato mascarado
+  // Valor inicial (ao editar): normaliza para o formato mascarado.
+  // Se vier com vírgula = já é texto formatado (BR): ponto é milhar, vírgula é decimal.
+  // Se NÃO tiver vírgula = é número puro do JS (ex: 582.67): o ponto É o decimal, não remover.
   const src=valorInicial!==undefined?valorInicial:el.value;
   if(src!==undefined&&src!==null&&String(src).trim()!==''){
-    const n=parseFloat(String(src).replace(/\./g,'').replace(',','.'))||0;
+    const raw=String(src).trim();
+    const n = raw.includes(',') ? (parseFloat(raw.replace(/\./g,'').replace(',','.'))||0) : (parseFloat(raw)||0);
     el.value = n>0 ? _fmtCentavos(Math.round(n*100)) : '';
   }
   // Evento 'input' — dispara para QUALQUER forma de entrada (teclado físico,

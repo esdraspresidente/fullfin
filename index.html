@@ -1150,10 +1150,17 @@ function totalPagoFatura(cartaoId, mesRef){
 // a fatura que vence em MM fechou por volta do dia_fechamento do mês anterior.
 function faturaJaFechou(cartao, mesRefISO){
   const diaFecha=parseInt(cartao.dia_fechamento)||1;
+  const diaVence=parseInt(cartao.dia_vencimento)||10;
   const [y,m]=mesRefISO.split('-').map(Number);
-  // fechamento ocorre no mês anterior ao vencimento
-  let mesF=m-1, anoF=y;
-  if(mesF<1){ mesF=12; anoF--; }
+  // Se o dia de fechamento é MAIOR que o dia de vencimento (ex: fecha 25, vence 6),
+  // o fechamento cai no mês ANTERIOR ao vencimento.
+  // Se o dia de fechamento é MENOR OU IGUAL ao vencimento (ex: fecha 13, vence 20),
+  // o fechamento cai no MESMO mês do vencimento.
+  let mesF=m, anoF=y;
+  if(diaFecha>diaVence){
+    mesF=m-1;
+    if(mesF<1){ mesF=12; anoF--; }
+  }
   const diaReal=Math.min(diaFecha, new Date(anoF,mesF,0).getDate());
   const dataFecha=new Date(anoF, mesF-1, diaReal, 23, 59, 59);
   return new Date() > dataFecha;

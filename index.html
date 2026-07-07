@@ -329,6 +329,7 @@
     .badge-agendado{color:var(--blue);background:var(--blue-bg);padding:1px 7px;border-radius:20px;display:inline-block;font-size:10px;font-weight:700;}
     .badge-previmater{color:var(--purple);background:var(--purple-bg);padding:1px 7px;border-radius:20px;display:inline-block;font-size:10px;font-weight:700;}
     .badge-diligencia{color:var(--accent);background:var(--accent-bg);padding:1px 7px;border-radius:20px;display:inline-block;font-size:10px;font-weight:700;}
+    .badge-divida{color:var(--gray);background:var(--gray-bg);padding:1px 7px;border-radius:20px;display:inline-block;font-size:10px;font-weight:700;}
 
     /* ── LANÇAMENTOS FILTERS ── */
     .filter-strip{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin-bottom:14px;}
@@ -548,7 +549,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.39 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.40 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1586,6 +1587,7 @@ function getCName(cid){return centros.find(c=>c.id===cid)?.nome||'';}
 function getOrigBadge(origem){
   if(origem==='previmater') return '<span class="badge-previmater">PreviMater</span>';
   if(origem==='diligencia') return '<span class="badge-diligencia">Diligências</span>';
+  if(origem==='divida') return '<span class="badge-divida">Dívida</span>';
   return '';
 }
 
@@ -2777,12 +2779,22 @@ function renderDividas(){
     const tipoIcon={'emprestimo':'🤝','financiamento':'🏠','cartao_parcelado':'💳'}[d.tipo]||'📉';
 
     // Grade de parcelas — max 48 visível
+    const hojeISOgrid=new Date().toISOString().split('T')[0];
     const gridParcelas=Array.from({length:d.n_parcelas},(_,i)=>{
       const n=i+1;
       const p=pagas.find(x=>x.num_parcela===n);
-      const cor=p?(parseFloat(p.valor_pago)<parseFloat(p.valor_original)?'#FEF3C7':'#D1FAE5'):'#F3F4F6';
-      const textCor=p?(parseFloat(p.valor_pago)<parseFloat(p.valor_original)?'#92400E':'#065F46'):'#9CA3AF';
-      const title=p?`Parcela ${n}: pago ${fmt(p.valor_pago)} (original ${fmt(p.valor_original)})${parseFloat(p.valor_pago)<parseFloat(p.valor_original)?' ⚡ amortizada':''}`:  `Parcela ${n}: pendente`;
+      const dtPrevista=new Date(d.data_inicio+'T12:00:00'); dtPrevista.setMonth(dtPrevista.getMonth()+(n-1));
+      const vencISOgrid=dtPrevista.toISOString().split('T')[0];
+      const atrasada=!p && vencISOgrid<hojeISOgrid;
+      let cor='#F3F4F6', textCor='#9CA3AF', title=`Parcela ${n}: agendada para ${fmtDate(vencISOgrid)}`;
+      if(p){
+        cor=parseFloat(p.valor_pago)<parseFloat(p.valor_original)?'#FEF3C7':'#D1FAE5';
+        textCor=parseFloat(p.valor_pago)<parseFloat(p.valor_original)?'#92400E':'#065F46';
+        title=`Parcela ${n}: pago ${fmt(p.valor_pago)} (original ${fmt(p.valor_original)})${parseFloat(p.valor_pago)<parseFloat(p.valor_original)?' ⚡ amortizada':''}`;
+      } else if(atrasada){
+        cor='#FEE2E2'; textCor='#991B1B';
+        title=`Parcela ${n}: atrasada — venceu em ${fmtDate(vencISOgrid)}`;
+      }
       return`<div onclick="verParcela('${d.id}',${n})" title="${title}" style="width:28px;height:28px;border-radius:6px;background:${cor};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:${textCor};cursor:pointer;flex-shrink:0">${n}</div>`;
     }).join('');
 
@@ -2818,7 +2830,7 @@ function renderDividas(){
         ${economia>0?`<div class="stat-card"><div class="stat-label">⚡ Economizado</div><div class="stat-value verde">${fmt(economia)}</div></div>`:`<div class="stat-card"><div class="stat-label">⏳ Restantes</div><div class="stat-value amarelo">${restantes.length} parcelas</div></div>`}
       </div>
       <div style="background:#F9FAFB;border-radius:10px;padding:10px;margin-bottom:12px">
-        <div style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Grade de parcelas <span style="font-weight:400;margin-left:8px">🟡 amortizada &nbsp; 🟢 paga &nbsp; ⬜ pendente</span></div>
+        <div style="font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Grade de parcelas <span style="font-weight:400;margin-left:8px">🟡 amortizada &nbsp; 🟢 paga &nbsp; 🔴 atrasada &nbsp; ⬜ agendada</span></div>
         <div style="display:flex;flex-wrap:wrap;gap:4px">${gridParcelas}</div>
       </div>
       `}
@@ -2966,11 +2978,40 @@ async function salvarDivida(did){
     envia_confirmacao:temConfirmacao,
     credor_email:temConfirmacao?($('div-credor-email')?.value||null):null
   };
-  let error;
+  let error, novaDividaId=null;
   if(did){({error}=await sb.from('fin_dividas').update(payload).eq('id',did));}
-  else{({error}=await sb.from('fin_dividas').insert([payload]));}
+  else{
+    const resp=await sb.from('fin_dividas').insert([payload]);
+    error=resp.error;
+    if(!error && resp.data && resp.data[0]) novaDividaId=resp.data[0].id;
+  }
   if(error){console.error('Erro ao salvar dívida:',error);showToast(error.message?('Erro: '+error.message):'Erro ao salvar.','err');return;}
+  if(!did && modo==='parcelas' && novaDividaId){
+    await gerarParcelasFuturasDivida(novaDividaId, payload, desc);
+  }
   await loadAll(); renderDividas(); closeSheet(); showToast(did?'Atualizado!':'Dívida adicionada!');
+}
+
+// Cria em Lançamentos, de uma vez, as parcelas ainda não pagas de uma dívida "Por parcelas",
+// já com data de vencimento calculada mês a mês, status Agendado, e linkadas via divida_id.
+// Assim elas aparecem no Calendário/Relatório e viram "Atrasada" sozinhas quando vencerem.
+async function gerarParcelasFuturasDivida(dividaId, payload, desc){
+  const rows=[];
+  for(let n=payload.parcelas_pagas+1; n<=payload.n_parcelas; n++){
+    const dt=new Date(payload.data_inicio+'T12:00:00');
+    dt.setMonth(dt.getMonth()+(n-1));
+    rows.push({
+      descricao:`${desc} — Parcela ${n}/${payload.n_parcelas}`,
+      valor:payload.valor_parcela, tipo:'saida',
+      data_vencimento:dt.toISOString().split('T')[0], status:'agendado',
+      carteira_id:payload.carteira_id||null, centro_id:payload.centro_id||null,
+      parcela_atual:n, total_parcelas:payload.n_parcelas,
+      divida_id:dividaId, origem:'divida'
+    });
+  }
+  if(!rows.length) return;
+  const{error}=await sb.from('fin_movimentacoes').insertMany(rows);
+  if(error){ console.error('Erro ao gerar parcelas em Lançamentos:',error); showToast('Dívida salva, mas as parcelas não apareceram em Lançamentos: '+(error.message||''),'err'); }
 }
 
 async function registrarPagamentoDivida(did){
@@ -3160,15 +3201,27 @@ async function confirmarPagamentoDivida(did){
     observacao:$('dpag-obs')?.value||null
   }]);
 
-  // Também cria movimentação de saída
-  const{error:e2}=await sb.from('fin_movimentacoes').insert([{
-    descricao:`${d.descricao} — Parcela ${numParcela}/${d.n_parcelas}`,
-    valor:valorPago, tipo:'saida', data, status:'pago',
-    carteira_id:$('dpag-carteira')?.value||null,
-    centro_id:d.centro_id||null,
-    forma_pagamento:$('dpag-forma')?.value||null,
-    origem:'manual'
-  }]);
+  // Se essa parcela já existe em Lançamentos (dívida criada após a integração), atualiza ela.
+  // Senão (dívida antiga, sem parcelas pré-geradas), cria uma nova — comportamento de antes.
+  const movExistente=movimentacoes.find(m=>m.divida_id===did && m.parcela_atual===numParcela && m.status!=='pago');
+  let e2;
+  if(movExistente){
+    ({error:e2}=await sb.from('fin_movimentacoes').update({
+      status:'pago', data, valor:valorPago,
+      carteira_id:$('dpag-carteira')?.value||null,
+      forma_pagamento:$('dpag-forma')?.value||null,
+      observacao:$('dpag-obs')?.value||null
+    }).eq('id',movExistente.id));
+  } else {
+    ({error:e2}=await sb.from('fin_movimentacoes').insert([{
+      descricao:`${d.descricao} — Parcela ${numParcela}/${d.n_parcelas}`,
+      valor:valorPago, tipo:'saida', data, status:'pago',
+      carteira_id:$('dpag-carteira')?.value||null,
+      centro_id:d.centro_id||null,
+      forma_pagamento:$('dpag-forma')?.value||null,
+      origem:'manual'
+    }]));
+  }
 
   if(e1||e2){showToast('Erro ao registrar.','err');return;}
 

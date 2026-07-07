@@ -28,7 +28,7 @@
     // Agrupa em UM e-mail (debounce de 2s) para não spammar quando várias parcelas são criadas de uma vez.
     let _notifBuffer=[];
     let _notifTimer=null;
-    function notificaMovimentacaoSeNaiarha(rows){
+    function notificaMovimentacaoSeNaiarha(rows,acao){
       try{
         const email=(_session?.user?.email||'').toLowerCase();
         if(!email.includes('naiarha')) return; // só dispara se quem está logado é a Naiarha
@@ -38,7 +38,8 @@
           valor:row.valor||0,
           tipo:row.tipo||'',
           data:row.data||row.data_vencimento||'',
-          forma_pagamento:row.forma_pagamento||''
+          forma_pagamento:row.forma_pagamento||'',
+          acao:acao||'cadastrou'
         })));
         clearTimeout(_notifTimer);
         _notifTimer=setTimeout(()=>{
@@ -86,13 +87,13 @@
           const body=Array.isArray(rows)?rows[0]:rows;
           const r=await fetch(url+'/rest/v1/'+table,{method:'POST',headers:{...hdrs(),'Prefer':'return=representation'},body:JSON.stringify(body)});
           const d=await r.json();
-          if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(body);
+          if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(body,'cadastrou');
           return r.ok?{data:d,error:null}:{data:null,error:d};
         },
         async insertMany(rows){
           const r=await fetch(url+'/rest/v1/'+table,{method:'POST',headers:{...hdrs(),'Prefer':'return=representation'},body:JSON.stringify(rows)});
           const d=await r.json();
-          if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(rows);
+          if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(rows,'cadastrou');
           return r.ok?{data:d,error:null}:{data:null,error:d};
         },
         update(obj){return{
@@ -101,7 +102,7 @@
             const qs=_filters.length?'?'+_filters.join('&'):'';
             fetch(url+'/rest/v1/'+table+qs,{method:'PATCH',headers:{...hdrs(),'Prefer':'return=representation'},body:JSON.stringify(obj)})
               .then(r=>r.json().then(d=>{
-                if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(Array.isArray(d)?d:[d]);
+                if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(Array.isArray(d)?d:[d], obj?.status==='pago'?'pagou':'atualizou');
                 resolve(r.ok?{data:d,error:null}:{data:null,error:d});
               }))
               .catch(e=>resolve({data:null,error:e}));
@@ -111,8 +112,11 @@
           eq(c,v){_filters=[c+'=eq.'+encodeURIComponent(v)];return this;},
           then(resolve){
             const qs=_filters.length?'?'+_filters.join('&'):'';
-            fetch(url+'/rest/v1/'+table+qs,{method:'DELETE',headers:hdrs()})
-              .then(r=>resolve(r.ok?{error:null}:r.json().then(d=>({error:d}))))
+            fetch(url+'/rest/v1/'+table+qs,{method:'DELETE',headers:{...hdrs(),'Prefer':'return=representation'}})
+              .then(r=>r.json().then(d=>{
+                if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(Array.isArray(d)?d:[d],'removeu');
+                resolve(r.ok?{error:null}:{error:d});
+              }))
               .catch(e=>resolve({error:e}));
           }
         };},

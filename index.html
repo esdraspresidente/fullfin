@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.47 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.48 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -2455,12 +2455,17 @@ async function salvarTransferencia(){
   if(btn){btn.textContent='Salvando…';btn.disabled=true;}
   // Gera dois lançamentos: saída da origem + entrada no destino
   const grupoId=crypto.randomUUID();
-  const base={descricao:`Transferência ${nOrig} → ${nDest}`,valor,data,data_vencimento:data,status:'pago',tipo:'transferencia',grupo_parcelas:grupoId,origem:'manual'};
+  const base={descricao:`Transferência ${nOrig} → ${nDest}`,valor,data,data_vencimento:data,status:'pago',grupo_parcelas:grupoId,origem:'manual'};
   const[{error:e1},{error:e2}]=await Promise.all([
     sb.from('fin_movimentacoes').insert([{...base,carteira_id:origem,tipo:'saida'}]),
     sb.from('fin_movimentacoes').insert([{...base,carteira_id:destino,tipo:'entrada'}])
   ]);
-  if(e1||e2){showToast('Erro ao registrar.','err');}
+  const err=e1||e2;
+  if(err){
+    console.error('Erro transferência:',err);
+    if(btn){btn.textContent='Registrar transferência';btn.disabled=false;}
+    showToast(err.message?('Erro: '+err.message):'Erro ao registrar.','err');
+  }
   else{await loadAll();renderAll();closeSheet();showToast('Transferência registrada! ⇄');}
 }
 async function salvarLancamento(){

@@ -1248,9 +1248,9 @@ function renderHome(){
     sgEl.style.color=saldoGeral<0?'#FCA5A5':'#fff';
     $('saldo-geral-sub').textContent=carteiras.filter(c=>c.ativo!==false).length+' carteira(s) ativa(s)';
   }
-  // Faturas de cartão — visão consolidada (aberta/fechada/atrasada/paga)
-  renderFaturas();
-  // Pendências — contas em aberto de qualquer mês
+  // Faturas de cartão agora aparecem unificadas dentro de Pendências (A Pagar)
+  const fatSec=$('faturas-section'); if(fatSec) fatSec.innerHTML='';
+  // Pendências — contas + faturas de cartão em aberto de qualquer mês
   renderPendencias();
   // Recentes — sem fantasmas
   const recent = movsVisiveis().filter(m=>(m.data||'').startsWith(mesISO)).slice(0,10);
@@ -1460,7 +1460,6 @@ function renderPendencias(){
   // Tudo que não está pago, de qualquer mês — mas SEM as compras individuais
   // de cartão (elas viram fatura; é a fatura que aparece como pendência)
   const pendentes = movsVisiveis().filter(m=>m.status!=='pago'&&m.status!=='cancelado'&&!ehCompraCartao(m));
-  if(!pendentes.length){ el.innerHTML=''; return; }
 
   // Classifica: atrasado (vencimento < hoje), hoje, futuro
   const classificar = m => {
@@ -1471,13 +1470,45 @@ function renderPendencias(){
     return 'futuro';
   };
 
+  // ── Faturas de cartão que estão em aberto/atrasadas (qualquer mês) ──
+  // Entram na mesma lista "A Pagar", como itens especiais.
+  const faturasPend = [];
+  cartoes.filter(c=>c.ativo!==false).forEach(c=>{
+    const meses=new Set(
+      movsVisiveis()
+        .filter(m=>m.cartao_id===c.id && ehCompraCartao(m) && m.data_vencimento)
+        .map(m=>m.data_vencimento.slice(0,7))
+    );
+    meses.forEach(mRef=>{
+      const total=calcFaturaCartao(c.id, mRef);
+      const pago=totalPagoFatura(c.id, mRef);
+      const restante=Math.max(0,total-pago);
+      if(restante<=0.001) return; // quitada, não é pendência
+      const st=statusFatura(c, mRef, total, pago);
+      // Só mostra como pendência se já fechou (a pagar/atrasada); aberta é prévia
+      if(st.key!=='fechada' && st.key!=='atrasada') return;
+      const [y,m]=mRef.split('-').map(Number);
+      const diaVence=parseInt(c.dia_vencimento)||10;
+      const vencISO=`${y}-${String(m).padStart(2,'0')}-${String(Math.min(diaVence,new Date(y,m,0).getDate())).padStart(2,'0')}`;
+      faturasPend.push({
+        _fatura:true, _cartaoId:c.id, _mRef:mRef,
+        descricao:`Fatura ${c.nome} · ${MESES_S[m-1]}`,
+        valor:restante, data_vencimento:vencISO, tipo:'saida',
+        _cat:st.key==='atrasada'?'atrasado':(vencISO<hojeISO?'atrasado':(vencISO===hojeISO?'hoje':'futuro'))
+      });
+    });
+  });
+
+  if(!pendentes.length && !faturasPend.length){ el.innerHTML=''; return; }
+
   // Separa a receber e a pagar
   const aReceber = pendentes.filter(m=>m.tipo==='entrada');
-  const aPagar   = pendentes.filter(m=>m.tipo==='saida');
+  const aPagar   = [...pendentes.filter(m=>m.tipo==='saida'), ...faturasPend];
 
   // Ordena: atrasados primeiro, depois por data
+  const catDe = m => m._fatura ? m._cat : classificar(m);
   const ordenar = (a,b) => {
-    const ca=classificar(a), cb=classificar(b);
+    const ca=catDe(a), cb=catDe(b);
     const ordem={atrasado:0,hoje:1,futuro:2};
     if(ordem[ca]!==ordem[cb]) return ordem[ca]-ordem[cb];
     const da=(a.data_vencimento||a.data||''), db=(b.data_vencimento||b.data||'');
@@ -1490,10 +1521,9 @@ function renderPendencias(){
   const tagLabel={atrasado:'Atrasado',hoje:'Hoje',futuro:'A vencer'};
 
   const renderLista = (lista, tipoLabel) => {
-    const atrasados = lista.filter(m=>classificar(m)==='atrasado').length;
+    const atrasados = lista.filter(m=>catDe(m)==='atrasado').length;
     const total = lista.reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const tipoClasse = tipoLabel==='A Receber' ? 'entrada' : 'saida';
-    const headerBg = atrasados>0 ? 'atrasado' : 'pendente';
 
     let html = `<div class="pendencias-card">`;
     html += `<div class="pendencias-header" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">`;
@@ -1505,7 +1535,18 @@ function renderPendencias(){
     html += `</div></div>`;
     html += `<div class="pendencias-list">`;
     lista.forEach(m => {
-      const cat = classificar(m);
+      const cat = catDe(m);
+      if(m._fatura){
+        html += `<div class="pendencia-item" onclick="abrirPagarFatura('${m._cartaoId}','${m._mRef}')">`;
+        html += `<div style="flex:1;min-width:0">`;
+        html += `<div class="pendencia-desc">💳 ${m.descricao}</div>`;
+        html += `<div class="pendencia-meta">Vence ${fmtDate(m.data_vencimento)} · fatura de cartão</div>`;
+        html += `<span class="pendencia-tag ${tagClass[cat]}">${tagLabel[cat]}</span>`;
+        html += `</div>`;
+        html += `<div class="pendencia-valor saida">${fmt(m.valor)}</div>`;
+        html += `</div>`;
+        return;
+      }
       const venc = (m.data_vencimento||m.data||'').split('T')[0];
       const centro = getCName(m.centro_id);
       const catNome = getCatNome(m.categoria_id);
@@ -3609,9 +3650,15 @@ function renderCartoes() {
     </div>` +
   cartoes.filter(c=>c.ativo!==false).map(c=>{
     const fatura = calcFaturaCartao(c.id, mesISO);
+    const pagoFat = totalPagoFatura(c.id, mesISO);
+    const faturaPaga = fatura>0 && pagoFat>=fatura-0.001;
+    const restanteFat = Math.max(0, fatura-pagoFat);
     const disponivel = parseFloat(c.limite||0) - fatura;
     const pctUsado = c.limite ? Math.min(100,(fatura/c.limite*100)) : 0;
     const expandido = cartoesExpandidos.has(c.id);
+    // Cor/emoji do valor da fatura conforme status de pagamento
+    const corFatura = faturaPaga ? '#6EE7B7' : (pagoFat>0 ? '#FCD34D' : '#FCA5A5');
+    const selo = faturaPaga ? ' ✅' : (pagoFat>0 ? ' 🟡' : '');
     const compras = movimentacoes.filter(m=>m.cartao_id===c.id&&(m.data_vencimento||'').startsWith(mesISO)&&m.tipo==='saida');
     const comprasHtml = compras.length ? compras.map(m=>`
       <div class="mov-item" style="border-bottom:1px solid rgba(255,255,255,.06)" onclick="abreDetalhe('${m.id}')">
@@ -3630,8 +3677,8 @@ function renderCartoes() {
           <div class="cartao-nome" style="margin-bottom:0">💳 ${c.nome}</div>
         </div>
         <div style="text-align:right;flex-shrink:0;margin-left:12px">
-          <div class="cartao-stat-label">Fatura ${MESES_S[mesAtual.getMonth()]}</div>
-          <div class="cartao-stat-value fatura" style="font-size:17px">${fmt(fatura)}</div>
+          <div class="cartao-stat-label">${faturaPaga?'Fatura paga':'Fatura '+MESES_S[mesAtual.getMonth()]}</div>
+          <div class="cartao-stat-value" style="font-size:17px;color:${corFatura}">${fmt(fatura)}${selo}</div>
         </div>
         <div style="margin-left:12px;font-size:16px;color:rgba(255,255,255,.5);flex-shrink:0">${expandido?'▲':'▼'}</div>
       </div>`;
@@ -3641,8 +3688,8 @@ function renderCartoes() {
       <div style="margin-top:14px">
         <div class="cartao-stats">
           <div>
-            <div class="cartao-stat-label">Fatura ${MESES_S[mesAtual.getMonth()]}</div>
-            <div class="cartao-stat-value fatura">${fmt(fatura)}</div>
+            <div class="cartao-stat-label">${faturaPaga?'Fatura paga':(pagoFat>0?'Falta pagar':'Fatura '+MESES_S[mesAtual.getMonth()])}</div>
+            <div class="cartao-stat-value" style="color:${corFatura}">${fmt(faturaPaga?fatura:(pagoFat>0?restanteFat:fatura))}${selo}</div>
           </div>
           <div>
             <div class="cartao-stat-label">Limite disponível</div>

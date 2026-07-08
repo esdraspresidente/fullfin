@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.52 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.53 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -2900,7 +2900,7 @@ async function marcarComoTratado(){
     origem: importTab==='diligencias'?'diligencia':'previmater',
     ref_id: String(item.id)
   }));
-  const{error}=await sb.from('fin_import_ignorados').insert(rows);
+  const{error}=await sb.from('fin_import_ignorados').insertMany(rows);
   if(error){
     console.error('Erro ao marcar tratados:',error);
     showToast(error.message?('Erro: '+error.message):'Erro ao marcar.','err');

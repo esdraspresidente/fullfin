@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.54 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.55 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1189,6 +1189,11 @@ const movsVisiveis = () => movimentacoes.filter(m => m.descricao !== '[ANTIGO]' 
 // quando paga. Isso evita contar o mesmo gasto duas vezes.
 const ehCompraCartao = m => !!m.cartao_id && m.origem !== 'fatura';
 
+// Transferência entre contas próprias não é receita nem despesa real —
+// é só troca de bolso. Entra no saldo de cada carteira (correto), mas
+// precisa ser excluída de qualquer soma de Entradas/Saídas/Custos/Receita.
+const ehTransferencia = m => m.origem === 'transferencia';
+
 // ── FATURAS DE CARTÃO ──────────────────────────────
 // Total já pago de uma fatura (soma dos pagamentos parciais registrados)
 function totalPagoFatura(cartaoId, mesRef){
@@ -1243,8 +1248,8 @@ function calcMes(){
   const movs=movsVisiveis();
   const fl=m=>(centroAtual==='GERAL'||m.centro_id===centroAtual)&&mesRefMov(m).startsWith(mesISO);
   const movsFil=movs.filter(fl);
-  const ent=movsFil.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const ent=movsFil.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   // Custos fixos previstos (virtuais) entram em "a receber"/"a pagar", nunca em pago.
   const cfix=custosFixosVirtuais(mesISO).filter(cf=>centroAtual==='GERAL'||cf.centro_id===centroAtual);
   const cfixRec=cfix.filter(cf=>cf.tipo==='entrada').reduce((s,cf)=>s+parseFloat(cf.valor||0),0);
@@ -1256,18 +1261,18 @@ function calcMes(){
 
 function calcLucroReal(mesISO){
   const movs=movsVisiveis().filter(m=>mesRefMov(m).startsWith(mesISO));
-  const receita=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const custos =movs.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const receita=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const custos =movs.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const lucro=receita-custos;
   const porCentro=centros.map(c=>({
     nome:c.nome,icone:c.icone,id:c.id,
-    ent:movs.filter(m=>m.centro_id===c.id&&m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0),
-    sai:movs.filter(m=>m.centro_id===c.id&&m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
+    ent:movs.filter(m=>m.centro_id===c.id&&m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
+    sai:movs.filter(m=>m.centro_id===c.id&&m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
   })).map(c=>({...c,saldo:c.ent-c.sai}));
   // Pró-labore = saídas pagas com centro Casa/Família
   const centroCasa=centros.find(c=>c.nome?.toLowerCase().includes('casa')||c.nome?.toLowerCase().includes('fam'));
   const prolabore=centroCasa
-    ? movs.filter(m=>m.centro_id===centroCasa.id&&m.tipo==='saida'&&m.status==='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0)
+    ? movs.filter(m=>m.centro_id===centroCasa.id&&m.tipo==='saida'&&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0)
     : 0;
   return{receita,custos,lucro,prolabore,centroCasaNome:centroCasa?.nome||'Casa/Família',dizimo:prolabore*0.1,porCentro};
 }
@@ -2027,8 +2032,8 @@ function renderLancamentosLista(){
   // "Contas a receber"/"Contas a pagar" = só o que está PENDENTE (ainda vai sair/entrar).
   // Cada lançamento cai em UM dos dois grupos — nunca nos dois ao mesmo tempo.
   const todas=base;
-  const entradas=base.filter(m=>m.tipo==='entrada'&&m.status==='pago');
-  const saidas=base.filter(m=>m.tipo==='saida'&&m.status==='pago');
+  const entradas=base.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m));
+  const saidas=base.filter(m=>m.tipo==='saida'&&m.status==='pago'&&!ehTransferencia(m));
   const aReceber=base.filter(m=>m.tipo==='entrada'&&m.status!=='pago');
   const aPagar=base.filter(m=>m.tipo==='saida'&&m.status!=='pago');
   const totAba=list=>list.reduce((s,m)=>s+parseFloat(m.valor||0),0);
@@ -2273,7 +2278,7 @@ async function exportarExcelMes(){
     });
 
     // ── 3) RESUMO do mês ──
-    const somaSit=(tipo,pago)=>movs.filter(m=>m.tipo===tipo&&(pago?m.status==='pago':m.status!=='pago')).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const somaSit=(tipo,pago)=>movs.filter(m=>m.tipo===tipo&&(pago?m.status==='pago':m.status!=='pago')&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const entPago=somaSit('entrada',true), saiPago=somaSit('saida',true);
     const aReceber=somaSit('entrada',false), aPagar=somaSit('saida',false);
     const totalFaturasRestante=linhasFatura.reduce((s,f)=>s+f['Restante'],0);
@@ -2333,13 +2338,13 @@ function renderRelatorio(){
   const mesISO=isoMes(mesAtual);
   const fl=m=>(relCentro==='GERAL'||m.centro_id===relCentro)&&(m.data||'').startsWith(mesISO);
   const movs=movimentacoes.filter(fl);
-  const ent=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const sai=movs.filter(m=>m.tipo==='saida'  &&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const ent=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const sai=movs.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const saldo=ent-sai;
   // Saídas por categoria
   const catSai={}, catEnt={};
-  movs.filter(m=>m.tipo==='saida'&&m.status==='pago').forEach(m=>{const n=getCatNome(m.categoria_id)||'Outros';catSai[n]=(catSai[n]||0)+parseFloat(m.valor||0);});
-  movs.filter(m=>m.tipo==='entrada'&&m.status==='pago').forEach(m=>{const n=getCatNome(m.categoria_id)||'Outros';catEnt[n]=(catEnt[n]||0)+parseFloat(m.valor||0);});
+  movs.filter(m=>m.tipo==='saida'&&m.status==='pago'&&!ehTransferencia(m)).forEach(m=>{const n=getCatNome(m.categoria_id)||'Outros';catSai[n]=(catSai[n]||0)+parseFloat(m.valor||0);});
+  movs.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).forEach(m=>{const n=getCatNome(m.categoria_id)||'Outros';catEnt[n]=(catEnt[n]||0)+parseFloat(m.valor||0);});
   const barRows=(obj,total,cor)=>Object.entries(obj).sort((a,b)=>b[1]-a[1]).map(([n,v])=>{
     const pct=total?(v/total*100).toFixed(0):0;
     return`<div class="rel-row"><div class="rel-row-label">${n}</div><div class="rel-row-value" style="color:${cor}">${fmt(v)}</div></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${cor}"></div></div>`;
@@ -2652,7 +2657,7 @@ function setSheetTipo(t){
       <div class="form-mb field"><label>Para qual conta *</label>
         <select id="sh-cart-destino"><option value="">Selecione…</option>${wOpts}</select>
       </div>
-      <button class="salvar-btn transferencia" onclick="salvarTransferencia()">Registrar transferência</button>
+      <button class="salvar-btn transf" onclick="salvarTransferencia()">Registrar transferência</button>
     `;
     setTimeout(applyAllMoneyMasks,30);
   } else {
@@ -2693,7 +2698,7 @@ async function salvarTransferencia(){
   if(btn){btn.textContent='Salvando…';btn.disabled=true;}
   // Gera dois lançamentos: saída da origem + entrada no destino
   const grupoId=crypto.randomUUID();
-  const base={descricao:`Transferência ${nOrig} → ${nDest}`,valor,data,data_vencimento:data,status:'pago',grupo_parcelas:grupoId,origem:'manual'};
+  const base={descricao:`Transferência ${nOrig} → ${nDest}`,valor,data,data_vencimento:data,status:'pago',grupo_parcelas:grupoId,origem:'transferencia'};
   const[{error:e1},{error:e2}]=await Promise.all([
     sb.from('fin_movimentacoes').insert([{...base,carteira_id:origem,tipo:'saida'}]),
     sb.from('fin_movimentacoes').insert([{...base,carteira_id:destino,tipo:'entrada'}])

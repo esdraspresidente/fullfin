@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.49 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.50 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -721,15 +721,14 @@
       <div id="page-relatorio" class="page">
         <div class="desk-month-bar">
           <div><div class="page-title">Relatório</div><div class="page-sub">Análise por centro de custo</div></div>
-          <div style="display:flex;align-items:center;gap:8px">
-            <button class="btn btn-secondary" id="btn-export-xlsx" style="padding:6px 12px;font-size:12px" onclick="exportarExcelMes()">📊 Exportar Excel</button>
-            <div class="desk-month-nav">
-              <button class="desk-month-btn" onclick="mudaMes(-1)">‹</button>
-              <span class="desk-month-label" id="desk-month-rel">Junho 2026</span>
-              <button class="desk-month-btn" onclick="mudaMes(1)">›</button>
-            </div>
+          <div class="desk-month-nav">
+            <button class="desk-month-btn" onclick="mudaMes(-1)">‹</button>
+            <span class="desk-month-label" id="desk-month-rel">Junho 2026</span>
+            <button class="desk-month-btn" onclick="mudaMes(1)">›</button>
+          </div>
         </div>
         <div class="centro-pills" id="rel-centro-pills"></div>
+        <button class="btn btn-secondary" id="btn-export-xlsx" style="width:100%;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="exportarExcelMes()">📊 Exportar Excel deste mês</button>
         <div id="rel-content"></div>
       </div>
 

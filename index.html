@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.48 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.49 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -721,11 +721,13 @@
       <div id="page-relatorio" class="page">
         <div class="desk-month-bar">
           <div><div class="page-title">Relatório</div><div class="page-sub">Análise por centro de custo</div></div>
-          <div class="desk-month-nav">
-            <button class="desk-month-btn" onclick="mudaMes(-1)">‹</button>
-            <span class="desk-month-label" id="desk-month-rel">Junho 2026</span>
-            <button class="desk-month-btn" onclick="mudaMes(1)">›</button>
-          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <button class="btn btn-secondary" id="btn-export-xlsx" style="padding:6px 12px;font-size:12px" onclick="exportarExcelMes()">📊 Exportar Excel</button>
+            <div class="desk-month-nav">
+              <button class="desk-month-btn" onclick="mudaMes(-1)">‹</button>
+              <span class="desk-month-label" id="desk-month-rel">Junho 2026</span>
+              <button class="desk-month-btn" onclick="mudaMes(1)">›</button>
+            </div>
         </div>
         <div class="centro-pills" id="rel-centro-pills"></div>
         <div id="rel-content"></div>
@@ -2130,6 +2132,139 @@ function limparFiltroLance(){
 // ════════════════════════════════════════════════
 //  RELATÓRIO
 // ════════════════════════════════════════════════
+// ── EXPORTAÇÃO EXCEL (.xlsx) ──────────────────────
+// Carrega a biblioteca SheetJS sob demanda (só no 1º clique), via CDN.
+function carregarSheetJS(){
+  return new Promise((resolve,reject)=>{
+    if(window.XLSX) return resolve(window.XLSX);
+    const s=document.createElement('script');
+    s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    s.onload=()=>window.XLSX?resolve(window.XLSX):reject(new Error('lib não carregou'));
+    s.onerror=()=>reject(new Error('sem internet ou CDN bloqueado'));
+    document.head.appendChild(s);
+  });
+}
+
+// Situação de um lançamento p/ o relatório: Pago | Previsto | Atrasado
+function situacaoMov(m){
+  if(m.status==='pago') return 'Pago';
+  const venc=(m.data_vencimento||m.data||'').split('T')[0];
+  const hoje=new Date().toISOString().split('T')[0];
+  return (venc && venc<hoje) ? 'Atrasado' : 'Previsto';
+}
+const tipoLabel = t => t==='entrada'?'Entrada':t==='saida'?'Saída':t==='transferencia'?'Transferência':(t||'—');
+
+async function exportarExcelMes(){
+  const btn=$('btn-export-xlsx');
+  const txtOrig=btn?btn.textContent:'';
+  if(btn){btn.textContent='Gerando…';btn.disabled=true;}
+  try{
+    const XLSX=await carregarSheetJS();
+    const mesISO=isoMes(mesAtual);
+    const [ano,mesN]=mesISO.split('-');
+    const mesNome=`${MESES[parseInt(mesN)-1]} ${ano}`;
+
+    // ── 1) LANÇAMENTOS (pagos + previstos do mês, todas as seções) ──
+    // Mesma regra da tela: pago cai no mês da data de pagamento; pendente no vencimento.
+    // Exclui as compras individuais de cartão (elas entram consolidadas na aba Faturas).
+    const movs=movsVisiveis().filter(m=>mesRefMov(m).startsWith(mesISO)&&!ehCompraCartao(m));
+    movs.sort((a,b)=>(mesRefMov(a)||'').localeCompare(mesRefMov(b)||''));
+
+    const linhas=movs.map(m=>{
+      const sit=situacaoMov(m);
+      const dataRef=(m.status==='pago'?(m.data||m.data_vencimento):(m.data_vencimento||m.data))||'';
+      return {
+        'Data': fmtDate(dataRef),
+        'Descrição': m.descricao||'',
+        'Tipo': tipoLabel(m.tipo),
+        'Situação': sit,
+        'Valor': parseFloat(m.valor||0),
+        'Centro de custo': getCName(m.centro_id)||'',
+        'Categoria': getCatNome(m.categoria_id)||'',
+        'Carteira': getWName(m.carteira_id)||'',
+        'Forma pgto': m.forma_pagamento||'',
+        'Parcela': m.parcela_atual?`${m.parcela_atual}/${m.total_parcelas}`:'',
+        'Origem': m.origem||''
+      };
+    });
+
+    // ── 2) FATURAS DE CARTÃO do mês ──
+    const linhasFatura=[];
+    cartoes.filter(c=>c.ativo!==false).forEach(c=>{
+      const total=calcFaturaCartao(c.id, mesISO);
+      if(total<=0.001) return;
+      const pago=totalPagoFatura(c.id, mesISO);
+      const restante=Math.max(0,total-pago);
+      const st=statusFatura(c, mesISO, total, pago);
+      const diaVence=parseInt(c.dia_vencimento)||10;
+      const vencISO=`${ano}-${mesN}-${String(Math.min(diaVence,new Date(ano,mesN,0).getDate())).padStart(2,'0')}`;
+      linhasFatura.push({
+        'Cartão': c.nome||'',
+        'Centro de custo': getCName(c.centro_id)||'',
+        'Total da fatura': total,
+        'Já pago': pago,
+        'Restante': restante,
+        'Situação': st.label,
+        'Vencimento': fmtDate(vencISO)
+      });
+    });
+
+    // ── 3) RESUMO do mês ──
+    const somaSit=(tipo,pago)=>movs.filter(m=>m.tipo===tipo&&(pago?m.status==='pago':m.status!=='pago')).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const entPago=somaSit('entrada',true), saiPago=somaSit('saida',true);
+    const aReceber=somaSit('entrada',false), aPagar=somaSit('saida',false);
+    const totalFaturasRestante=linhasFatura.reduce((s,f)=>s+f['Restante'],0);
+
+    const resumo=[
+      {'Indicador':`Relatório de ${mesNome}`,'Valor (R$)':''},
+      {'Indicador':'','Valor (R$)':''},
+      {'Indicador':'Entradas pagas','Valor (R$)':entPago},
+      {'Indicador':'Saídas pagas','Valor (R$)':saiPago},
+      {'Indicador':'Saldo do mês (pago)','Valor (R$)':entPago-saiPago},
+      {'Indicador':'','Valor (R$)':''},
+      {'Indicador':'A receber (previsto)','Valor (R$)':aReceber},
+      {'Indicador':'A pagar (previsto)','Valor (R$)':aPagar},
+      {'Indicador':'Faturas de cartão em aberto','Valor (R$)':totalFaturasRestante},
+      {'Indicador':'','Valor (R$)':''},
+      {'Indicador':'— Por centro de custo (saídas pagas) —','Valor (R$)':''},
+    ];
+    centros.forEach(c=>{
+      const v=movs.filter(m=>m.centro_id===c.id&&m.tipo==='saida'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+      if(v>0) resumo.push({'Indicador':`   ${c.nome}`,'Valor (R$)':v});
+    });
+
+    // ── Monta o workbook ──
+    const wb=XLSX.utils.book_new();
+
+    const wsResumo=XLSX.utils.json_to_sheet(resumo,{skipHeader:false});
+    wsResumo['!cols']=[{wch:38},{wch:16}];
+    XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
+
+    if(linhas.length){
+      const wsL=XLSX.utils.json_to_sheet(linhas);
+      wsL['!cols']=[{wch:12},{wch:34},{wch:14},{wch:11},{wch:13},{wch:18},{wch:16},{wch:16},{wch:14},{wch:9},{wch:12}];
+      XLSX.utils.book_append_sheet(wb, wsL, 'Lançamentos');
+    } else {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Nenhum lançamento neste mês']]), 'Lançamentos');
+    }
+
+    if(linhasFatura.length){
+      const wsF=XLSX.utils.json_to_sheet(linhasFatura);
+      wsF['!cols']=[{wch:20},{wch:18},{wch:15},{wch:13},{wch:13},{wch:22},{wch:13}];
+      XLSX.utils.book_append_sheet(wb, wsF, 'Faturas de cartão');
+    }
+
+    const nomeArq=`Fullfin_${MESES[parseInt(mesN)-1]}_${ano}.xlsx`;
+    XLSX.writeFile(wb, nomeArq);
+    showToast('✅ Excel gerado!');
+  }catch(e){
+    console.error('Erro export:',e);
+    showToast('Erro ao gerar Excel: '+(e.message||'tente novamente'),'err');
+  }finally{
+    if(btn){btn.textContent=txtOrig;btn.disabled=false;}
+  }
+}
+
 function renderRelatorio(){
   renderCentroPills();
   const mesISO=isoMes(mesAtual);

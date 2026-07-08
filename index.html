@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.51 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.52 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -772,11 +772,14 @@
         </div>
         <!-- Lista -->
         <div id="imp-list"></div>
-        <!-- Botão importar -->
+        <!-- Botões de ação -->
         <button class="import-btn-main" id="imp-btn" onclick="executarImport()" disabled>
           Importar selecionados (0)
         </button>
-        <div style="font-size:11px;color:var(--gray);text-align:center;margin-top:8px">Itens já importados não aparecem nesta lista</div>
+        <button class="btn btn-secondary" id="imp-ignorar-btn" style="width:100%;margin-top:8px" onclick="marcarComoTratado()" disabled>
+          ✓ Marcar como já tratado (0)
+        </button>
+        <div style="font-size:11px;color:var(--gray);text-align:center;margin-top:8px">Itens já importados ou marcados como tratados não aparecem nesta lista</div>
       </div>
 
       <!-- ══ DÍVIDAS ══ -->
@@ -2772,11 +2775,17 @@ async function initImportar(){
       .map(m=>String(m.origem)+':'+String(m.diligencia_id))
   );
 
-  // Busca dados externos
-  const [rDilig,rParc]=await Promise.all([
+  // Busca dados externos + a lista de itens marcados como "já tratados"
+  const [rDilig,rParc,rIgnorados]=await Promise.all([
     sb.from('demandas').select('*'),
     sb.from('pm_parcelas').select('*'),
+    sb.from('fin_import_ignorados').select('*'),
   ]);
+
+  // Itens marcados manualmente como já tratados (não devem reaparecer)
+  const ignorados=new Set(
+    (rIgnorados.data||[]).map(x=>String(x.origem)+':'+String(x.ref_id))
+  );
 
   importDiligData=(rDilig.data||[]).filter(d=>{
     if(d.status!=='pago') return false;
@@ -2784,12 +2793,14 @@ async function initImportar(){
     // cai para a data da diligência só se não houver previsão registrada.
     const dataRef=(d.previsao_pagamento||d.data||'').split('T')[0];
     if(DATA_CORTE && dataRef < DATA_CORTE) return false;
+    if(ignorados.has('diligencia:'+String(d.id))) return false;
     return !importados.has('diligencia:'+String(d.id));
   });
   importPreviData=(rParc.data||[]).filter(p=>{
     if(p.status!=='recebido') return false;
     const dataRef=(p.data_pagamento||p.data_vencimento||'').split('T')[0];
     if(DATA_CORTE && dataRef < DATA_CORTE) return false;
+    if(ignorados.has('previmater:'+String(p.id))) return false;
     return !importados.has('previmater:'+String(p.id));
   });
 
@@ -2869,7 +2880,37 @@ function updateImportBtn(){
   const btn=$('imp-btn');
   btn.disabled=n===0;
   btn.textContent=`Importar selecionados (${n})`;
+  const ign=$('imp-ignorar-btn');
+  if(ign){ ign.disabled=n===0; ign.textContent=`✓ Marcar como já tratado (${n})`; }
   $('imp-sel-count').textContent=`${n} selecionado(s)`;
+}
+
+// Marca os itens selecionados como "já tratados" (grava em fin_import_ignorados).
+// Eles somem da lista de importação e NÃO viram lançamento — para casos em que o
+// lançamento já existe em Lançamentos mas a amarração automática se perdeu.
+async function marcarComoTratado(){
+  const selecionados=importItems.filter(i=>importSelected.has(String(i.id)));
+  if(!selecionados.length) return;
+  if(!confirm(`Marcar ${selecionados.length} item(ns) como já tratados? Eles somem daqui e NÃO viram lançamento novo.`)) return;
+
+  const btn=$('imp-ignorar-btn');
+  if(btn){ btn.textContent='Marcando…'; btn.disabled=true; }
+
+  const rows=selecionados.map(item=>({
+    origem: importTab==='diligencias'?'diligencia':'previmater',
+    ref_id: String(item.id)
+  }));
+  const{error}=await sb.from('fin_import_ignorados').insert(rows);
+  if(error){
+    console.error('Erro ao marcar tratados:',error);
+    showToast(error.message?('Erro: '+error.message):'Erro ao marcar.','err');
+    if(btn){ btn.disabled=false; }
+    updateImportBtn();
+    return;
+  }
+  importSelected.clear();
+  await initImportar(); // recarrega — os marcados somem
+  showToast(`✅ ${rows.length} item(ns) marcado(s) como tratado(s)!`);
 }
 
 async function executarImport(){

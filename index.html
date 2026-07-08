@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.55 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.57 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -2445,10 +2445,10 @@ function buildSheetForm(preCartaoId){
   const contaOpts=carteiras.filter(w=>w.ativo!==false).map(c=>`<option value="conta:${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join('');
   const ccOpts=cartoes.filter(c=>c.ativo!==false).map(c=>`<option value="cartao:${c.id}"${c.id===preCartaoId?' selected':''}> 💳 ${c.nome} (${c.bandeira||'Crédito'})</option>`).join('');
   const walletOpts=`<option value="">Selecione…</option>`+(contaOpts?`<optgroup label="🏦 Contas">${contaOpts}</optgroup>`:'')+(ccOpts?`<optgroup label="💳 Cartões de Crédito">${ccOpts}</optgroup>`:'');
-  const cats=sheetTipo==='entrada'?categorias.filter(c=>c.tipo==='entrada'||c.tipo==='ambos'):categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos');
+  const cats=(sheetLancTipo==='a_receber'||sheetLancTipo==='a_pagar')?categorias:(sheetTipo==='entrada'?categorias.filter(c=>c.tipo==='entrada'||c.tipo==='ambos'):categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos'));
   const catOpts=cats.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   $('sheet-body').innerHTML=`
-    <div class="form-mb field"><label>💰 Carteira / Cartão *</label>
+    <div class="form-mb field" id="sh-carteira-wrap"><label>💰 Carteira / Cartão *</label>
       <select id="sh-carteira-unif" onchange="onCarteiraChange()">${walletOpts}</select>
     </div>
     <div class="form-mb field" id="sh-tipo-wrap">
@@ -2540,8 +2540,12 @@ function aplicarDatasPorTipo(){
     a_receber: '📅 Data de vencimento *'
   };
   if(label1) label1.textContent = mapa[sheetLancTipo] || '📅 Data *';
-  // Forma de pagamento faz sentido para tudo menos... sempre mostra (opcional)
-  if(formaWrap) formaWrap.style.display='block';
+  // Conta a receber: ainda não sabemos de qual carteira nem como vai entrar o
+  // dinheiro — isso só é definido na hora de efetivar o recebimento. Some os dois campos.
+  const isReceber = sheetLancTipo==='a_receber'||sheetLancTipo==='a_pagar';
+  const carteiraWrap=$('sh-carteira-wrap');
+  if(carteiraWrap) carteiraWrap.style.display = isReceber ? 'none' : 'block';
+  if(formaWrap) formaWrap.style.display = isReceber ? 'none' : 'block';
 }
 
 function setSheetLancTipo(t){

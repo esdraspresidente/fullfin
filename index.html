@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.50 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.51 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1007,6 +1007,9 @@ let confirmCallback = null;
 let importTab = 'diligencias', importItems = [], importSelected = new Set();
 // sheet state
 let sheetTipo = 'saida', sheetStatus = 'pago', sheetEditId = null;
+// Tipo unificado do modal de novo lançamento (define quais datas aparecem):
+// 'saida' | 'entrada' | 'a_pagar' | 'a_receber' | 'transferencia'
+let sheetLancTipo = 'saida';
 
 mesAtual.setDate(1);
 
@@ -2367,7 +2370,7 @@ async function salvarCarteira(cid){
 // ════════════════════════════════════════════════
 //  SHEET LANÇAMENTO
 // ════════════════════════════════════════════════
-function openSheet(){ sheetTipo='saida'; sheetStatus='pago'; sheetEditId=null; $('sheet-title').textContent='Novo lançamento'; buildSheetForm(null); openSheetRaw(); }
+function openSheet(){ sheetLancTipo='saida'; sheetTipo='saida'; sheetStatus='pago'; sheetEditId=null; $('sheet-title').textContent='Novo lançamento'; buildSheetForm(null); openSheetRaw(); }
 function openSheetRaw(){ $('sheet-overlay').classList.add('open'); $('sheet').classList.add('open'); document.body.style.overflow='hidden'; setTimeout(applyAllMoneyMasks,30); }
 function closeSheet(){ $('sheet-overlay').classList.remove('open'); $('sheet').classList.remove('open'); document.body.style.overflow=''; }
 
@@ -2379,13 +2382,18 @@ function buildSheetForm(preCartaoId){
   const cats=sheetTipo==='entrada'?categorias.filter(c=>c.tipo==='entrada'||c.tipo==='ambos'):categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos');
   const catOpts=cats.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   $('sheet-body').innerHTML=`
-    <div class="tipo-btns">
-      <button class="tipo-btn saida${sheetTipo==='saida'?' active':''}" onclick="setSheetTipo('saida')">▼ Saída</button>
-      <button class="tipo-btn entrada${sheetTipo==='entrada'?' active':''}" onclick="setSheetTipo('entrada')">▲ Entrada</button>
-      <button class="tipo-btn transf${sheetTipo==='transferencia'?' active':''}" onclick="setSheetTipo('transferencia')">⇄ Transf.</button>
-    </div>
     <div class="form-mb field"><label>💰 Carteira / Cartão *</label>
       <select id="sh-carteira-unif" onchange="onCarteiraChange()">${walletOpts}</select>
+    </div>
+    <div class="form-mb field" id="sh-tipo-wrap">
+      <label>Tipo de lançamento *</label>
+      <select id="sh-lanc-tipo" onchange="setSheetLancTipo(this.value)">
+        <option value="saida"${sheetLancTipo==='saida'?' selected':''}>▼ Saída (já paguei)</option>
+        <option value="entrada"${sheetLancTipo==='entrada'?' selected':''}>▲ Entrada (já recebi)</option>
+        <option value="a_pagar"${sheetLancTipo==='a_pagar'?' selected':''}>🔴 Conta a pagar (vou pagar)</option>
+        <option value="a_receber"${sheetLancTipo==='a_receber'?' selected':''}>🟢 Conta a receber (vou receber)</option>
+        <option value="transferencia"${sheetLancTipo==='transferencia'?' selected':''}>⇄ Transferência entre contas</option>
+      </select>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
       <div class="field">
@@ -2406,11 +2414,11 @@ function buildSheetForm(preCartaoId){
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
       <div class="field"><label>Centro de custo</label><select id="sh-centro"><option value="">Geral</option>${centroOpts}</select></div>
-      <div class="field"><label id="sh-data-label">📅 Data da compra *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
+      <div class="field"><label id="sh-data-label">🛒 Data da compra *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
     </div>
     <div id="sh-venc-auto-info" style="display:none;background:#DBEAFE;border:1px solid #93C5FD;border-radius:10px;padding:10px 12px;font-size:12px;color:#1E40AF;margin-bottom:12px"></div>
-    <div id="sh-venc-manual-wrap" class="form-grid-2" style="margin-bottom:10px">
-      <div class="field"><label>📅 Data de vencimento</label><input type="date" id="sh-venc-manual"/></div>
+    <div class="form-mb field" id="sh-data2-wrap" style="display:none">
+      <label id="sh-data2-label">📅 Data</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/>
     </div>
     <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="text" data-money="1" id="sh-valor" placeholder="0,00" inputmode="decimal"/></div>
     <div class="form-grid-2" style="margin-bottom:10px">
@@ -2429,17 +2437,6 @@ function buildSheetForm(preCartaoId){
         <option value="Dinheiro">💵 Dinheiro</option>
       </select>
     </div>
-    <div class="field form-mb" id="sh-data-pag-wrap" style="display:${sheetStatus==='pago'?'block':'none'}">
-      <label>✅ Data do pagamento</label><input type="date" id="sh-data" value="${new Date().toISOString().split('T')[0]}"/>
-    </div>
-    <div id="sh-status-bloco">
-      <div class="section-label">Status</div>
-      <div class="status-btns">
-        <button class="status-btn${sheetStatus==='pago'?' active pago':''}" onclick="setSheetStatus('pago')">✓ Pago</button>
-        <button class="status-btn${sheetStatus==='pendente'?' active pendente':''}" onclick="setSheetStatus('pendente')">⏰ Pendente</button>
-        <button class="status-btn${sheetStatus==='agendado'?' active agendado':''}" onclick="setSheetStatus('agendado')">📅 Agendado</button>
-      </div>
-    </div>
     <div class="form-mb field"><label>Observação</label><textarea id="sh-obs" placeholder="Opcional…" rows="2"></textarea></div>
     <button class="salvar-btn ${sheetTipo}" onclick="salvarLancamento()">Salvar lançamento</button>
   `;
@@ -2448,29 +2445,69 @@ function buildSheetForm(preCartaoId){
       const sel=$('sh-carteira-unif');
       if(sel){ sel.value='cartao:'+preCartaoId; onCarteiraChange(); }
     },50);
+  } else {
+    setTimeout(()=>aplicarDatasPorTipo(),20);
   }
   setTimeout(applyAllMoneyMasks,30);
+}
+
+// Ajusta os campos de data conforme o tipo escolhido (não-cartão).
+// Regras:
+//  saida     → 1 data: pagamento
+//  entrada   → 1 data: recebimento
+//  a_pagar   → 1 data: vencimento
+//  a_receber → 1 data: vencimento
+// Cartão é tratado à parte em onCarteiraChange (2 datas: compra + venc. fatura).
+function aplicarDatasPorTipo(){
+  const unif=$('sh-carteira-unif')?.value||'';
+  if(unif.startsWith('cartao:')) return; // cartão manda no layout
+  const label1=$('sh-data-label');     // campo principal (sh-venc)
+  const data2Wrap=$('sh-data2-wrap');  // campo secundário (sh-data) — não usado p/ conta normal
+  const formaWrap=$('sh-forma-wrap');
+  const infoVenc=$('sh-venc-auto-info');
+  if(infoVenc) infoVenc.style.display='none';
+  if(data2Wrap) data2Wrap.style.display='none'; // só 1 data para contas normais
+  const mapa={
+    saida:     '✅ Data do pagamento *',
+    entrada:   '✅ Data do recebimento *',
+    a_pagar:   '📅 Data de vencimento *',
+    a_receber: '📅 Data de vencimento *'
+  };
+  if(label1) label1.textContent = mapa[sheetLancTipo] || '📅 Data *';
+  // Forma de pagamento faz sentido para tudo menos... sempre mostra (opcional)
+  if(formaWrap) formaWrap.style.display='block';
+}
+
+function setSheetLancTipo(t){
+  sheetLancTipo=t;
+  if(t==='transferencia'){ setSheetTipo('transferencia'); return; }
+  // Mapeia para o par tipo+status do banco
+  sheetTipo   = (t==='entrada'||t==='a_receber') ? 'entrada' : 'saida';
+  sheetStatus = (t==='saida'||t==='entrada') ? 'pago' : 'pendente';
+  // Recarrega categorias conforme entrada/saída, mantendo o tipo selecionado
+  buildSheetForm(null);
+  setTimeout(()=>{ const s=$('sh-lanc-tipo'); if(s) s.value=t; aplicarDatasPorTipo(); },20);
 }
 
 function onCarteiraChange(){
   const sel=$('sh-carteira-unif'); if(!sel) return;
   const val=sel.value||'';
   const isCartao=val.startsWith('cartao:');
-  const statusBloco=$('sh-status-bloco');
-  const dataPagWrap=$('sh-data-pag-wrap');
+  const dataPagWrap=$('sh-data2-wrap');
   const dataLabel=$('sh-data-label');
   const formaWrap=$('sh-forma-wrap');
   const infoVenc=$('sh-venc-auto-info');
-  const vencManualWrap=$('sh-venc-manual-wrap');
+  const tipoWrap=$('sh-tipo-wrap');
   if(isCartao){
+    // Cartão = sempre uma compra/saída na fatura. Trava o tipo e mostra 2 datas:
+    // Data da compra (editável) + Vencimento da fatura (automático, box azul).
     const cartaoId=val.replace('cartao:','');
     const cartao=cartoes.find(c=>c.id===cartaoId);
+    sheetLancTipo='saida'; sheetTipo='saida'; sheetStatus='pendente';
+    if(tipoWrap) tipoWrap.style.display='none';       // esconde o seletor de tipo
     if(dataLabel) dataLabel.textContent='🛒 Data da compra *';
-    if(statusBloco) statusBloco.style.display='none';
-    if(dataPagWrap) dataPagWrap.style.display='none';
+    if(dataPagWrap) dataPagWrap.style.display='none'; // vencimento vem do box azul, não do campo manual
     if(formaWrap) formaWrap.style.display='none';
-    if(vencManualWrap) vencManualWrap.style.display='none';
-    sheetStatus='pendente';
     if(cartao && infoVenc){
       calcVencCartao(cartao);
       if($('sh-venc')._ccHandler) $('sh-venc').removeEventListener('change',$('sh-venc')._ccHandler);
@@ -2479,12 +2516,10 @@ function onCarteiraChange(){
       $('sh-venc').addEventListener('change',handler);
     }
   } else {
-    if(dataLabel) dataLabel.textContent='📅 Data da compra *';
-    if(statusBloco) statusBloco.style.display='block';
-    if(formaWrap) formaWrap.style.display='block';
+    // Conta normal: mostra o seletor de tipo e deixa as datas por conta do tipo escolhido.
+    if(tipoWrap) tipoWrap.style.display='block';
     if(infoVenc) infoVenc.style.display='none';
-    if(vencManualWrap) vencManualWrap.style.display='grid';
-    setSheetStatus(sheetStatus);
+    aplicarDatasPorTipo();
   }
 }
 
@@ -2535,12 +2570,18 @@ function shToggleRecorrente(){
 function setSheetTipo(t){
   sheetTipo=t;
   if(t==='transferencia'){
+    sheetLancTipo='transferencia';
     const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.icone||'🏦'} ${w.nome}</option>`).join('');
     $('sheet-body').innerHTML=`
-      <div class="tipo-btns">
-        <button class="tipo-btn saida" onclick="setSheetTipo('saida')">▼ Saída</button>
-        <button class="tipo-btn entrada" onclick="setSheetTipo('entrada')">▲ Entrada</button>
-        <button class="tipo-btn transf active" onclick="setSheetTipo('transferencia')">⇄ Transf.</button>
+      <div class="form-mb field">
+        <label>Tipo de lançamento *</label>
+        <select id="sh-lanc-tipo" onchange="setSheetLancTipo(this.value)">
+          <option value="saida">▼ Saída (já paguei)</option>
+          <option value="entrada">▲ Entrada (já recebi)</option>
+          <option value="a_pagar">🔴 Conta a pagar (vou pagar)</option>
+          <option value="a_receber">🟢 Conta a receber (vou receber)</option>
+          <option value="transferencia" selected>⇄ Transferência entre contas</option>
+        </select>
       </div>
       <div class="valor-wrap"><span class="valor-prefix">R$</span><input class="valor-input" type="text" data-money="1" id="sh-valor" placeholder="0,00" inputmode="decimal"/></div>
       <div class="form-mb field"><label>📅 Data da transferência *</label><input type="date" id="sh-venc" value="${new Date().toISOString().split('T')[0]}"/></div>
@@ -2558,6 +2599,8 @@ function setSheetTipo(t){
   }
 }
 
+// Mantida por compatibilidade (edição de lançamento ainda pode chamar). No novo
+// modal de criação o status é derivado do tipo, então esta função raramente é usada.
 function setSheetStatus(s){
   sheetStatus=s;
   const bloco=$('sh-status-bloco');
@@ -2604,11 +2647,10 @@ async function salvarTransferencia(){
 }
 async function salvarLancamento(){
   const valor=getMaskValue($('sh-valor')), desc=$('sh-desc')?.value.trim();
-  const dataCompra=$('sh-venc')?.value;
-  const dataPag=(sheetStatus==='pago')?($('sh-data')?.value||dataCompra):null;
+  const dataPrincipal=$('sh-venc')?.value; // significado depende do tipo/cartão
   if(!valor||isNaN(valor)){showToast('Informe o valor.','err');return;}
   if(!desc){showToast('Informe a descrição.','err');return;}
-  if(!dataCompra){showToast('Informe a data.','err');return;}
+  if(!dataPrincipal){showToast('Informe a data.','err');return;}
 
   // Resolve carteira/cartão do dropdown unificado
   const unifVal=$('sh-carteira-unif')?.value||'';
@@ -2616,15 +2658,31 @@ async function salvarLancamento(){
   const carteiraId=unifVal.startsWith('conta:')?unifVal.replace('conta:',''):null;
   const cartaoId=isCartao?unifVal.replace('cartao:',''):null;
 
-  // Vencimento: se é cartão, CALCULA na hora a partir da data da compra + regras do cartão
-  // (não depende de nenhum estado do DOM — garante que sempre sai certo)
-  let vencFinal;
+  // ── Define data / data_vencimento / status conforme o tipo escolhido ──
+  // Cartão: dataPrincipal = data da COMPRA; vencimento = calculado da fatura; sempre pendente.
+  // Saída/Entrada: dataPrincipal = data de PAGAMENTO/RECEBIMENTO; status = pago; venc = mesma data.
+  // Conta a pagar/receber: dataPrincipal = data de VENCIMENTO; status = pendente; sem data de pgto.
+  let dataCompra, vencFinal, statusFinal, dataPagFinal;
   if(isCartao){
     const cartao=cartoes.find(c=>c.id===cartaoId);
-    vencFinal = calcVencFaturaISO(dataCompra, cartao);
-  } else {
-    vencFinal = $('sh-venc-manual')?.value || dataCompra;
+    dataCompra   = dataPrincipal;
+    vencFinal    = calcVencFaturaISO(dataPrincipal, cartao);
+    statusFinal  = 'pendente';
+    dataPagFinal = null;
+  } else if(sheetLancTipo==='saida' || sheetLancTipo==='entrada'){
+    statusFinal  = 'pago';
+    vencFinal    = dataPrincipal;
+    dataPagFinal = dataPrincipal;
+    dataCompra   = dataPrincipal;
+  } else { // a_pagar | a_receber
+    statusFinal  = 'pendente';
+    vencFinal    = dataPrincipal;
+    dataPagFinal = null;
+    dataCompra   = dataPrincipal;
   }
+  // Compatibilidade com o restante da função (que usa esses nomes)
+  const dataPag = dataPagFinal;
+  sheetStatus = statusFinal;
 
   const recorrente=$('sh-recorrente')?.value||'';
   const isParcelado = recorrente==='parcelado';

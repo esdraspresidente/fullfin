@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.53 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.54 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1245,8 +1245,12 @@ function calcMes(){
   const movsFil=movs.filter(fl);
   const ent=movsFil.filter(m=>m.tipo==='entrada'&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const aRec=movsFil.filter(m=>m.tipo==='entrada'&&m.status!=='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const aPag=movsFil.filter(m=>m.tipo==='saida'  &&m.status!=='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  // Custos fixos previstos (virtuais) entram em "a receber"/"a pagar", nunca em pago.
+  const cfix=custosFixosVirtuais(mesISO).filter(cf=>centroAtual==='GERAL'||cf.centro_id===centroAtual);
+  const cfixRec=cfix.filter(cf=>cf.tipo==='entrada').reduce((s,cf)=>s+parseFloat(cf.valor||0),0);
+  const cfixPag=cfix.filter(cf=>cf.tipo==='saida').reduce((s,cf)=>s+parseFloat(cf.valor||0),0);
+  const aRec=movsFil.filter(m=>m.tipo==='entrada'&&m.status!=='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0)+cfixRec;
+  const aPag=movsFil.filter(m=>m.tipo==='saida'  &&m.status!=='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0)+cfixPag;
   return{ent,sai,aRec,aPag,saldo:ent-sai,mesISO,movs:movsFil};
 }
 
@@ -1558,11 +1562,14 @@ function renderPendencias(){
     });
   });
 
-  if(!pendentes.length && !faturasPend.length){ el.innerHTML=''; return; }
+  if(!pendentes.length && !faturasPend.length && !custosFixosVirtuais(isoMes(mesAtual)).length){ el.innerHTML=''; return; }
+
+  // Custos fixos previstos (virtuais) do mês visível entram como pendência.
+  const cfixPrev = custosFixosVirtuais(isoMes(mesAtual)).filter(cf=>centroAtual==='GERAL'||cf.centro_id===centroAtual);
 
   // Separa a receber e a pagar
-  const aReceber = pendentes.filter(m=>m.tipo==='entrada');
-  const aPagar   = [...pendentes.filter(m=>m.tipo==='saida'), ...faturasPend];
+  const aReceber = [...pendentes.filter(m=>m.tipo==='entrada'), ...cfixPrev.filter(cf=>cf.tipo==='entrada')];
+  const aPagar   = [...pendentes.filter(m=>m.tipo==='saida'), ...faturasPend, ...cfixPrev.filter(cf=>cf.tipo==='saida')];
 
   // Ordena: atrasados primeiro, depois por data
   const catDe = m => m._fatura ? m._cat : classificar(m);
@@ -1595,6 +1602,17 @@ function renderPendencias(){
     html += `<div class="pendencias-list">`;
     lista.forEach(m => {
       const cat = catDe(m);
+      if(m._custoFixo){
+        html += `<div class="pendencia-item" onclick="pagarCustoFixo('${m._recorrenteId}','${m._mRef}')">`;
+        html += `<div style="flex:1;min-width:0">`;
+        html += `<div class="pendencia-desc">🔄 ${m.descricao}</div>`;
+        html += `<div class="pendencia-meta">Vence ${fmtDate(m.data_vencimento)}${getCName(m.centro_id)?' · '+getCName(m.centro_id):''} · custo fixo</div>`;
+        html += `<span class="pendencia-tag ${tagClass[cat]}">${tagLabel[cat]}</span>`;
+        html += `</div>`;
+        html += `<div class="pendencia-valor ${tipoClasse}">${fmt(m.valor)}</div>`;
+        html += `</div>`;
+        return;
+      }
       if(m._fatura){
         html += `<div class="pendencia-item" onclick="abrirPagarFatura('${m._cartaoId}','${m._mRef}')">`;
         html += `<div style="flex:1;min-width:0">`;
@@ -1901,53 +1919,50 @@ async function deleteMov(mid){
 // ════════════════════════════════════════════════
 function renderLancamentos(){
   const mesISO=isoMes(mesAtual);
-  // Gera automaticamente os custos fixos do mês exibido que ainda não existem em Lançamentos.
-  // Não bloqueia a renderização: dispara e, quando terminar, re-renderiza.
-  autoGerarRecorrentesDoMes(mesISO);
   renderLancamentosLista();
 }
 
-// Cria em fin_movimentacoes os lançamentos dos custos fixos ativos do mês informado
-// que ainda não foram gerados. Usa a marca observacao='recorrente:{id}' como trava
-// anti-duplicação (mesma lógica do botão "⚡ Gerar" da tela Custos Fixos).
-let _autoGerandoRec=false;
-async function autoGerarRecorrentesDoMes(mesISO){
-  if(_autoGerandoRec) return;
+// ── CUSTOS FIXOS COMO PREVISÃO VIRTUAL ────────────────────────────────
+// Custo fixo é um MOLDE, não um lançamento. Ele NÃO é gravado no banco.
+// Esta função calcula, para o mês dado, uma linha "prevista" por custo fixo ativo,
+// PULANDO aquele que já tenha um lançamento real correspondente no mês (pago ou não).
+// Assim nunca duplica: se já existe o lançamento real, ele manda; senão, mostra a previsão.
+// É a fonte única usada por Lançamentos, Relatório, Excel e Home.
+function custosFixosVirtuais(mesISO){
   const ativos=recorrentes.filter(r=>r.ativo!==false);
-  if(!ativos.length) return;
-  const[y,m]=mesISO.split('-');
-  // IDs de recorrentes que já têm lançamento neste mês (por data OU por vencimento)
-  const geradosIds=new Set(
-    movimentacoes
-      .filter(mv=>mv.origem==='recorrente' && ((mv.data||mv.data_vencimento||'').startsWith(mesISO)))
-      .map(mv=>(mv.observacao||'').replace('recorrente:',''))
-  );
-  const pendentes=ativos.filter(r=>!geradosIds.has(r.id));
-  if(!pendentes.length) return;
+  if(!ativos.length) return [];
+  const [y,m]=mesISO.split('-');
+  const ultimoDia=new Date(Number(y),Number(m),0).getDate();
 
-  _autoGerandoRec=true;
-  let criados=0;
-  for(const r of pendentes){
-    const dia=r.dia_vencimento||1;
-    const dataLanc=`${y}-${m}-${String(Math.min(dia,28)).padStart(2,'0')}`;
-    const{error}=await sb.from('fin_movimentacoes').insert([{
-      descricao:r.descricao, valor:r.valor, tipo:r.tipo||'saida',
-      data_vencimento:dataLanc, status:'pendente',
-      carteira_id:r.carteira_id||null, categoria_id:r.categoria_id||null,
-      centro_id:r.centro_id||null, forma_pagamento:r.forma_pagamento||null,
-      origem:'recorrente', observacao:'recorrente:'+r.id
-    }]);
-    if(!error) criados++;
-  }
-  _autoGerandoRec=false;
-  if(criados){
-    await loadAll();
-    // Só re-renderiza se o usuário ainda está em Lançamentos no mesmo mês
-    if(document.querySelector('.page.active')?.id==='page-lancamentos' && isoMes(mesAtual)===mesISO){
-      renderLancamentosLista();
-    }
-    showToast(`✅ ${criados} custo(s) fixo(s) lançado(s) automaticamente`,'info');
-  }
+  // Um custo fixo é considerado "já lançado" no mês se existir uma movimentação
+  // com mesma descrição + mesmo centro no mês (por data de pgto OU vencimento),
+  // qualquer que seja a origem/status. Robusto contra lançamentos criados por
+  // qualquer caminho (manual, importação, versões antigas).
+  const jaLancado=(r)=>movimentacoes.some(mv=>{
+    const ref=(mv.data||mv.data_vencimento||'');
+    if(!ref.startsWith(mesISO)) return false;
+    if((mv.descricao||'').trim().toLowerCase()!==(r.descricao||'').trim().toLowerCase()) return false;
+    return (mv.centro_id||null)===(r.centro_id||null);
+  });
+
+  return ativos.filter(r=>!jaLancado(r)).map(r=>{
+    const dia=Math.min(parseInt(r.dia_vencimento)||1,ultimoDia);
+    const vencISO=`${y}-${m}-${String(dia).padStart(2,'0')}`;
+    return {
+      id:'cfix-'+r.id+'-'+mesISO,
+      _custoFixo:true, _recorrenteId:r.id, _mRef:mesISO,
+      descricao:r.descricao,
+      valor:parseFloat(r.valor||0),
+      tipo:r.tipo||'saida',
+      status:'pendente',        // sempre previsto — vira real só quando o usuário paga
+      data_vencimento:vencISO,
+      carteira_id:r.carteira_id||null,
+      categoria_id:r.categoria_id||null,
+      centro_id:r.centro_id||null,
+      forma_pagamento:r.forma_pagamento||null,
+      origem:'recorrente'
+    };
+  });
 }
 
 function renderLancamentosLista(){
@@ -1997,6 +2012,14 @@ function renderLancamentosLista(){
       valor:restante, tipo:'saida', status:'pendente',
       data_vencimento:vencISO, centro_id:c.centro_id||null, categoria_id:null
     });
+  });
+
+  // Injeta os custos fixos como PREVISÃO virtual (não gravados no banco).
+  // Respeita o filtro de centro atual. Nunca duplica: custosFixosVirtuais já
+  // pula os que têm lançamento real no mês.
+  custosFixosVirtuais(mesISO).forEach(cf=>{
+    if(lanceCentroPill && cf.centro_id!==lanceCentroPill) return;
+    base.push(cf);
   });
 
   // Totais para as abas
@@ -2065,6 +2088,24 @@ function renderLancamentosLista(){
     }
     const cat=categorias.find(c=>c.id===m.categoria_id);
     const centro=centros.find(c=>c.id===m.centro_id);
+    // Card de custo fixo PREVISTO (virtual, não gravado). Pagar → vira lançamento real.
+    if(m._custoFixo){
+      const centroN=centro?.nome||'';
+      return`<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:#FFFBEB">
+        <div style="flex:1;min-width:0;overflow:hidden">
+          <div style="font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.descricao||'—'}</div>
+          <div style="font-size:10px;color:var(--gray);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Venc. ${fmtDate(m.data_vencimento)}${centroN?' · '+centroN:''}</div>
+          <span style="display:inline-block;margin-top:4px;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#F59E0B22;color:#B45309">🔄 Custo fixo · previsto</span>
+        </div>
+        <div style="text-align:right;flex-shrink:0">
+          <div style="font-size:14px;font-weight:800;color:#B45309">${m.tipo==='entrada'?'+':'-'}${fmt(m.valor)}</div>
+          <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end">
+            <button onclick="pagarCustoFixo('${m._recorrenteId}','${m._mRef}')" style="width:28px;height:28px;border-radius:7px;background:#059669;color:#fff;border:none;cursor:pointer;font-size:13px" title="Registrar pagamento">✅</button>
+            <button onclick="goPage('recorrentes')" style="width:28px;height:28px;border-radius:7px;background:#1D4ED8;color:#fff;border:none;cursor:pointer;font-size:12px" title="Editar custo fixo">✏️</button>
+          </div>
+        </div>
+      </div>`;
+    }
     const isPendente=m.status!=='pago';
     const corValor=m.tipo==='entrada'?'var(--accent)':'var(--red)';
     const subinfo=[centro?.nome,cat?.nome,m.parcela_atual?`Parc. ${m.parcela_atual}/${m.total_parcelas}`:null].filter(Boolean).join(' · ');
@@ -2191,6 +2232,23 @@ async function exportarExcelMes(){
         'Parcela': m.parcela_atual?`${m.parcela_atual}/${m.total_parcelas}`:'',
         'Origem': m.origem||''
       };
+    });
+
+    // Custos fixos previstos (virtuais) — entram marcados como "Previsto"
+    custosFixosVirtuais(mesISO).forEach(cf=>{
+      linhas.push({
+        'Data': fmtDate(cf.data_vencimento),
+        'Descrição': cf.descricao||'',
+        'Tipo': tipoLabel(cf.tipo),
+        'Situação': 'Previsto',
+        'Valor': parseFloat(cf.valor||0),
+        'Centro de custo': getCName(cf.centro_id)||'',
+        'Categoria': getCatNome(cf.categoria_id)||'',
+        'Carteira': getWName(cf.carteira_id)||'',
+        'Forma pgto': cf.forma_pagamento||'',
+        'Parcela': '',
+        'Origem': 'custo fixo'
+      });
     });
 
     // ── 2) FATURAS DE CARTÃO do mês ──
@@ -4058,33 +4116,28 @@ async function salvarRecorrente(rid){
   await loadAll(); renderRecorrentes(); closeSheet(); showToast('Custo fixo salvo!');
 }
 
-async function gerarLancamentosDoMes(){
-  const mesISO=isoMes(mesAtual);
-  const[y,m]=mesISO.split('-');
-  const ativos=recorrentes.filter(r=>r.ativo!==false);
-  // Quais já foram gerados? (checa data OU vencimento, cobrindo os auto-gerados)
-  const geradosIds=new Set(
-    movimentacoes.filter(mv=>mv.origem==='recorrente'&&((mv.data||mv.data_vencimento||'').startsWith(mesISO)))
-      .map(mv=>mv.observacao?.replace('recorrente:',''))
-  );
-  const pendentes=ativos.filter(r=>!geradosIds.has(r.id));
-  if(!pendentes.length){showToast('Todos já foram gerados para este mês!','info');return;}
-  const btn=$('btn-gerar-mes'); btn.textContent='Gerando…'; btn.disabled=true;
-  let criados=0, erros=0;
-  for(const r of pendentes){
-    const dia=r.dia_vencimento||1;
-    const dataLanc=`${y}-${m}-${String(Math.min(dia,28)).padStart(2,'0')}`;
-    const{error}=await sb.from('fin_movimentacoes').insert([{
-      descricao:r.descricao, valor:r.valor, tipo:r.tipo||'saida', data_vencimento:dataLanc,
-      status:'pendente', carteira_id:r.carteira_id||null, categoria_id:r.categoria_id||null,
-      centro_id:r.centro_id||null, forma_pagamento:r.forma_pagamento||null,
-      origem:'recorrente', observacao:'recorrente:'+r.id
-    }]);
-    if(error) erros++; else criados++;
-  }
-  btn.textContent=`⚡ Gerar lançamentos pendentes de ${MESES[parseInt(m)-1]} ${y}`; btn.disabled=false;
-  await loadAll(); renderRecorrentes();
-  showToast(`✅ ${criados} lançamento(s) gerado(s)!${erros?' '+erros+' erro(s)':''}`);
+// Registra o pagamento de um custo fixo previsto: grava UMA movimentação real
+// (paga) no mês. É o único ponto que grava custo fixo — sob ação explícita do usuário.
+async function pagarCustoFixo(recorrenteId, mesISO){
+  const r=recorrentes.find(x=>x.id===recorrenteId);
+  if(!r){showToast('Custo fixo não encontrado.','err');return;}
+  const [y,m]=mesISO.split('-');
+  const ultimoDia=new Date(Number(y),Number(m),0).getDate();
+  const dia=Math.min(parseInt(r.dia_vencimento)||1,ultimoDia);
+  const dataMov=`${y}-${m}-${String(dia).padStart(2,'0')}`;
+  const hoje=new Date().toISOString().split('T')[0];
+
+  const{error}=await sb.from('fin_movimentacoes').insert([{
+    descricao:r.descricao, valor:r.valor, tipo:r.tipo||'saida',
+    data:hoje, data_vencimento:dataMov, status:'pago',
+    carteira_id:r.carteira_id||null, categoria_id:r.categoria_id||null,
+    centro_id:r.centro_id||null, forma_pagamento:r.forma_pagamento||null,
+    origem:'recorrente'
+  }]);
+  if(error){showToast(error.message?('Erro: '+error.message):'Erro ao registrar.','err');return;}
+  await loadAll();
+  renderLancamentosLista();
+  showToast('✅ Custo fixo pago e lançado!');
 }
 
 async function deleteRecorrente(rid){

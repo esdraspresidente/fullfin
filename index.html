@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.61 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.62 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -921,7 +921,7 @@
 <!-- Container do modal de comprovante compartilhado (Web Share Target). -->
 <!-- O conteúdo é injetado por showShareModal(). Sem este div o share quebra em silêncio. -->
 <div id="share-modal"></div>
-<div id="sheet-overlay" onclick="closeSheet()"></div>
+<div id="sheet-overlay" onclick="closeSheetUser()"></div>
 
 <!-- MODAL PARCELAR FATURA -->
 <div id="modal-parcelar" class="modal-overlay hidden" style="align-items:center;padding:16px;">
@@ -971,7 +971,7 @@
 <div id="sheet">
   <div class="sheet-header">
     <div class="sheet-title" id="sheet-title">Novo lançamento</div>
-    <button class="sheet-close-btn" onclick="closeSheet()">×</button>
+    <button class="sheet-close-btn" onclick="closeSheetUser()">×</button>
   </div>
   <div class="sheet-body" id="sheet-body"></div>
 </div>
@@ -2507,6 +2507,14 @@ function openSheet(){ sheetLancTipo='saida'; sheetTipo='saida'; sheetStatus='pag
 function openSheetRaw(){ $('sheet-overlay').classList.add('open'); $('sheet').classList.add('open'); document.body.style.overflow='hidden'; setTimeout(applyAllMoneyMasks,30); }
 function closeSheet(){ $('sheet-overlay').classList.remove('open'); $('sheet').classList.remove('open'); document.body.style.overflow=''; }
 
+// Aviso mostrado dentro do formulário quando ele foi aberto a partir de um
+// comprovante compartilhado — deixa claro que o arquivo será anexado ao salvar.
+function _bannerComprovanteHtml(){
+  if(!(_veioDoComprovante && sharedFileObj)) return '';
+  const nome = sharedFileObj.name || 'comprovante';
+  return `<div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#92400E;font-weight:600;display:flex;align-items:center;gap:6px">📎 ${nome} será anexado a este lançamento</div>`;
+}
+
 function buildSheetForm(preCartaoId){
   const centroOpts=centros.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   const contaOpts=carteiras.filter(w=>w.ativo!==false).map(c=>`<option value="conta:${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join('');
@@ -2514,7 +2522,9 @@ function buildSheetForm(preCartaoId){
   const walletOpts=`<option value="">Selecione…</option>`+(contaOpts?`<optgroup label="🏦 Contas">${contaOpts}</optgroup>`:'')+(ccOpts?`<optgroup label="💳 Cartões de Crédito">${ccOpts}</optgroup>`:'');
   const cats=(sheetLancTipo==='a_receber'||sheetLancTipo==='a_pagar')?categorias:(sheetTipo==='entrada'?categorias.filter(c=>c.tipo==='entrada'||c.tipo==='ambos'):categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos'));
   const catOpts=cats.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
+  const bannerComprovante = _bannerComprovanteHtml();
   $('sheet-body').innerHTML=`
+    ${bannerComprovante}
     <div class="form-mb field" id="sh-carteira-wrap"><label>💰 Carteira / Cartão *</label>
       <select id="sh-carteira-unif" onchange="onCarteiraChange()">${walletOpts}</select>
     </div>
@@ -2710,6 +2720,7 @@ function setSheetTipo(t){
     sheetLancTipo='transferencia';
     const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.icone||'🏦'} ${w.nome}</option>`).join('');
     $('sheet-body').innerHTML=`
+      ${_bannerComprovanteHtml()}
       <div class="form-mb field">
         <label>Tipo de lançamento *</label>
         <select id="sh-lanc-tipo" onchange="setSheetLancTipo(this.value)">
@@ -2753,6 +2764,25 @@ function setSheetStatus(s){
   if(dataPagWrap) dataPagWrap.style.display = (s==='pago') ? 'block' : 'none';
 }
 
+// Faz upload do comprovante pendente (sharedFileObj) e anexa o comprovante_url
+// aos ids de fin_movimentacoes informados. Usada por salvarLancamento() e
+// salvarTransferencia() quando o formulário foi aberto via comprovante
+// compartilhado. Em caso de erro, NÃO derruba o lançamento já salvo — ele fica
+// salvo sem o anexo, e o usuário é avisado para tentar compartilhar de novo.
+async function _anexarComprovantePendente(ids){
+  if(!(sharedFileObj && ids.length)) return {ok:false, motivo:'sem-arquivo-ou-id'};
+  try{
+    const url = await _uploadComprovanteFile(sharedFileObj);
+    await Promise.all(ids.map(id => sb.from('fin_movimentacoes').update({comprovante_url:url}).eq('id', id)));
+    sharedFileObj = null; _veioDoComprovante = false;
+    if($('share-modal')) $('share-modal').classList.remove('open');
+    return {ok:true};
+  }catch(e){
+    console.error('Erro ao anexar comprovante pendente:', e);
+    return {ok:false, motivo:e.message||'erro desconhecido'};
+  }
+}
+
 async function salvarTransferencia(){
   const valor=getMaskValue($('sh-valor'));
   const data=$('sh-venc')?.value;
@@ -2770,7 +2800,7 @@ async function salvarTransferencia(){
   // Gera dois lançamentos: saída da origem + entrada no destino
   const grupoId=crypto.randomUUID();
   const base={descricao:`Transferência ${nOrig} → ${nDest}`,valor,data,data_vencimento:data,status:'pago',grupo_parcelas:grupoId,origem:'transferencia'};
-  const[{error:e1},{error:e2}]=await Promise.all([
+  const[{data:d1,error:e1},{data:d2,error:e2}]=await Promise.all([
     sb.from('fin_movimentacoes').insert([{...base,carteira_id:origem,tipo:'saida'}]),
     sb.from('fin_movimentacoes').insert([{...base,carteira_id:destino,tipo:'entrada'}])
   ]);
@@ -2780,7 +2810,16 @@ async function salvarTransferencia(){
     if(btn){btn.textContent='Registrar transferência';btn.disabled=false;}
     showToast(err.message?('Erro: '+err.message):'Erro ao registrar.','err');
   }
-  else{await loadAll();renderAll();closeSheet();showToast('Transferência registrada! ⇄');}
+  else{
+    await loadAll();renderAll();closeSheet();
+    if(sharedFileObj){
+      const ids=[d1?.[0]?.id, d2?.[0]?.id].filter(Boolean);
+      const res=await _anexarComprovantePendente(ids);
+      showToast(res.ok ? 'Transferência registrada com comprovante anexado! ⇄' : 'Transferência registrada! Mas o comprovante não pôde ser anexado — tente compartilhar de novo.', res.ok?'ok':'err');
+    } else {
+      showToast('Transferência registrada! ⇄');
+    }
+  }
 }
 async function salvarLancamento(){
   const valor=getMaskValue($('sh-valor')), desc=$('sh-desc')?.value.trim();
@@ -2847,7 +2886,7 @@ async function salvarLancamento(){
     }]);
   }
 
-  let erros=0, ultimoErro=null;
+  let erros=0, ultimoErro=null, primeiroIdCriado=null;
   for(let i=0;i<nParc;i++){
     const dtVenc=new Date(vencFinal+'T12:00:00');
     dtVenc.setMonth(dtVenc.getMonth()+(i*(isRecorrente?intervalo:1)));
@@ -2859,7 +2898,7 @@ async function salvarLancamento(){
       dtP.setMonth(dtP.getMonth()+(i*(isRecorrente?intervalo:1)));
       dataPagParc=dtP.toISOString().split('T')[0];
     }
-    const{error}=await sb.from('fin_movimentacoes').insert([{
+    const{data,error}=await sb.from('fin_movimentacoes').insert([{
       descricao:desc, valor, tipo:sheetTipo,
       data:isCartao?dataCompra:dataPagParc, data_vencimento:vencISO,
       status:isCartao?'pendente':statusParc,
@@ -2871,13 +2910,18 @@ async function salvarLancamento(){
       observacao:$('sh-obs')?.value||null, origem:isRecorrente?'recorrente':'manual'
     }]);
     if(error){ erros++; ultimoErro=error; console.error('Erro ao salvar lançamento:', error); }
+    else if(i===0){ primeiroIdCriado = data?.[0]?.id || null; }
   }
   if(erros){
     if(btn){btn.textContent='Salvar lançamento';btn.disabled=false;}
     showToast(ultimoErro?.message ? ('Erro: '+ultimoErro.message) : 'Erro ao salvar.','err');
   }else{
     await loadAll(); renderAll(); closeSheet();
-    if(isRecorrente) showToast('✅ '+nParc+' lançamento(s) gerado(s) + adicionado em Custos Fixos!');
+    if(sharedFileObj && primeiroIdCriado){
+      const res=await _anexarComprovantePendente([primeiroIdCriado]);
+      if(res.ok) showToast('✅ Lançamento salvo com comprovante anexado!');
+      else showToast('Lançamento salvo! Mas o comprovante não pôde ser anexado — tente compartilhar de novo.','err');
+    } else if(isRecorrente) showToast('✅ '+nParc+' lançamento(s) gerado(s) + adicionado em Custos Fixos!');
     else showToast(nParc>1?nParc+' parcelas criadas! ✓':'Lançamento salvo! ✓');
   }
 }
@@ -4501,10 +4545,14 @@ async function confirmarParcelamento(){
 let sharedFileObj = null;
 let shareMovSelecionado = null;
 let shareTab = 'existente';
-let shareNlTipoAtual = 'saida';
 
 let _checkingShare = false;
 let _sharePendente = false;
+// true quando o formulário real de lançamento foi aberto A PARTIR do modal
+// de comprovante compartilhado. Usado para: (1) mostrar o aviso de anexo
+// dentro do formulário, e (2) reabrir o modal do comprovante se o usuário
+// cancelar sem salvar, em vez de simplesmente perder o comprovante de vista.
+let _veioDoComprovante = false;
 async function debugShare(){
   const out=$('debug-share-out');
   const linhas=[];
@@ -4626,13 +4674,11 @@ function _mimeFromExt(nome) {
 function showShareModal() {
   const f = sharedFileObj;
   if (!f) return;
-  shareMovSelecionado = null; shareTab = 'existente'; shareNlTipoAtual = 'saida';
+  shareMovSelecionado = null; shareTab = 'existente';
   const isImg = f.type.startsWith('image/');
   const previewHtml = isImg
     ? `<img id="share-preview-img" style="width:100%;max-height:130px;object-fit:contain;border-radius:10px;background:#F9FAFB;margin-bottom:12px"/>`
     : `<div style="background:#FEF3C7;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;font-size:13px;color:#92400E;font-weight:600">📄 ${f.name}</div>`;
-  const centroOpts = centros.map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
-  const wOpts = carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.icone||'🏦'} ${w.nome}</option>`).join('');
   const catSaidaOpts = categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos').map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   const veiOpts = veiculos.map(v=>`<option value="${v.id}">${v.nome}</option>`).join('');
   const recentes = movsVisiveis().slice(0, 40);
@@ -4652,9 +4698,9 @@ function showShareModal() {
           style="flex:1;padding:8px 4px;border-radius:10px;border:2px solid var(--accent);background:var(--accent-bg);color:var(--accent);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">
           📋 Já cadastrado
         </button>
-        <button id="share-tab-novo" onclick="shareSetTab('novo')"
+        <button id="share-tab-novo" onclick="shareAbrirNovoCompleto()"
           style="flex:1;padding:8px 4px;border-radius:10px;border:2px solid var(--border);background:#fff;color:var(--gray);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">
-          ➕ Novo
+          ➕ Novo →
         </button>
         <button id="share-tab-abastecimento" onclick="shareSetTab('abastecimento')"
           style="flex:1;padding:8px 4px;border-radius:10px;border:2px solid var(--border);background:#fff;color:var(--gray);font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">
@@ -4671,26 +4717,6 @@ function showShareModal() {
           ${_shareListHtml(recentes)}
         </div>
         <div id="share-selecionado" style="display:none;background:var(--accent-bg);border-radius:10px;padding:10px 12px;margin-top:8px;font-size:12px;color:var(--accent);font-weight:700"></div>
-      </div>
-
-      <!-- Painel: novo lançamento -->
-      <div id="share-panel-novo" style="display:none">
-        <div style="display:flex;gap:6px;margin-bottom:10px">
-          <button id="snl-saida" onclick="shareNlTipo('saida')"
-            style="flex:1;padding:9px;border-radius:10px;border:2px solid var(--red);background:#FEE2E2;color:var(--red);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">▼ Saída</button>
-          <button id="snl-entrada" onclick="shareNlTipo('entrada')"
-            style="flex:1;padding:9px;border-radius:10px;border:2px solid var(--border);background:#fff;color:var(--gray);font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">▲ Entrada</button>
-        </div>
-        <div class="form-grid-2" style="margin-bottom:8px">
-          <div class="field"><label>Valor (R$) *</label><input type="text" data-money="1" id="snl-valor" placeholder="0,00" inputmode="decimal"/></div>
-          <div class="field"><label>Data *</label><input type="date" id="snl-data" value="${hoje}"/></div>
-        </div>
-        <div class="form-mb field"><label>Descrição *</label><input type="text" id="snl-desc" placeholder="Ex: Pagamento aluguel…"/></div>
-        <div class="form-grid-2" style="margin-bottom:8px">
-          <div class="field"><label>Carteira</label><select id="snl-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
-          <div class="field"><label>Centro de custo</label><select id="snl-centro"><option value="">Geral</option>${centroOpts}</select></div>
-        </div>
-        <div class="form-mb field"><label>Categoria</label><select id="snl-cat"><option value="">Sem categoria</option>${catSaidaOpts}</select></div>
       </div>
 
       <!-- Painel: abastecimento -->
@@ -4726,20 +4752,31 @@ function showShareModal() {
   }
 }
 
-function shareNlTipo(t) {
-  shareNlTipoAtual = t;
-  ['saida','entrada'].forEach(x => {
-    const btn = $('snl-'+x); if (!btn) return;
-    const ativo = x === t;
-    btn.style.borderColor = ativo ? (x==='saida'?'var(--red)':'var(--accent)') : 'var(--border)';
-    btn.style.background  = ativo ? (x==='saida'?'#FEE2E2':'var(--accent-bg)') : '#fff';
-    btn.style.color       = ativo ? (x==='saida'?'var(--red)':'var(--accent)') : 'var(--gray)';
-  });
+// Abre o formulário REAL de lançamento (o mesmo usado em Lançamentos, com
+// transferência, conta a pagar/receber, carteira/cartão, tudo) a partir do
+// modal de comprovante. Ao salvar, o comprovante é anexado automaticamente
+// (ver salvarLancamento() e salvarTransferencia()).
+function shareAbrirNovoCompleto() {
+  if (!sharedFileObj) return;
+  $('share-modal').classList.remove('open'); // esconde SEM limpar sharedFileObj
+  openSheet();
+  _veioDoComprovante = true;
+}
+
+// Chamada pelo × e pelo backdrop do formulário (em vez de closeSheet() direto).
+// Se o formulário foi aberto a partir de um comprovante e o usuário cancelou
+// sem salvar, reabre o modal do comprovante em vez de simplesmente sumir com ele.
+function closeSheetUser() {
+  closeSheet();
+  if (_veioDoComprovante && sharedFileObj) {
+    _veioDoComprovante = false;
+    showShareModal();
+  }
 }
 
 function shareSetTab(tab) {
   shareTab = tab;
-  const tabs = ['existente','novo','abastecimento'];
+  const tabs = ['existente','abastecimento'];
   const ativo   = { border:'var(--accent)', bg:'var(--accent-bg)', color:'var(--accent)' };
   const inativo = { border:'var(--border)',  bg:'#fff',             color:'var(--gray)'   };
   tabs.forEach(t => {
@@ -4811,21 +4848,6 @@ async function salvarShareComprovante() {
       const { error } = await sb.from('fin_movimentacoes').update({ comprovante_url:url }).eq('id', shareMovSelecionado);
       if (error) throw error;
       showToast('✅ Comprovante salvo!');
-
-    } else if (shareTab === 'novo') {
-      const valor=getMaskValue($('snl-valor'));
-      const desc=($('snl-desc')?.value||'').trim();
-      const data=$('snl-data')?.value;
-      if(!valor||!desc||!data){ showToast('Preencha valor, descrição e data.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
-      const { error } = await sb.from('fin_movimentacoes').insert([{
-        descricao:desc, valor, tipo:shareNlTipoAtual, data, data_vencimento:data, status:'pago',
-        carteira_id:$('snl-carteira')?.value||null,
-        centro_id:$('snl-centro')?.value||null,
-        categoria_id:$('snl-cat')?.value||null,
-        origem:'manual', comprovante_url:url
-      }]);
-      if (error) throw error;
-      showToast('✅ Lançamento criado com comprovante!');
 
     } else if (shareTab === 'abastecimento') {
       const vid=$('snl-vei')?.value;
@@ -4902,7 +4924,7 @@ function fecharComp(){
 
 function fecharShareModal() {
   $('share-modal')?.classList.remove('open');
-  sharedFileObj=null; shareMovSelecionado=null; shareTab='existente'; shareNlTipoAtual='saida';
+  sharedFileObj=null; shareMovSelecionado=null; shareTab='existente';
 }
 // ════════════════════════════════════════════════
 //  CONFIGURAÇÕES — Centros de custo & Categorias

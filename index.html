@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.59 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.60 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1082,9 +1082,10 @@ sb.auth.onAuthStateChange(async(event,session)=>{
     $('app').classList.add('visible');
     await loadAll(); renderAll();
     atualizaHideBtnIcon();
+    // Já logado aqui: se houver comprovante compartilhado no cache,
+    // checkSharedFile abre o modal sozinho. Limpamos a flag por garantia.
+    _sharePendente = false;
     await checkSharedFile();
-    // Se um comprovante foi compartilhado antes do login, abre o modal agora
-    if (_sharePendente && sharedFileObj) { _sharePendente = false; showShareModal(); }
     setTimeout(applyAllMoneyMasks, 100);
   } else {
     currentUser=null; $('app').classList.remove('visible');
@@ -4581,7 +4582,14 @@ async function checkSharedFile() {
       if (location.search.includes('share=')) history.replaceState({}, '', '/fullfin/');
       return;
     }
-    // Achou! Lê o blob antes de deletar
+    // Se ainda NÃO logou, NÃO consome o arquivo: deixa intacto no cache e marca
+    // pendente. Ao logar, checkSharedFile roda de novo e aí sim abre o modal.
+    // (Antes: o arquivo era deletado aqui e se perdia antes do login.)
+    if (!currentUser) {
+      _sharePendente = true;
+      return;
+    }
+    // Logado: lê o blob, consome (deleta) e abre o modal.
     const blob = await response.blob();
     const rawName = response.headers.get('X-File-Name') || 'comprovante.pdf';
     const fileName = decodeURIComponent(rawName);
@@ -4589,9 +4597,7 @@ async function checkSharedFile() {
     await cache.delete('/fullfin/shared-file');
     if (location.search.includes('share=')) history.replaceState({}, '', '/fullfin/');
     sharedFileObj = new File([blob], fileName, { type: tipo });
-    // Se logado, abre modal. Senão, marca pendente para abrir logo apos login.
-    if (currentUser) showShareModal();
-    else _sharePendente = true;
+    showShareModal();
   } catch(e) {
     console.error('[Share] checkSharedFile erro:', e);
   } finally {

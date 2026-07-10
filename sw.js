@@ -1,4 +1,4 @@
-const CACHE = 'fullfin-v3.58';
+const CACHE = 'fullfin-v3.59';
 const SHARE_CACHE = 'fullfin-share';
 const ASSETS = [
   '/fullfin/',
@@ -47,34 +47,64 @@ self.addEventListener('fetch', e => {
   );
 });
 
+// Grava um log de diagnóstico que sobrevive ao redirect.
+// O index.html lê isso no painel "Diagnóstico do Compartilhamento".
+async function gravarShareLog(dados) {
+  try {
+    const cache = await caches.open(SHARE_CACHE);
+    dados.quando = new Date().toISOString();
+    await cache.put('/fullfin/share-log', new Response(JSON.stringify(dados), {
+      headers: { 'Content-Type': 'application/json' }
+    }));
+  } catch (e) { /* se nem isso grava, o problema é permissão de cache */ }
+}
+
 async function handleShare(e) {
+  const log = { etapa: 'inicio', campos: [], salvou: false };
   let salvou = false;
   try {
     const formData = await e.request.formData();
+    log.etapa = 'formdata_ok';
+
+    // Registra TUDO que o Android mandou: nome do campo, tipo e tamanho
+    for (const [nome, v] of formData.entries()) {
+      if (v && typeof v === 'object' && 'size' in v) {
+        log.campos.push(nome + ' [arquivo ' + (v.type || 'sem-tipo') + ' ' + v.size + 'b]');
+      } else {
+        log.campos.push(nome + ' [texto: "' + String(v).slice(0, 40) + '"]');
+      }
+    }
+
     // Tenta pegar o arquivo por qualquer nome de campo (file, files, etc.)
     let file = formData.get('file');
     if (!file || !file.size) {
-      // fallback: procura qualquer entrada que seja um File
       for (const [, v] of formData.entries()) {
         if (v && typeof v === 'object' && 'size' in v && v.size > 0) { file = v; break; }
       }
     }
+
     if (file && file.size > 0) {
+      log.etapa = 'arquivo_encontrado';
+      log.arquivo = (file.name || '?') + ' / ' + (file.type || 'sem-tipo') + ' / ' + file.size + 'b';
       const cache = await caches.open(SHARE_CACHE);
-      // Grava o arquivo E ESPERA terminar antes de redirecionar
       await cache.put('/fullfin/shared-file', new Response(file, {
         headers: {
           'Content-Type': file.type || 'application/octet-stream',
           'X-File-Name': encodeURIComponent(file.name || 'comprovante.pdf')
         }
       }));
-      // Confirma que gravou
       const check = await cache.match('/fullfin/shared-file');
       salvou = !!check;
+      log.etapa = salvou ? 'gravado_ok' : 'put_falhou';
+      log.salvou = salvou;
+    } else {
+      log.etapa = 'nenhum_arquivo';
     }
   } catch (err) {
+    log.etapa = 'excecao';
+    log.erro = (err && err.message) ? err.message : String(err);
     console.error('[SW] Share error:', err);
   }
-  // Só redireciona DEPOIS de gravar. Passa flag de status na URL.
+  await gravarShareLog(log);
   return Response.redirect('/fullfin/?share=' + (salvou ? '1' : 'erro'), 303);
 }

@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.58 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.59 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -4528,6 +4528,29 @@ async function debugShare(){
         add('   Tipo: '+(blob.type||'(vazio)'));
         add('   Nome: '+decodeURIComponent(resp.headers.get('X-File-Name')||'?'));
       } else { add('   ⚠️ Cache existe mas está VAZIO'); }
+
+      // ── LOG DO ÚLTIMO COMPARTILHAMENTO ──
+      const logResp=await cache.match('/fullfin/share-log');
+      add('\n🕵️ Último compartilhamento:');
+      if(logResp){
+        try{
+          const lg=await logResp.json();
+          add('   Etapa final: '+(lg.etapa||'?'));
+          if(lg.campos&&lg.campos.length){
+            add('   Campos recebidos do Android:');
+            lg.campos.forEach(c=>add('     - '+c));
+          } else {
+            add('   ⚠️ Android NÃO mandou nenhum campo');
+          }
+          if(lg.arquivo) add('   Arquivo detectado: '+lg.arquivo);
+          if(lg.erro)    add('   ❌ Erro: '+lg.erro);
+          add('   Gravou arquivo? '+(lg.salvou?'SIM':'NÃO'));
+          if(lg.quando) add('   Quando: '+lg.quando.slice(11,19));
+        }catch(e){ add('   ⚠️ Log ilegível: '+e.message); }
+      } else {
+        add('   (nenhum compartilhamento registrado ainda —');
+        add('    compartilhe um comprovante e rode de novo)');
+      }
     }
   } else { add('❌ Navegador não suporta Cache API'); }
 

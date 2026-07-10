@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.57 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.58 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -613,6 +613,7 @@
           <div class="sb-uemail" id="sb-uemail"></div>
         </div>
       </div>
+      <button class="logout-btn" id="sb-hide-btn" onclick="toggleValoresOcultos()" style="margin-bottom:6px">👁️ Ocultar valores</button>
       <button class="logout-btn" onclick="doLogout()">↩ Sair da conta</button>
     </div>
   </nav>
@@ -633,6 +634,7 @@
         <span class="mhdr-mlabel" id="mhdr-month">Jun 2026</span>
         <button class="mhdr-mbtn" onclick="mudaMes(1)">›</button>
       </div>
+      <button id="mhdr-hide-btn" onclick="toggleValoresOcultos()" title="Ocultar/mostrar valores" style="background:none;border:none;color:#fff;font-size:16px;cursor:pointer;padding:2px 4px;line-height:1">👁️</button>
       <div class="mhdr-avatar" id="mhdr-avatar">?</div>
     </div>
   </header>
@@ -705,10 +707,12 @@
             </div>
           </div>
         </div>
-        <!-- Busca rápida por descrição — sempre visível, filtra ao digitar -->
+        <!-- Busca rápida por descrição OU valor — sempre visível, filtra ao digitar -->
         <div class="field" style="margin-bottom:10px">
-          <input type="search" id="lance-busca" placeholder="🔍 Buscar por descrição…" oninput="lanceFiltros.desc=this.value;renderLancamentosLista()"/>
+          <input type="search" id="lance-busca" placeholder="🔍 Buscar por descrição ou valor…" oninput="lanceFiltros.desc=this.value;renderLancamentosLista()"/>
         </div>
+        <!-- Ordenação -->
+        <div id="lance-sort-pills" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:10px;scrollbar-width:none;-webkit-overflow-scrolling:touch"></div>
         <!-- Filtro rápido por centro de custo -->
         <div id="lance-centro-pills" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:10px;scrollbar-width:none;-webkit-overflow-scrolling:touch"></div>
         <!-- Abas com totais -->
@@ -1013,13 +1017,17 @@ let sheetTipo = 'saida', sheetStatus = 'pago', sheetEditId = null;
 // Tipo unificado do modal de novo lançamento (define quais datas aparecem):
 // 'saida' | 'entrada' | 'a_pagar' | 'a_receber' | 'transferencia'
 let sheetLancTipo = 'saida';
+// Ordenação da lista de Lançamentos: 'data_desc' (padrão) | 'data_asc' | 'valor_desc' | 'valor_asc'
+let lanceOrdenacao = 'data_desc';
+// Ocultar valores: esconde TODOS os valores monetários do app (vira "--"). Persiste entre sessões.
+let valoresOcultos = localStorage.getItem('fullfin_valores_ocultos')==='1';
 
 mesAtual.setDate(1);
 
 // ════════════════════════════════════════════════
 //  UTILS
 // ════════════════════════════════════════════════
-const fmt = v => { const n=parseFloat(String(v||0).replace(',','.')); return isNaN(n)?'—':n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); };
+const fmt = v => { if(valoresOcultos) return '--'; const n=parseFloat(String(v||0).replace(',','.')); return isNaN(n)?'—':n.toLocaleString('pt-BR',{style:'currency',currency:'BRL'}); };
 const fmtDate = s => { if(!s) return '—'; const [y,m,d]=(s+'').split('T')[0].split('-'); return `${d}/${m}/${y}`; };
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const MESES_S = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -1073,6 +1081,7 @@ sb.auth.onAuthStateChange(async(event,session)=>{
     $('login-screen').classList.add('hidden');
     $('app').classList.add('visible');
     await loadAll(); renderAll();
+    atualizaHideBtnIcon();
     await checkSharedFile();
     // Se um comprovante foi compartilhado antes do login, abre o modal agora
     if (_sharePendente && sharedFileObj) { _sharePendente = false; showShareModal(); }
@@ -1123,6 +1132,31 @@ async function loadAll(){
 // ════════════════════════════════════════════════
 function toggleSidebar(){$('sidebar').classList.toggle('open');$('overlay').classList.toggle('open');}
 function closeSidebar(){$('sidebar').classList.remove('open');$('overlay').classList.remove('open');}
+
+// ════════════════════════════════════════════════
+//  OCULTAR VALORES (global — afeta qualquer tela que usa fmt())
+// ════════════════════════════════════════════════
+function atualizaHideBtnIcon(){
+  const icone = valoresOcultos ? '🙈' : '👁️';
+  const mh=$('mhdr-hide-btn'); if(mh) mh.textContent=icone;
+  const sb=$('sb-hide-btn'); if(sb) sb.textContent=icone+' '+(valoresOcultos?'Mostrar valores':'Ocultar valores');
+}
+function toggleValoresOcultos(){
+  valoresOcultos=!valoresOcultos;
+  localStorage.setItem('fullfin_valores_ocultos', valoresOcultos?'1':'0');
+  atualizaHideBtnIcon();
+  // Re-renderiza só a página ativa, com o novo estado de fmt()
+  const page=document.querySelector('.page.active')?.id?.replace('page-','');
+  if(page==='home') renderHome();
+  if(page==='lancamentos') renderLancamentosLista();
+  if(page==='relatorio') renderRelatorio();
+  if(page==='carteiras') renderCarteiras();
+  if(page==='cartoes') renderCartoes();
+  if(page==='dividas') renderDividas();
+  if(page==='veiculos') renderVeiculos();
+  if(page==='recorrentes') renderRecorrentes();
+  if(page==='dizimo'){ renderLucroReal(); renderDizimoHistorico(); }
+}
 
 function goPage(page){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
@@ -1972,6 +2006,7 @@ function custosFixosVirtuais(mesISO){
 
 function renderLancamentosLista(){
   const mesISO=isoMes(mesAtual);
+  renderLanceSortPills();
   // Pills de centro de custo
   const pillsEl=$('lance-centro-pills');
   if(pillsEl){
@@ -2061,15 +2096,18 @@ function renderLancamentosLista(){
   let lista = lanceAba==='todas'?todas:lanceAba==='entradas'?entradas:lanceAba==='saidas'?saidas:lanceAba==='a_receber'?aReceber:aPagar;
 
   // Aplica filtros extras
-  if(lanceFiltros.desc)    lista=lista.filter(m=>(m.descricao||'').toLowerCase().includes(lanceFiltros.desc.toLowerCase()));
+  if(lanceFiltros.desc)    lista=lista.filter(m=>lanceMatchBusca(m,lanceFiltros.desc));
   if(lanceFiltros.carteira) lista=lista.filter(m=>m.carteira_id===lanceFiltros.carteira);
   if(lanceFiltros.categoria)lista=lista.filter(m=>m.categoria_id===lanceFiltros.categoria);
   if(lanceFiltros.forma)    lista=lista.filter(m=>m.forma_pagamento===lanceFiltros.forma);
 
   lista.sort((a,b)=>{
+    if(lanceOrdenacao==='valor_desc') return parseFloat(b.valor||0)-parseFloat(a.valor||0);
+    if(lanceOrdenacao==='valor_asc')  return parseFloat(a.valor||0)-parseFloat(b.valor||0);
     const da=(a.data_vencimento||a.data||'');
     const db=(b.data_vencimento||b.data||'');
-    return da.localeCompare(db);
+    if(lanceOrdenacao==='data_asc') return da.localeCompare(db);
+    return db.localeCompare(da); // data_desc — padrão: mais recentes primeiro
   });
 
   const el=$('lance-list'); if(!el) return;
@@ -2136,6 +2174,29 @@ function renderLancamentosLista(){
 function setLanceAba(aba){lanceAba=aba;renderLancamentosLista();}
 function setLanceCentro(cid){lanceCentroPill=cid;renderLancamentosLista();}
 function setFilter(tipo){filterTipo=tipo;renderLancamentosLista();}
+
+// Busca no campo de Lançamentos: casa tanto na descrição quanto no valor
+// (ex: digitar "150" encontra qualquer lançamento de R$ 150,00 — usa o valor
+// já formatado em R$ pt-BR, então também funciona digitando "150,00").
+function lanceMatchBusca(m,q){
+  if(!q) return true;
+  const lower=q.toLowerCase().trim();
+  const descMatch=(m.descricao||'').toLowerCase().includes(lower);
+  const valorMatch=fmt(m.valor).toLowerCase().includes(lower);
+  return descMatch||valorMatch;
+}
+
+function renderLanceSortPills(){
+  const el=$('lance-sort-pills'); if(!el) return;
+  const opts=[
+    {id:'data_desc', label:'📅 Mais recentes'},
+    {id:'data_asc',  label:'📅 Mais antigas'},
+    {id:'valor_desc',label:'💰 Maior valor'},
+    {id:'valor_asc', label:'💰 Menor valor'},
+  ];
+  el.innerHTML=opts.map(o=>`<button class="fpill${lanceOrdenacao===o.id?' active':''}" style="flex-shrink:0" onclick="setLanceOrdenacao('${o.id}')">${o.label}</button>`).join('');
+}
+function setLanceOrdenacao(o){ lanceOrdenacao=o; renderLancamentosLista(); }
 
 function abrirFiltroLance(){
   const wOpts=carteiras.map(w=>`<option value="${w.id}"${lanceFiltros.carteira===w.id?' selected':''}>${w.nome}</option>`).join('');

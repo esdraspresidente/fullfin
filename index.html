@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.60 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.61 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -916,6 +916,11 @@
 </div><!-- /app -->
 
 <div id="toast"></div>
+
+<!-- ⚠️ ELEMENTO CRÍTICO — NÃO REMOVER -->
+<!-- Container do modal de comprovante compartilhado (Web Share Target). -->
+<!-- O conteúdo é injetado por showShareModal(). Sem este div o share quebra em silêncio. -->
+<div id="share-modal"></div>
 <div id="sheet-overlay" onclick="closeSheet()"></div>
 
 <!-- MODAL PARCELAR FATURA -->
@@ -4589,15 +4594,23 @@ async function checkSharedFile() {
       _sharePendente = true;
       return;
     }
-    // Logado: lê o blob, consome (deleta) e abre o modal.
+    // Logado: lê o blob e tenta abrir o modal ANTES de consumir o arquivo.
+    // O delete só acontece se o modal abriu de verdade — se qualquer coisa
+    // falhar na abertura, o comprovante fica intacto no cache p/ nova tentativa.
     const blob = await response.blob();
     const rawName = response.headers.get('X-File-Name') || 'comprovante.pdf';
     const fileName = decodeURIComponent(rawName);
     const tipo = blob.type || _mimeFromExt(fileName);
-    await cache.delete('/fullfin/shared-file');
-    if (location.search.includes('share=')) history.replaceState({}, '', '/fullfin/');
     sharedFileObj = new File([blob], fileName, { type: tipo });
     showShareModal();
+    const abriu = $('share-modal') && $('share-modal').classList.contains('open');
+    if (abriu) {
+      await cache.delete('/fullfin/shared-file');
+      if (location.search.includes('share=')) history.replaceState({}, '', '/fullfin/');
+    } else {
+      sharedFileObj = null;
+      console.error('[Share] Modal não abriu — comprovante preservado no cache.');
+    }
   } catch(e) {
     console.error('[Share] checkSharedFile erro:', e);
   } finally {

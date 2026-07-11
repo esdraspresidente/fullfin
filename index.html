@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.62 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.63 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1776,6 +1776,9 @@ function buildSheetFormEdicao(m){
       </div>
     </div>
     <div class="form-mb field"><label>Observação</label><textarea id="sh-obs" rows="2">${m.observacao||''}</textarea></div>
+    ${(m.criado_por||m.editado_por)?`<div style="font-size:10px;color:var(--gray);margin:2px 2px 10px;line-height:1.5">
+      ${m.criado_por?`Criado por <b>${nomeAmigavel(m.criado_por)}</b>`:''}${(m.criado_por&&m.editado_por&&m.editado_por!==m.criado_por)?' · ':''}${(m.editado_por&&m.editado_por!==m.criado_por)?`editado por <b>${nomeAmigavel(m.editado_por)}</b>${m.editado_em?' em '+fmtDate(m.editado_em):''}`:''}
+    </div>`:''}
     <div style="display:flex;gap:8px;margin-top:8px">
       <button class="btn btn-danger" style="flex:1" onclick="pedirRemocaoMov('${m.id}')">🗑 Remover</button>
       ${isPendente?`<button class="btn btn-primary" style="flex:1;background:#059669" onclick="abrirConfirmPagamento('${m.id}','${m.tipo||'saida'}')">✅ ${m.tipo==='entrada'?'Recebido':'Pago'}</button>`:''}
@@ -1962,6 +1965,40 @@ async function deleteMov(mid){
 // ════════════════════════════════════════════════
 //  LANÇAMENTOS
 // ════════════════════════════════════════════════
+
+// Converte o e-mail carimbado pelo banco (criado_por/editado_por) no nome
+// amigável (Nai/Esdras). Usa o mesmo mapa do login. Se não reconhecer, mostra
+// o prefixo do e-mail. Retorna '—' quando vazio (lançamentos antigos).
+function nomeAmigavel(email){
+  if(!email) return '—';
+  if(email==='desconhecido') return '—';
+  const nameMap={'esdras':'Esdras','naiarha':'NAIARHA','contateoesdras':'Esdras','naiarhacalmeida':'NAIARHA'};
+  const prefix=String(email).split('@')[0].toLowerCase();
+  return Object.entries(nameMap).find(([k])=>prefix.includes(k))?.[1]||prefix;
+}
+
+// Regra ÚNICA de "lançamento incompleto".
+// Um lançamento normal precisa ter: categoria, centro de custo, descrição,
+// forma de pagamento e carteira. Se faltar qualquer um → incompleto.
+// EXCEÇÕES (nunca marcadas): contas a pagar/receber e transferências —
+// elas legitimamente não têm carteira/forma definidas ainda.
+// Linhas virtuais (fatura de cartão e custo fixo previsto) também são ignoradas.
+// Retorna a lista de campos faltantes (array vazio = está completo).
+function lancamentoFaltantes(m){
+  if(!m) return [];
+  if(m._fatura || m._custoFixo) return [];            // linhas virtuais, não são lançamentos reais
+  if(ehTransferencia(m)) return [];                   // transferência tem lógica própria
+  if(m.tipo==='a_pagar' || m.tipo==='a_receber') return []; // sem carteira/forma por definição
+  const faltando=[];
+  if(!m.categoria_id)     faltando.push('Categoria');
+  if(!m.centro_id)        faltando.push('Centro de custo');
+  if(!(m.descricao||'').trim()) faltando.push('Descrição');
+  if(!m.forma_pagamento)  faltando.push('Forma de pagamento');
+  if(!m.carteira_id)      faltando.push('Carteira');
+  return faltando;
+}
+function lancamentoIncompleto(m){ return lancamentoFaltantes(m).length>0; }
+
 function renderLancamentos(){
   const mesISO=isoMes(mesAtual);
   renderLancamentosLista();
@@ -2077,6 +2114,7 @@ function renderLancamentosLista(){
   const saidas=base.filter(m=>m.tipo==='saida'&&m.status==='pago'&&!ehTransferencia(m));
   const aReceber=base.filter(m=>m.tipo==='entrada'&&m.status!=='pago');
   const aPagar=base.filter(m=>m.tipo==='saida'&&m.status!=='pago');
+  const incompletos=base.filter(m=>lancamentoIncompleto(m));
   const totAba=list=>list.reduce((s,m)=>s+parseFloat(m.valor||0),0);
 
   // Abas
@@ -2086,20 +2124,26 @@ function renderLancamentosLista(){
     {id:'saidas',   label:'Saídas',           total:totAba(saidas),   count:saidas.length,   cor:'var(--red)'},
     {id:'a_receber',label:'Contas a receber', total:totAba(aReceber), count:aReceber.length, cor:'var(--accent)'},
     {id:'a_pagar',  label:'Contas a pagar',   total:totAba(aPagar),   count:aPagar.length,   cor:'var(--red)'},
+    {id:'incompletos',label:'⚠️ Incompletos',total:incompletos.length, count:incompletos.length, cor:'#D97706', _isContador:true},
   ];
   const abaEl=$('lance-abas');
   if(abaEl){
     abaEl.innerHTML=abas.map(a=>{
+      // A aba "Incompletos" só aparece quando há algo a revisar (some quando zera).
+      if(a._isContador && a.count===0) return '';
       const ativo=lanceAba===a.id;
+      const valorLinha=a._isContador
+        ? `${a.count} p/ revisar`
+        : fmt(a.total);
       return`<button onclick="setLanceAba('${a.id}')" style="flex-shrink:0;padding:8px 14px;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:${ativo?'2.5px solid var(--accent)':'2.5px solid transparent'};margin-bottom:-2px;text-align:center;min-width:90px">
         <div style="font-size:11px;font-weight:700;color:${ativo?'var(--accent)':'var(--gray)'};white-space:nowrap">${a.label}</div>
-        <div style="font-size:13px;font-weight:800;color:${ativo?'var(--accent)':(a.cor||'var(--text)')};">${fmt(a.total)}</div>
+        <div style="font-size:13px;font-weight:800;color:${ativo?'var(--accent)':(a.cor||'var(--text)')};white-space:nowrap">${valorLinha}</div>
       </button>`;
     }).join('');
   }
 
   // Filtra pela aba
-  let lista = lanceAba==='todas'?todas:lanceAba==='entradas'?entradas:lanceAba==='saidas'?saidas:lanceAba==='a_receber'?aReceber:aPagar;
+  let lista = lanceAba==='todas'?todas:lanceAba==='entradas'?entradas:lanceAba==='saidas'?saidas:lanceAba==='a_receber'?aReceber:lanceAba==='incompletos'?incompletos:aPagar;
 
   // Aplica filtros extras
   if(lanceFiltros.desc)    lista=lista.filter(m=>lanceMatchBusca(m,lanceFiltros.desc));
@@ -2159,9 +2203,14 @@ function renderLancamentosLista(){
     const corValor=m.tipo==='entrada'?'var(--accent)':'var(--red)';
     const subinfo=[centro?.nome,cat?.nome,m.parcela_atual?`Parc. ${m.parcela_atual}/${m.total_parcelas}`:null].filter(Boolean).join(' · ');
     const dataMeta=isPendente&&m.data_vencimento?`Venc. ${fmtDate(m.data_vencimento)}`:(m.data?fmtDate(m.data):'—');
+    // Indicador discreto de lançamento incompleto: ⚠️ com tooltip do que falta.
+    const faltando=lancamentoFaltantes(m);
+    const avisoIncompleto=faltando.length
+      ? `<span title="Faltando: ${faltando.join(', ')}" style="flex-shrink:0;font-size:12px;cursor:help" onclick="event.stopPropagation();showToast('Faltando: ${faltando.join(', ')}','info')">⚠️</span>`
+      : '';
     return`<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);${isPendente?'background:#FFFBEB':''}">
       <div style="flex:1;min-width:0;overflow:hidden">
-        <div style="font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m.descricao||'—'}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:5px"><span style="overflow:hidden;text-overflow:ellipsis">${m.descricao||'—'}</span>${avisoIncompleto}</div>
         <div style="font-size:10px;color:var(--gray);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${dataMeta}${subinfo?' · '+subinfo:''}</div>
       </div>
       <div style="text-align:right;flex-shrink:0">

@@ -33,14 +33,33 @@
         const email=(_session?.user?.email||'').toLowerCase();
         if(!email.includes('naiarha')) return; // só dispara se quem está logado é a Naiarha
         const lista=Array.isArray(rows)?rows:[rows];
-        _notifBuffer.push(...lista.map(row=>({
-          descricao:row.descricao||'',
-          valor:row.valor||0,
-          tipo:row.tipo||'',
-          data:row.data||row.data_vencimento||'',
-          forma_pagamento:row.forma_pagamento||'',
-          acao:acao||'cadastrou'
-        })));
+        // Resolve id→nome usando as listas globais do app (já carregadas em runtime).
+        // Fallback seguro se a lista ainda não existir ou o item não for achado.
+        const acha=(arr,idv)=>{ try{ return (arr||[]).find(x=>x.id===idv)?.nome||null; }catch(e){ return null; } };
+        _notifBuffer.push(...lista.map(row=>{
+          // Descreve recorrência de forma legível
+          let recorrencia='Único';
+          if(row.origem==='recorrente') recorrencia='Recorrente (custo fixo)';
+          else if(row.total_parcelas>1) recorrencia='Parcelado '+(row.parcela_atual||'?')+'/'+row.total_parcelas;
+          return {
+            descricao:row.descricao||'',
+            valor:row.valor||0,
+            tipo:row.tipo||'',
+            data:row.data||'',
+            data_vencimento:row.data_vencimento||'',
+            status:row.status||'',
+            forma_pagamento:row.forma_pagamento||'',
+            categoria: acha(typeof categorias!=='undefined'?categorias:[], row.categoria_id),
+            centro:    acha(typeof centros!=='undefined'?centros:[], row.centro_id),
+            carteira:  acha(typeof carteiras!=='undefined'?carteiras:[], row.carteira_id),
+            cartao:    acha(typeof cartoes!=='undefined'?cartoes:[], row.cartao_id),
+            recorrencia,
+            total_parcelas:row.total_parcelas||null,
+            parcela_atual:row.parcela_atual||null,
+            observacao:row.observacao||'',
+            acao:acao||'cadastrou'
+          };
+        }));
         clearTimeout(_notifTimer);
         _notifTimer=setTimeout(()=>{
           const itens=_notifBuffer.splice(0,_notifBuffer.length);
@@ -588,7 +607,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.64 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.65 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>

@@ -588,7 +588,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.63 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.64 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -968,6 +968,8 @@
     </div>
   </div>
 </div>
+<!-- ⚠️ ELEMENTO CRÍTICO — NÃO REMOVER -->
+<!-- Bottom-sheet universal: formulário de novo lançamento, edição e confirmação de pagamento. -->
 <div id="sheet">
   <div class="sheet-header">
     <div class="sheet-title" id="sheet-title">Novo lançamento</div>
@@ -975,6 +977,8 @@
   </div>
   <div class="sheet-body" id="sheet-body"></div>
 </div>
+<!-- ⚠️ ELEMENTO CRÍTICO — NÃO REMOVER -->
+<!-- Modal de confirmação (usado por openConfirm/pedirRemocaoMov etc.). -->
 <div id="confirm-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeConfirm()">
   <div class="modal-box">
     <div class="modal-title" id="confirm-title">Confirmar</div>
@@ -5217,6 +5221,112 @@ async function atualizaVersaoSidebar(){
     }
   }catch(e){}
 }
+// ════════════════════════════════════════════════
+//  SELF-CHECK NA INICIALIZAÇÃO
+//  Rede de segurança: ao abrir, confere se as peças críticas do app ainda
+//  existem. Se algo sumiu (ex.: um modal apagado por engano num deploy),
+//  avisa numa faixa no topo em vez de quebrar em silêncio depois.
+//  Se estiver tudo certo, NÃO mostra nada.
+// ════════════════════════════════════════════════
+
+// Elementos de HTML que, se sumirem, quebram o app.
+const SELFCHECK_ELEMENTOS = [
+  'app','login-screen','loading-screen','toast','share-modal',
+  'confirm-modal','confirm-title','confirm-sub','confirm-btns',
+  'sheet','sheet-body','sheet-title','sheet-overlay',
+  'lance-list','lance-abas','lance-busca','lance-centro-pills','lance-sort-pills','sb-version',
+  'page-home','page-lancamentos','page-relatorio','page-carteiras','page-cartoes',
+  'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config'
+];
+
+// Funções que precisam existir pro app funcionar.
+const SELFCHECK_FUNCOES = [
+  'loadAll','renderAll','abreDetalhe','salvarLancamento','salvarEdicaoMov',
+  'confirmarPagamento','openSheetRaw','closeSheet','openConfirm','closeConfirm',
+  'checkSharedFile','showToast','doLogin','renderLancamentosLista'
+];
+
+// Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais
+// (evita alarme falso na varredura de handlers órfãos).
+const SELFCHECK_WHITELIST = new Set([
+  'if','for','while','return','event','this','stopPropagation','preventDefault',
+  'join','split','replace','includes','filter','map','find','forEach','push',
+  'getElementById','querySelector','querySelectorAll','focus','blur','classList',
+  'JSON','parseFloat','parseInt','String','Number','Math','Object','Array',
+  'setTimeout','confirm','alert','value','trim','toLowerCase','toUpperCase'
+]);
+
+// Confere se um nome é uma função global viva.
+// Declarações no estilo "function ..." ficam no window; já as definidas como
+// "const nome = ()=>" NÃO ficam no window (só no escopo léxico global). Por isso,
+// se não achar no window, tenta um eval indireto — que enxerga as const/arrow
+// globais. Se nem assim existir, é órfã de verdade. (App sem CSP → eval seguro.)
+function selfCheckExisteFn(nome){
+  if(typeof window[nome] === 'function') return true;
+  try {
+    const evalGlobal = eval;            // eval indireto → roda no escopo global
+    return typeof evalGlobal(nome) === 'function';
+  } catch(e){ return false; }
+}
+
+function selfCheck(){
+  const problemas = [];
+
+  // 1) Elementos críticos
+  SELFCHECK_ELEMENTOS.forEach(elId=>{
+    if(!document.getElementById(elId)) problemas.push('#'+elId+' (elemento sumiu)');
+  });
+
+  // 2) Funções críticas
+  SELFCHECK_FUNCOES.forEach(fn=>{
+    if(!selfCheckExisteFn(fn)) problemas.push(fn+'() (função sumiu)');
+  });
+
+  // 3) Handlers órfãos — varre os on* do HTML e confere se a função chamada existe
+  try {
+    const orfaos = new Set();
+    document.querySelectorAll('[onclick],[onchange],[oninput],[onkeydown],[onkeyup],[onsubmit]').forEach(el=>{
+      ['onclick','onchange','oninput','onkeydown','onkeyup','onsubmit'].forEach(attr=>{
+        const code = el.getAttribute(attr);
+        if(!code) return;
+        // Pega nomes seguidos de "(" — possíveis chamadas de função
+        (code.match(/([a-zA-Z_$][\w$]*)\s*\(/g)||[]).forEach(m=>{
+          const nome = m.replace(/\s*\($/,'').trim();
+          if(SELFCHECK_WHITELIST.has(nome)) return;
+          // só reporta se for chamada de função global (não método .algo())
+          const idx = code.indexOf(m);
+          if(idx>0 && code[idx-1]==='.') return; // é .metodo(), ignora
+          if(!selfCheckExisteFn(nome)) orfaos.add(nome+'()');
+        });
+      });
+    });
+    orfaos.forEach(o=>problemas.push(o+' (botão chama função que não existe)'));
+  } catch(e){ /* varredura é best-effort; nunca deve derrubar o app */ }
+
+  if(problemas.length){
+    console.error('[SELF-CHECK] '+problemas.length+' problema(s) crítico(s):', problemas);
+    mostrarFaixaSelfCheck(problemas);
+  } else {
+    console.log('[SELF-CHECK] OK — todas as peças críticas presentes.');
+  }
+}
+
+function mostrarFaixaSelfCheck(problemas){
+  if(document.getElementById('selfcheck-faixa')) return; // já mostrada
+  const faixa = document.createElement('div');
+  faixa.id = 'selfcheck-faixa';
+  faixa.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#FEF3C7;border-bottom:2px solid #F59E0B;color:#92400E;font-family:inherit;font-size:12px;padding:10px 40px 10px 14px;line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,.15)';
+  const lista = problemas.slice(0,6).map(p=>'• '+p).join('<br>')
+    + (problemas.length>6 ? '<br>…e mais '+(problemas.length-6) : '');
+  faixa.innerHTML = '<b>⚠️ Autoteste encontrou '+problemas.length+' item(ns) crítico(s) que sumiram:</b><br>'
+    + lista
+    + '<br><span style="opacity:.8">Algo pode ter sido removido por engano no último envio. Abra o console (F12) para detalhes.</span>'
+    + '<button onclick="document.getElementById(\'selfcheck-faixa\').remove()" style="position:absolute;top:8px;right:10px;background:none;border:none;font-size:18px;color:#92400E;cursor:pointer;line-height:1">×</button>';
+  document.body.appendChild(faixa);
+}
+
+window.addEventListener('load', ()=>setTimeout(selfCheck, 800));
+
 window.addEventListener('load', atualizaVersaoSidebar);
 
 // Detecta share quando o app já estava aberto em background e volta ao foco

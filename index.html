@@ -131,11 +131,29 @@
           eq(c,v){_filters=[c+'=eq.'+encodeURIComponent(v)];return this;},
           then(resolve){
             const qs=_filters.length?'?'+_filters.join('&'):'';
+            // Captura o registro que será apagado ANTES do DELETE, direto do estado
+            // local. Assim a notificação de remoção tem os dados completos mesmo que
+            // o servidor não devolva o corpo (alguns DELETE voltam vazios/204).
+            let snapshot=[];
+            if(table==='fin_movimentacoes'){
+              try{
+                const idm=(_filters[0]||'').match(/^id=eq\.(.+)$/);
+                const idv=idm?decodeURIComponent(idm[1]):null;
+                if(idv && typeof movimentacoes!=='undefined'){
+                  const achado=movimentacoes.find(x=>String(x.id)===String(idv));
+                  if(achado) snapshot=[achado];
+                }
+              }catch(e){}
+            }
             fetch(url+'/rest/v1/'+table+qs,{method:'DELETE',headers:{...hdrs(),'Prefer':'return=representation'}})
-              .then(r=>r.json().then(d=>{
-                if(r.ok && table==='fin_movimentacoes') notificaMovimentacaoSeNaiarha(Array.isArray(d)?d:[d],'removeu');
+              .then(async r=>{
+                let d=null; try{ d=await r.json(); }catch(e){ d=null; } // corpo vazio não quebra
+                if(r.ok && table==='fin_movimentacoes'){
+                  const rows=(Array.isArray(d)&&d.length)?d:snapshot;
+                  if(rows.length) notificaMovimentacaoSeNaiarha(rows,'removeu');
+                }
                 resolve(r.ok?{error:null}:{error:d});
-              }))
+              })
               .catch(e=>resolve({error:e}));
           }
         };},
@@ -607,7 +625,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.65 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.66 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>

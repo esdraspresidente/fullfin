@@ -551,6 +551,34 @@
     .share-mov-item:last-child{border-bottom:none;}
     .share-mov-item:hover{background:var(--accent-bg);}
 
+    /* ── CALENDÁRIO ── */
+    /* Portado do app Diligências (mesmo padrão visual do PreviMater), com a
+       paleta do Fullfin: cinza --gray nos rótulos e verde no realce de hoje. */
+    .cal-legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;}
+    .cal-legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--gray);}
+    .cal-legend-dot{width:9px;height:9px;border-radius:3px;flex-shrink:0;}
+    .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+    .cal-weekday{font-size:9px;font-weight:700;color:var(--gray);text-align:center;padding:4px 0;text-transform:uppercase;}
+    .cal-cell{min-height:54px;border:1.5px solid var(--border2);border-radius:9px;padding:5px;background:var(--white);cursor:pointer;transition:all .12s;}
+    .cal-cell.empty{background:transparent;border-color:transparent;cursor:default;}
+    .cal-cell:hover:not(.empty){border-color:var(--accent);box-shadow:0 0 0 2px rgba(5,150,105,.12);}
+    .cal-cell.atrasado{background:#FEF2F2;border-color:#FECACA;}
+    .cal-cell.pago{background:#F0FDF4;border-color:#BBF7D0;}
+    .cal-cell.previsto{background:#FFFBEB;border-color:#FDE68A;}
+    .cal-cell.today{border-color:var(--accent)!important;box-shadow:0 0 0 2px var(--accent);}
+    .cal-cell.today .cal-day-num{color:var(--accent);font-size:13px;}
+    .cal-day-num{font-size:11px;font-weight:700;color:var(--gray);}
+    .cal-badges{display:flex;gap:3px;margin-top:4px;flex-wrap:wrap;align-items:center;}
+    .cal-badge-n{background:var(--accent);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:6px;}
+    .cal-badge-ico{font-size:10px;line-height:1;}
+    .cal-nav-btn-dia{width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--white);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--text2);transition:all .12s;font-family:inherit;flex-shrink:0;}
+    .cal-nav-btn-dia:hover{border-color:var(--accent);color:var(--accent);}
+    .cal-resumo-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+    .cal-resumo-box{border-radius:10px;padding:10px 12px;}
+    .cal-resumo-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;margin-bottom:2px;}
+    .cal-resumo-valor{font-size:15px;font-weight:800;}
+    .cal-resumo-sub{font-size:10px;margin-top:2px;}
+
     /* ── TOAST ── */
     #toast{position:fixed;left:50%;transform:translateX(-50%) translateY(20px);background:#1A1A2E;color:#fff;padding:11px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:999;opacity:0;transition:opacity .2s,transform .2s;white-space:nowrap;pointer-events:none;}
     #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
@@ -625,12 +653,13 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.67 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.68 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
     <button class="nav-item active" id="nav-home" onclick="goPage('home')"><span class="nav-icon">🏠</span> Início</button>
     <button class="nav-item" id="nav-lancamentos" onclick="goPage('lancamentos')"><span class="nav-icon">💸</span> Lançamentos</button>
+    <button class="nav-item" id="nav-calendario" onclick="goPage('calendario')"><span class="nav-icon">📅</span> Calendário</button>
     <button class="nav-item" id="nav-relatorio" onclick="goPage('relatorio')"><span class="nav-icon">📊</span> Relatório</button>
     <div class="sb-section">Importar</div>
     <button class="nav-item" id="nav-importar" onclick="goPage('importar')"><span class="nav-icon">📥</span> Importar dados</button>
@@ -756,6 +785,29 @@
         <div id="lance-abas" style="display:flex;gap:0;overflow-x:auto;border-bottom:2px solid var(--border);margin-bottom:14px;scrollbar-width:none;-webkit-overflow-scrolling:touch"></div>
         <!-- Lista -->
         <div id="lance-list"></div>
+      </div>
+
+      <!-- ══ CALENDÁRIO ══ -->
+      <div id="page-calendario" class="page">
+        <div class="desk-month-bar">
+          <div><div class="page-title">📅 Calendário</div><div class="page-sub">Pagamentos e recebimentos por dia</div></div>
+          <div class="desk-month-nav">
+            <button class="desk-month-btn" onclick="mudaMes(-1)">‹</button>
+            <span class="desk-month-label" id="desk-month-cal">Julho 2026</span>
+            <button class="desk-month-btn" onclick="mudaMes(1)">›</button>
+          </div>
+        </div>
+        <div class="centro-pills" id="cal-centro-pills"></div>
+        <div class="cal-legend">
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#FECACA"></div>Atrasado</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#FDE68A"></div>Previsto</div>
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#BBF7D0"></div>Pago / recebido</div>
+          <div class="cal-legend-item">💳 Fatura de cartão</div>
+          <div class="cal-legend-item">🔄 Custo fixo previsto</div>
+        </div>
+        <div class="card pad">
+          <div class="cal-grid" id="cal-grid"></div>
+        </div>
       </div>
 
       <!-- ══ RELATÓRIO ══ -->
@@ -1027,6 +1079,19 @@
   </div>
 </div>
 
+<!-- MODAL DO DIA (calendário) -->
+<div id="cal-day-modal" class="modal-overlay hidden" onclick="if(event.target===this)closeCalDayModal()">
+  <div class="modal-box" style="max-width:520px;position:relative">
+    <button onclick="closeCalDayModal()" style="position:absolute;top:14px;right:14px;background:none;border:none;font-size:20px;color:var(--gray);cursor:pointer;line-height:1">×</button>
+    <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:14px;padding-right:24px">
+      <button class="cal-nav-btn-dia" onclick="calNavDia(-1)">‹</button>
+      <div class="modal-title" id="cal-day-title" style="margin:0;flex:1;text-align:center"></div>
+      <button class="cal-nav-btn-dia" onclick="calNavDia(1)">›</button>
+    </div>
+    <div id="cal-day-body"></div>
+  </div>
+</div>
+
 <div id="comp-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:800;flex-direction:column;align-items:center;justify-content:center;padding:16px" onclick="if(event.target===this)fecharComp()">
   <div style="background:#fff;border-radius:16px;width:100%;max-width:560px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.35)">
     <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);flex-shrink:0">
@@ -1048,6 +1113,8 @@ let currentUser = null;
 let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos = [];
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
 let lanceAba = 'todas';
+let calCentro = 'GERAL';   // filtro de centro do calendário (independente do Início)
+let calDiaAtual = null;    // dia aberto no modal
 let lanceCentroPill = ''; // '' = todos, ou centro_id
 let lanceFiltros = { desc:'', carteira:'', categoria:'', forma:'' };
 let cartoes = [], cartaoAtual = null;
@@ -1077,6 +1144,12 @@ const fmt = v => { if(valoresOcultos) return '--'; const n=parseFloat(String(v||
 const fmtDate = s => { if(!s) return '—'; const [y,m,d]=(s+'').split('T')[0].split('-'); return `${d}/${m}/${y}`; };
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const MESES_S = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const DIAS_SEMANA = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
+// Data local no formato YYYY-MM-DD. NÃO usar toISOString() para "hoje": ele
+// converte para UTC e, depois das 21h de Brasília, devolve o dia seguinte —
+// o que destacaria o dia errado no calendário.
+const calISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const calHojeISO = () => calISO(new Date());
 const isoMes = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 const mesAtualISO = () => isoMes(new Date());
 
@@ -1196,6 +1269,7 @@ function toggleValoresOcultos(){
   const page=document.querySelector('.page.active')?.id?.replace('page-','');
   if(page==='home') renderHome();
   if(page==='lancamentos') renderLancamentosLista();
+  if(page==='calendario') renderCalendario();
   if(page==='relatorio') renderRelatorio();
   if(page==='carteiras') renderCarteiras();
   if(page==='cartoes') renderCartoes();
@@ -1215,6 +1289,7 @@ function goPage(page){
   if($('pages')) $('pages').scrollTop=0;
   if(page==='home') renderHome();
   if(page==='lancamentos') renderLancamentos();
+  if(page==='calendario') renderCalendario();
   if(page==='relatorio') renderRelatorio();
   if(page==='importar') initImportar();
   if(page==='carteiras') renderCarteiras();
@@ -1232,6 +1307,7 @@ function atualizaMesLabels(){
   if($('desk-month')) $('desk-month').textContent=label;
   if($('desk-month-lance')) $('desk-month-lance').textContent=label;
   if($('desk-month-rel')) $('desk-month-rel').textContent=label;
+  if($('desk-month-cal')) $('desk-month-cal').textContent=label;
   if($('mhdr-month')) $('mhdr-month').textContent=short;
 }
 
@@ -1243,6 +1319,7 @@ function mudaMes(delta){
   if(page==='lancamentos') renderLancamentos();
   if(page==='relatorio') renderRelatorio();
   if(page==='cartoes') renderCartoes();
+  if(page==='calendario') renderCalendario();
 }
 
 function renderAll(){ atualizaMesLabels(); renderCentroPills(); renderHome(); }
@@ -1255,9 +1332,12 @@ function renderCentroPills(){
   $('centro-pills').innerHTML=pills.map(p=>`<button class="cpill${centroAtual===p.id?' active':''}" onclick="setCentro('${p.id}')">${p.nome}</button>`).join('');
   if($('rel-centro-pills'))
     $('rel-centro-pills').innerHTML=pills.map(p=>`<button class="cpill${relCentro===p.id?' active':''}" onclick="setRelCentro('${p.id}')">${p.nome}</button>`).join('');
+  if($('cal-centro-pills'))
+    $('cal-centro-pills').innerHTML=pills.map(p=>`<button class="cpill${calCentro===p.id?' active':''}" onclick="setCalCentro('${p.id}')">${p.nome}</button>`).join('');
 }
 function setCentro(id){centroAtual=id;renderCentroPills();renderHome();}
 function setRelCentro(id){relCentro=id;renderCentroPills();renderRelatorio();}
+function setCalCentro(id){calCentro=id;renderCentroPills();renderCalendario();}
 
 // ════════════════════════════════════════════════
 //  CÁLCULOS
@@ -2357,6 +2437,188 @@ function limparFiltroLance(){
   const busca=$('lance-busca'); if(busca) busca.value='';
   renderLancamentosLista();
   closeSheet();
+}
+
+// ════════════════════════════════════════════════
+//  CALENDÁRIO
+// ════════════════════════════════════════════════
+// Portado do app Diligências (mesmo padrão do PreviMater).
+// NÃO tem lógica financeira própria: consome itensDoMes() — a mesma fonte do
+// card do Início e da aba "Contas a pagar". Por isso nasce batendo com elas.
+// O dia de cada item vem de mesRefMov(): pago → dia do pagamento;
+// pendente → dia do vencimento. Mesma regra da lista de Lançamentos.
+
+// Situação de um item numa data: atrasado | previsto | pago
+function calSituacao(m, refISO, hojeISO){
+  if(m.status==='pago') return 'pago';
+  return refISO < hojeISO ? 'atrasado' : 'previsto';
+}
+const calRefDe = m => (mesRefMov(m)||'').split('T')[0];
+
+function renderCalendario(){
+  renderCentroPills();
+  atualizaMesLabels();
+  const ano=mesAtual.getFullYear(), mes=mesAtual.getMonth();
+  const mesISO=isoMes(mesAtual);
+  const dias=new Date(ano,mes+1,0).getDate();
+  // Semana começa na SEGUNDA: getDay() dá 0=domingo, então rotacionamos.
+  const primeiroDia=(new Date(ano,mes,1).getDay()+6)%7;
+  const hojeISO=calHojeISO();
+
+  const mapa={};
+  const get=iso=>{ if(!mapa[iso]) mapa[iso]={n:0,atr:false,pago:false,prev:false,fat:false,cfix:false}; return mapa[iso]; };
+  itensDoMes(mesISO, calCentro).forEach(m=>{
+    const iso=calRefDe(m); if(!iso) return;
+    const c=get(iso); c.n++;
+    if(m._fatura) c.fat=true;
+    if(m._custoFixo) c.cfix=true;
+    const sit=calSituacao(m, iso, hojeISO);
+    if(sit==='atrasado') c.atr=true;
+    else if(sit==='previsto') c.prev=true;
+    else c.pago=true;
+  });
+
+  let h='';
+  ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].forEach(d=>h+=`<div class="cal-weekday">${d}</div>`);
+  for(let i=0;i<primeiroDia;i++) h+=`<div class="cal-cell empty"></div>`;
+  for(let dia=1; dia<=dias; dia++){
+    const iso=`${ano}-${String(mes+1).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+    const m=mapa[iso];
+    let cls='cal-cell';
+    // Prioridade: atrasado manda; depois previsto; verde só se está tudo quitado.
+    if(m){
+      if(m.atr) cls+=' atrasado';
+      else if(m.prev) cls+=' previsto';
+      else if(m.pago) cls+=' pago';
+    }
+    if(iso===hojeISO) cls+=' today';
+    let badges='';
+    if(m?.n) badges+=`<span class="cal-badge-n">${m.n}</span>`;
+    if(m?.fat) badges+=`<span class="cal-badge-ico">💳</span>`;
+    if(m?.cfix) badges+=`<span class="cal-badge-ico">🔄</span>`;
+    h+=`<div class="${cls}" onclick="abreCalDia('${iso}')"><div class="cal-day-num">${dia}</div>${badges?`<div class="cal-badges">${badges}</div>`:''}</div>`;
+  }
+  $('cal-grid').innerHTML=h;
+}
+
+// ── MODAL DO DIA ──
+function fmtDataCompleta(iso){
+  const [y,m,d]=iso.split('-');
+  const dt=new Date(iso+'T12:00:00');
+  return `${DIAS_SEMANA[dt.getDay()]}, ${parseInt(d)} de ${MESES[parseInt(m)-1].toLowerCase()} de ${y}`;
+}
+function abreCalDia(iso){
+  calDiaAtual=iso;
+  renderCalDia(iso);
+  $('cal-day-modal').classList.remove('hidden');
+}
+function closeCalDayModal(){
+  $('cal-day-modal').classList.add('hidden');
+  calDiaAtual=null;
+}
+function calNavDia(delta){
+  const dt=new Date(calDiaAtual+'T12:00:00');
+  dt.setDate(dt.getDate()+delta);
+  calDiaAtual=calISO(dt);
+  // Virou o mês? Atualiza a grade atrás do modal também.
+  if(dt.getMonth()!==mesAtual.getMonth()||dt.getFullYear()!==mesAtual.getFullYear()){
+    mesAtual=new Date(dt.getFullYear(),dt.getMonth(),1);
+    renderCalendario();
+  }
+  renderCalDia(calDiaAtual);
+}
+
+function renderCalDia(iso){
+  $('cal-day-title').textContent=fmtDataCompleta(iso);
+  const hojeISO=calHojeISO();
+
+  // Semana de SEGUNDA a DOMINGO (no Diligências ficou domingo–sábado; aqui
+  // seguimos a semana brasileira, que é como você lê o fim de semana).
+  const dtDia=new Date(iso+'T12:00:00');
+  const dow=(dtDia.getDay()+6)%7; // 0=segunda … 6=domingo
+  const inicioSemana=new Date(dtDia); inicioSemana.setDate(dtDia.getDate()-dow);
+  const fimSemana=new Date(inicioSemana); fimSemana.setDate(inicioSemana.getDate()+6);
+  const isoIni=calISO(inicioSemana), isoFim=calISO(fimSemana);
+
+  // A semana pode cair em dois meses — busca nos dois e junta.
+  const mesesDaSemana=[...new Set([isoMes(inicioSemana), isoMes(fimSemana)])];
+  const itensSemana=mesesDaSemana.flatMap(mi=>itensDoMes(mi, calCentro));
+  const itensDia=itensSemana.filter(m=>calRefDe(m)===iso);
+  const naSemana=itensSemana.filter(m=>{ const r=calRefDe(m); return r>=isoIni && r<=isoFim; });
+
+  const soma=(lista,tipo,pago)=>lista
+    .filter(m=>m.tipo===tipo && (pago ? m.status==='pago' : m.status!=='pago'))
+    .reduce((s,m)=>s+parseFloat(m.valor||0),0);
+
+  const pagarDia=soma(itensDia,'saida',false),    receberDia=soma(itensDia,'entrada',false);
+  const pagarSem=soma(naSemana,'saida',false),    receberSem=soma(naSemana,'entrada',false);
+
+  const box=(cor,label,valor,sub)=>`<div class="cal-resumo-box" style="background:${cor.bg};border:1px solid ${cor.bd}">
+      <div class="cal-resumo-label" style="color:${cor.tx}">${label}</div>
+      <div class="cal-resumo-valor" style="color:${cor.vl}">${fmt(valor)}</div>
+      <div class="cal-resumo-sub" style="color:${cor.tx}">${sub}</div>
+    </div>`;
+  const vermelho={bg:'#FEF2F2',bd:'#FECACA',tx:'#B91C1C',vl:'#991B1B'};
+  const verde   ={bg:'#F0FDF4',bd:'#BBF7D0',tx:'#059669',vl:'#065F46'};
+
+  let html=`<div class="cal-resumo-grid">
+    ${box(vermelho,'A pagar no dia',   pagarDia,   'vence neste dia, não pago')}
+    ${box(verde,   'A receber no dia', receberDia, 'vence neste dia, não recebido')}
+    ${box(vermelho,'A pagar na semana',   pagarSem,   'seg a dom desta semana')}
+    ${box(verde,   'A receber na semana', receberSem, 'seg a dom desta semana')}
+  </div>`;
+
+  // Lista do dia — ordena por situação (atrasado → previsto → pago) e valor
+  const ordem={atrasado:0,previsto:1,pago:2};
+  itensDia.sort((a,b)=>{
+    const d=ordem[calSituacao(a,iso,hojeISO)]-ordem[calSituacao(b,iso,hojeISO)];
+    return d!==0 ? d : parseFloat(b.valor||0)-parseFloat(a.valor||0);
+  });
+
+  html+=`<div class="section-label">Lançamentos do dia (${itensDia.length})</div>`;
+  if(!itensDia.length){
+    html+=`<div style="font-size:12px;color:var(--gray);margin-bottom:12px">Nada previsto para este dia.</div>`;
+  } else {
+    const tagCor={atrasado:{bg:'#FEE2E2',tx:'#B91C1C',l:'Atrasado'},previsto:{bg:'#FEF3C7',tx:'#B45309',l:'Previsto'},pago:{bg:'#D1FAE5',tx:'#065F46',l:'Pago'}};
+    html+=`<div class="mov-list" style="margin-bottom:12px">`+itensDia.map(m=>{
+      const sit=calSituacao(m,iso,hojeISO);
+      const t=tagCor[sit];
+      const tLabel=(sit==='pago'&&m.tipo==='entrada')?'Recebido':t.l;
+      // Cada tipo de item leva para a ação certa — igual à lista de Lançamentos.
+      const acao=m._fatura      ? `abrirPagarFatura('${m._cartaoId}','${m._mRef}')`
+                : m._custoFixo  ? `pagarCustoFixo('${m._recorrenteId}','${m._mRef}')`
+                :                 `fecharCalEAbrirDetalhe('${m.id}')`;
+      const ico=m._fatura?'💳':m._custoFixo?'🔄':getCatIcon(m.categoria_id);
+      const centro=getCName(m.centro_id);
+      return `<div class="mov-item" onclick="${acao}">
+        <div class="mov-icon-wrap" style="background:${m.tipo==='entrada'?'var(--accent-bg)':'#FEE2E2'}">${ico}</div>
+        <div class="mov-body">
+          <div class="mov-desc">${m.descricao||'—'}</div>
+          <div class="mov-meta">${centro||'Geral'}${m._fatura?' · fatura de cartão':m._custoFixo?' · custo fixo':''}</div>
+        </div>
+        <div class="mov-right">
+          <div class="mov-value ${m.tipo}">${m.tipo==='entrada'?'+':'-'}${fmt(m.valor)}</div>
+          <span style="display:inline-block;margin-top:3px;font-size:9px;font-weight:700;padding:2px 7px;border-radius:10px;background:${t.bg};color:${t.tx}">${tLabel}</span>
+        </div>
+      </div>`;
+    }).join('')+`</div>`;
+  }
+
+  html+=`<button class="btn btn-primary" style="width:100%" onclick="novoLancamentoNoDia('${iso}')">+ Novo lançamento neste dia</button>`;
+  $('cal-day-body').innerHTML=html;
+}
+
+function fecharCalEAbrirDetalhe(mid){
+  closeCalDayModal();
+  abreDetalhe(mid);
+}
+
+// Abre o formulário normal de lançamento com a data do dia já preenchida.
+function novoLancamentoNoDia(iso){
+  closeCalDayModal();
+  openSheet();
+  // buildSheetForm reajusta as datas em ~20ms; sobrescrevemos depois disso.
+  setTimeout(()=>{ const el=$('sh-venc'); if(el) el.value=iso; }, 60);
 }
 
 // ════════════════════════════════════════════════
@@ -5294,7 +5556,8 @@ const SELFCHECK_ELEMENTOS = [
   'confirm-modal','confirm-title','confirm-sub','confirm-btns',
   'sheet','sheet-body','sheet-title','sheet-overlay',
   'lance-list','lance-abas','lance-busca','lance-centro-pills','lance-sort-pills','sb-version',
-  'page-home','page-lancamentos','page-relatorio','page-carteiras','page-cartoes',
+  'cal-grid','cal-day-modal','cal-day-title','cal-day-body','cal-centro-pills',
+  'page-home','page-lancamentos','page-calendario','page-relatorio','page-carteiras','page-cartoes',
   'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config'
 ];
 
@@ -5302,7 +5565,9 @@ const SELFCHECK_ELEMENTOS = [
 const SELFCHECK_FUNCOES = [
   'loadAll','renderAll','abreDetalhe','salvarLancamento','salvarEdicaoMov',
   'confirmarPagamento','openSheetRaw','closeSheet','openConfirm','closeConfirm',
-  'checkSharedFile','showToast','doLogin','renderLancamentosLista'
+  'checkSharedFile','showToast','doLogin','renderLancamentosLista',
+  'itensDoMes','contasAPagarDoMes','faturasEmAbertoDoMes',
+  'renderCalendario','renderCalDia','abreCalDia','closeCalDayModal','calNavDia'
 ];
 
 // Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais

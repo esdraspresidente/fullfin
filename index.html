@@ -625,7 +625,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.66 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.67 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1324,6 +1324,71 @@ function statusFatura(cartao, mesRefISO, total, pago){
 // Mês de referência de um lançamento: pago→data pagamento; pendente→vencimento
 const mesRefMov = m => (m.status==='pago' ? (m.data||m.data_vencimento||'') : (m.data_vencimento||m.data||''));
 
+// ════════════════════════════════════════════════
+//  FONTE ÚNICA DE VERDADE — o que existe num mês
+// ════════════════════════════════════════════════
+// Antes, Home (calcMes), Lançamentos (renderLancamentosLista) e Pendências
+// (renderPendencias) montavam cada uma a SUA lista de "contas a pagar", com
+// critérios diferentes — e davam números diferentes na mesma tela.
+// Agora as três consomem estas funções. Nunca recalcular fatura/custo fixo na mão.
+
+// Normaliza o filtro de centro: '' (pill "Todos") e 'GERAL' significam a mesma coisa.
+const _centroTodos = cid => !cid || cid==='GERAL';
+const _matchCentro = (itemCentroId, cid) => _centroTodos(cid) || itemCentroId===cid;
+
+// Faturas de cartão em aberto de UM mês de referência — uma linha por cartão.
+// Inclui 'aberta' (ainda acumulando, prévia), 'fechada' e 'atrasada'.
+// Fatura quitada (restante ~0) não retorna. As compras individuais que compõem
+// a fatura NÃO entram aqui — é a fatura consolidada que representa a saída.
+function faturasEmAbertoDoMes(mesISO, centroId){
+  const out=[];
+  const rotuloMap={aberta:'Em aberto · prévia', fechada:'Fechada', atrasada:'Atrasada'};
+  const corMap={aberta:'#D97706', fechada:'#2563EB', atrasada:'#DC2626'};
+  cartoes.filter(c=>c.ativo!==false).forEach(c=>{
+    if(!_matchCentro(c.centro_id, centroId)) return;
+    const total=calcFaturaCartao(c.id, mesISO);
+    const pago=totalPagoFatura(c.id, mesISO);
+    const restante=Math.max(0,total-pago);
+    if(restante<=0.001) return; // quitada ou sem compras
+    const st=statusFatura(c, mesISO, total, pago);
+    if(st.key!=='aberta' && st.key!=='fechada' && st.key!=='atrasada') return;
+    const [y,m]=mesISO.split('-').map(Number);
+    const diaVence=parseInt(c.dia_vencimento)||10;
+    const vencISO=`${y}-${String(m).padStart(2,'0')}-${String(Math.min(diaVence,new Date(y,m,0).getDate())).padStart(2,'0')}`;
+    out.push({
+      id:'fatura-'+c.id+'-'+mesISO, _fatura:true, _cartaoId:c.id, _mRef:mesISO,
+      _statusKey:st.key,
+      _statusLabel:(rotuloMap[st.key]||'')+(pago>0?' · parcial':''),
+      _statusCor:corMap[st.key]||'#D97706',
+      descricao:`Fatura ${c.nome}`,
+      valor:restante, tipo:'saida', status:'pendente',
+      data_vencimento:vencISO, centro_id:c.centro_id||null, categoria_id:null
+    });
+  });
+  return out;
+}
+
+// Tudo que "existe" num mês, na mesma lista:
+//   1) lançamentos reais (pagos e pendentes), SEM as compras individuais de cartão
+//   2) faturas de cartão em aberto (consolidadas, uma por cartão)
+//   3) custos fixos previstos (virtuais, não gravados no banco)
+// Regra de mês: pago → mês do pagamento; pendente → mês do vencimento (mesRefMov).
+function itensDoMes(mesISO, centroId){
+  const reais=movsVisiveis().filter(m=>
+    mesRefMov(m).startsWith(mesISO) && !ehCompraCartao(m) && _matchCentro(m.centro_id, centroId)
+  );
+  const faturas=faturasEmAbertoDoMes(mesISO, centroId);
+  const cfix=custosFixosVirtuais(mesISO).filter(cf=>_matchCentro(cf.centro_id, centroId));
+  return [...reais, ...faturas, ...cfix];
+}
+
+// Contas a pagar do mês = tudo que é saída e ainda não foi pago.
+// É ESTA a função que define o número exibido no card do Início e na aba
+// "Contas a pagar" de Lançamentos. Um número só, um lugar só.
+function contasAPagarDoMes(mesISO, centroId){
+  return itensDoMes(mesISO, centroId).filter(m=>m.tipo==='saida' && m.status!=='pago');
+}
+
 function calcMes(){
   const mesISO=isoMes(mesAtual);
   const movs=movsVisiveis();
@@ -1332,11 +1397,14 @@ function calcMes(){
   const ent=movsFil.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   // Custos fixos previstos (virtuais) entram em "a receber"/"a pagar", nunca em pago.
+  // Só o lado "a receber" é somado aqui; o lado "a pagar" vem de contasAPagarDoMes.
   const cfix=custosFixosVirtuais(mesISO).filter(cf=>centroAtual==='GERAL'||cf.centro_id===centroAtual);
   const cfixRec=cfix.filter(cf=>cf.tipo==='entrada').reduce((s,cf)=>s+parseFloat(cf.valor||0),0);
-  const cfixPag=cfix.filter(cf=>cf.tipo==='saida').reduce((s,cf)=>s+parseFloat(cf.valor||0),0);
   const aRec=movsFil.filter(m=>m.tipo==='entrada'&&m.status!=='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0)+cfixRec;
-  const aPag=movsFil.filter(m=>m.tipo==='saida'  &&m.status!=='pago'&&!ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0)+cfixPag;
+  // A pagar vem da fonte única — inclui faturas de cartão em aberto e custos fixos
+  // previstos. Antes esta linha somava só os lançamentos reais + custos fixos, e por
+  // isso o card do Início mostrava MENOS que a aba "Contas a pagar" de Lançamentos.
+  const aPag=contasAPagarDoMes(mesISO, centroAtual).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   return{ent,sai,aRec,aPag,saldo:ent-sai,mesISO,movs:movsFil};
 }
 
@@ -1619,31 +1687,24 @@ function renderPendencias(){
     return 'futuro';
   };
 
-  // ── Faturas de cartão que estão em aberto/atrasadas (qualquer mês) ──
-  // Entram na mesma lista "A Pagar", como itens especiais.
+  // ── Faturas de cartão em aberto (qualquer mês) ──
+  // Usa a MESMA fonte do card do Início e da aba Lançamentos (faturasEmAbertoDoMes),
+  // varrendo todos os meses que têm compras — por isso o rótulo leva o mês.
+  // Antes esta lista ignorava as faturas 'aberta', enquanto Lançamentos as incluía:
+  // era mais uma origem de divergência entre as telas.
+  const mesesComFatura = new Set();
+  movsVisiveis()
+    .filter(m=>ehCompraCartao(m) && m.data_vencimento)
+    .forEach(m=>mesesComFatura.add(m.data_vencimento.slice(0,7)));
   const faturasPend = [];
-  cartoes.filter(c=>c.ativo!==false).forEach(c=>{
-    const meses=new Set(
-      movsVisiveis()
-        .filter(m=>m.cartao_id===c.id && ehCompraCartao(m) && m.data_vencimento)
-        .map(m=>m.data_vencimento.slice(0,7))
-    );
-    meses.forEach(mRef=>{
-      const total=calcFaturaCartao(c.id, mRef);
-      const pago=totalPagoFatura(c.id, mRef);
-      const restante=Math.max(0,total-pago);
-      if(restante<=0.001) return; // quitada, não é pendência
-      const st=statusFatura(c, mRef, total, pago);
-      // Só mostra como pendência se já fechou (a pagar/atrasada); aberta é prévia
-      if(st.key!=='fechada' && st.key!=='atrasada') return;
-      const [y,m]=mRef.split('-').map(Number);
-      const diaVence=parseInt(c.dia_vencimento)||10;
-      const vencISO=`${y}-${String(m).padStart(2,'0')}-${String(Math.min(diaVence,new Date(y,m,0).getDate())).padStart(2,'0')}`;
-      faturasPend.push({
-        _fatura:true, _cartaoId:c.id, _mRef:mRef,
-        descricao:`Fatura ${c.nome} · ${MESES_S[m-1]}`,
-        valor:restante, data_vencimento:vencISO, tipo:'saida',
-        _cat:st.key==='atrasada'?'atrasado':(vencISO<hojeISO?'atrasado':(vencISO===hojeISO?'hoje':'futuro'))
+  mesesComFatura.forEach(mRef=>{
+    const mNum = parseInt(mRef.split('-')[1],10);
+    faturasEmAbertoDoMes(mRef, 'GERAL').forEach(f=>{
+      const venc = f.data_vencimento;
+      faturasPend.push({...f,
+        descricao: `${f.descricao} · ${MESES_S[mNum-1]}`,
+        _cat: f._statusKey==='atrasada' ? 'atrasado'
+              : (venc<hojeISO ? 'atrasado' : (venc===hojeISO ? 'hoje' : 'futuro'))
       });
     });
   });
@@ -2101,50 +2162,11 @@ function renderLancamentosLista(){
     }).join('');
   }
 
-  // Regra de exibição por mês:
-  //  - PAGO: aparece no mês da data de pagamento
-  //  - PENDENTE/AGENDADO: aparece no mês do vencimento
-  const noMes=m=>{
-    const ref = (m.status==='pago')
-      ? (m.data || m.data_vencimento || '')
-      : (m.data_vencimento || m.data || '');
-    return ref.startsWith(mesISO);
-  };
-  // Aplica pill de centro — SEM as compras individuais de cartão (elas viram
-  // uma linha única de "Fatura" por cartão, não aparecem uma a uma aqui)
-  let base=movsVisiveis().filter(m=>noMes(m)&&!ehCompraCartao(m)&&(lanceCentroPill===''||m.centro_id===lanceCentroPill));
-
-  // Injeta UMA linha por cartão com fatura em aberto (aberta/fechada/atrasada/parcial)
-  cartoes.filter(c=>c.ativo!==false).forEach(c=>{
-    if(lanceCentroPill && c.centro_id!==lanceCentroPill) return;
-    const total=calcFaturaCartao(c.id, mesISO);
-    const pago=totalPagoFatura(c.id, mesISO);
-    const restante=Math.max(0,total-pago);
-    if(restante<=0.001) return; // sem saldo (quitada ou sem compras) — não mostra
-    const st=statusFatura(c, mesISO, total, pago);
-    const [y,m]=mesISO.split('-').map(Number);
-    const diaVence=parseInt(c.dia_vencimento)||10;
-    const vencISO=`${y}-${String(m).padStart(2,'0')}-${String(Math.min(diaVence,new Date(y,m,0).getDate())).padStart(2,'0')}`;
-    // Rótulo conforme o status: aberta = ainda acumulando (prévia, não definitivo)
-    const rotuloMap={aberta:'Em aberto · prévia', fechada:'Fechada', atrasada:'Atrasada'};
-    const corMap={aberta:'#D97706', fechada:'#2563EB', atrasada:'#DC2626'};
-    base.push({
-      id:'fatura-'+c.id+'-'+mesISO, _fatura:true, _cartaoId:c.id, _mRef:mesISO,
-      _statusLabel:(rotuloMap[st.key]||'')+(pago>0?' · parcial':''),
-      _statusCor:corMap[st.key]||'#D97706',
-      descricao:`Fatura ${c.nome}`,
-      valor:restante, tipo:'saida', status:'pendente',
-      data_vencimento:vencISO, centro_id:c.centro_id||null, categoria_id:null
-    });
-  });
-
-  // Injeta os custos fixos como PREVISÃO virtual (não gravados no banco).
-  // Respeita o filtro de centro atual. Nunca duplica: custosFixosVirtuais já
-  // pula os que têm lançamento real no mês.
-  custosFixosVirtuais(mesISO).forEach(cf=>{
-    if(lanceCentroPill && cf.centro_id!==lanceCentroPill) return;
-    base.push(cf);
-  });
+  // Base = fonte única (itensDoMes): lançamentos reais do mês (sem as compras
+  // individuais de cartão) + faturas consolidadas em aberto + custos fixos previstos.
+  // Antes esta lista era montada aqui na mão, com critério próprio — era essa
+  // divergência que fazia o card do Início mostrar um valor e esta aba, outro.
+  const base=itensDoMes(mesISO, lanceCentroPill);
 
   // Totais para as abas
   // "Entradas"/"Saídas" = só o que JÁ FOI PAGO (regime de caixa).

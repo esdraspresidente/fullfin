@@ -653,7 +653,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.69 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.70 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -4362,9 +4362,17 @@ function openSheetAbastecimento(vid, aid){
   const a=aid?abastecimentos.find(x=>x.id===aid):null;
   const ultimos=abastecimentos.filter(x=>x.veiculo_id===vid);
   const ultimoKm=ultimos.length?parseFloat(ultimos[0].km_odometro||0):0;
+  // Lançamento vinculado (só existe em edição) — usado pra pré-preencher carteira/forma
+  const movVinc=a?movimentacoes.find(m=>
+    m.descricao===`Abastecimento — ${v.nome}` &&
+    (m.data||'').startsWith((a.data||'').split('T')[0])
+  ):null;
   // Categorias de saída (combustível, manutenção, etc.)
   const catOpts=categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos')
     .map(c=>`<option value="${c.id}"${a?.categoria_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
+  const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}"${movVinc?.carteira_id===w.id?' selected':''}>${w.nome}</option>`).join('');
+  const formasAb=['Pix','Boleto','Débito','Débito Automático','Transferência','Cartão de Crédito','Dinheiro'];
+  const formaOpts=formasAb.map(f=>`<option value="${f}"${movVinc?.forma_pagamento===f?' selected':''}>${f}</option>`).join('');
   $('sheet-title').textContent=a?`✏️ Editar abastecimento — ${v.nome}`:`⛽ Abastecer — ${v.nome}`;
   $('sheet-body').innerHTML=`
     <div class="form-grid-2">
@@ -4380,6 +4388,14 @@ function openSheetAbastecimento(vid, aid){
       <div class="field"><label>Posto</label><input type="text" id="ab-posto" placeholder="Nome do posto (opcional)" value="${a?.posto||''}"/></div>
       <div class="field"><label>Categoria</label>
         <select id="ab-cat"><option value="">Combustível (sem categ.)</option>${catOpts}</select>
+      </div>
+    </div>
+    <div class="form-grid-2">
+      <div class="field"><label>Carteira *</label>
+        <select id="ab-carteira"><option value="">Selecione…</option>${wOpts}</select>
+      </div>
+      <div class="field"><label>Forma de pagamento *</label>
+        <select id="ab-forma"><option value="">Selecione…</option>${formaOpts}</select>
       </div>
     </div>
     ${ultimoKm&&!a?`<div style="font-size:11px;color:var(--gray);margin-bottom:8px">Último km registrado: ${ultimoKm.toLocaleString('pt-BR')}</div>`:''}
@@ -4421,6 +4437,8 @@ function abCalc(){
 async function salvarAbastecimento(vid, ultimoKm, aid){
   const data=$('ab-data')?.value; if(!data){showToast('Informe a data.','err');return;}
   const total=getMaskValue($('ab-total'))||0; if(!total){showToast('Informe o valor.','err');return;}
+  const carteiraId=$('ab-carteira')?.value||null; if(!carteiraId){showToast('Selecione a carteira.','err');return;}
+  const formaPagamento=$('ab-forma')?.value||null; if(!formaPagamento){showToast('Selecione a forma de pagamento.','err');return;}
   const kmAtual=parseFloat($('ab-km')?.value)||null;
   const litros=getMaskValue($('ab-litros'))||null;
   const preco=getMaskValue($('ab-preco'))||null;
@@ -4449,7 +4467,8 @@ async function salvarAbastecimento(vid, ultimoKm, aid){
         );
         if(movCandidatos.length>0){
           await sb.from('fin_movimentacoes').update({
-            valor:total, data, centro_id:v?.centro_id||null, categoria_id:catId
+            valor:total, data, centro_id:v?.centro_id||null, categoria_id:catId,
+            carteira_id:carteiraId, forma_pagamento:formaPagamento
           }).eq('id',movCandidatos[0].id);
         }
       }
@@ -4460,7 +4479,8 @@ async function salvarAbastecimento(vid, ultimoKm, aid){
     if(!error) await sb.from('fin_movimentacoes').insert([{
       descricao:`Abastecimento — ${vNome}`,valor:total,tipo:'saida',
       data,data_vencimento:data,status:'pago',
-      centro_id:v?.centro_id||null,categoria_id:catId,origem:'manual'
+      centro_id:v?.centro_id||null,categoria_id:catId,origem:'manual',
+      carteira_id:carteiraId,forma_pagamento:formaPagamento
     }]);
   }
   if(error){showToast('Erro ao salvar.','err');return;}
@@ -5071,6 +5091,9 @@ function showShareModal() {
     : `<div style="background:#FEF3C7;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;font-size:13px;color:#92400E;font-weight:600">📄 ${f.name}</div>`;
   const catSaidaOpts = categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos').map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
   const veiOpts = veiculos.map(v=>`<option value="${v.id}">${v.nome}</option>`).join('');
+  const wOptsShare = carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.nome}</option>`).join('');
+  const formasShare = ['Pix','Boleto','Débito','Débito Automático','Transferência','Cartão de Crédito','Dinheiro'];
+  const formaOptsShare = formasShare.map(f=>`<option value="${f}">${f}</option>`).join('');
   const recentes = movsVisiveis().slice(0, 40);
   const hoje = new Date().toISOString().split('T')[0];
 
@@ -5125,6 +5148,10 @@ function showShareModal() {
           <div class="field"><label>Posto</label><input type="text" id="snl-ab-posto" placeholder="Nome do posto"/></div>
         </div>
         <div class="form-mb field"><label>Categoria</label><select id="snl-ab-cat"><option value="">Combustível (sem categ.)</option>${catSaidaOpts}</select></div>
+        <div class="form-grid-2" style="margin-bottom:8px">
+          <div class="field"><label>Carteira *</label><select id="snl-ab-carteira"><option value="">Selecione…</option>${wOptsShare}</select></div>
+          <div class="field"><label>Forma de pagamento *</label><select id="snl-ab-forma"><option value="">Selecione…</option>${formaOptsShare}</select></div>
+        </div>
       </div>
 
       <button id="share-salvar-btn" onclick="salvarShareComprovante()" disabled
@@ -5246,6 +5273,10 @@ async function salvarShareComprovante() {
       if(!vid){ showToast('Selecione o veículo.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
       if(!total){ showToast('Informe o valor total.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
       if(!data){ showToast('Informe a data.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
+      const carteiraId=$('snl-ab-carteira')?.value||null;
+      const formaPagamento=$('snl-ab-forma')?.value||null;
+      if(!carteiraId){ showToast('Selecione a carteira.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
+      if(!formaPagamento){ showToast('Selecione a forma de pagamento.','err'); btn.textContent='💾 Salvar comprovante'; btn.disabled=false; btn.style.opacity='1'; return; }
       const v=veiculos.find(x=>x.id===vid);
       const litros=getMaskValue($('snl-ab-litros'))||null;
       const preco=getMaskValue($('snl-ab-preco'))||null;
@@ -5266,7 +5297,8 @@ async function salvarShareComprovante() {
         descricao:`Abastecimento — ${v?.nome||'Veículo'}`, valor:total,
         tipo:'saida', data, data_vencimento:data, status:'pago',
         centro_id:v?.centro_id||null, categoria_id:catId,
-        origem:'manual', comprovante_url:url
+        origem:'manual', comprovante_url:url,
+        carteira_id:carteiraId, forma_pagamento:formaPagamento
       }]);
       if(e2) throw e2;
       showToast('✅ Abastecimento registrado com comprovante!');

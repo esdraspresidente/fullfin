@@ -653,7 +653,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.68 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.69 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -4343,6 +4343,20 @@ async function salvarVeiculo(vid){
   await loadAll(); renderVeiculos(); closeSheet(); showToast('Veículo salvo!');
 }
 
+// Acha o abastecimento imediatamente anterior (por data) de um veículo,
+// excluindo o próprio registro quando estiver editando (aid).
+// Retorna null quando não existe abastecimento anterior — nesse caso
+// não há como calcular km_rodados (é o primeiro registro do veículo).
+function findPrevAbastecimento(vid, data, aid){
+  const anteriores = abastecimentos.filter(x=>
+    x.veiculo_id===vid &&
+    x.id!==aid &&
+    (x.data||'').split('T')[0] < data
+  );
+  if(!anteriores.length) return null;
+  return anteriores.reduce((a,b)=> (a.data > b.data ? a : b));
+}
+
 function openSheetAbastecimento(vid, aid){
   const v=veiculos.find(x=>x.id===vid); if(!v) return;
   const a=aid?abastecimentos.find(x=>x.id===aid):null;
@@ -4412,7 +4426,9 @@ async function salvarAbastecimento(vid, ultimoKm, aid){
   const preco=getMaskValue($('ab-preco'))||null;
   const catId=$('ab-cat')?.value||null;
   const posto=$('ab-posto')?.value||null;
-  const kmRodados=kmAtual&&ultimoKm&&!aid?(kmAtual-parseFloat(ultimoKm)):null;
+  const prevAb=findPrevAbastecimento(vid,data,aid);
+  const kmAnterior=prevAb?parseFloat(prevAb.km_odometro||0):null;
+  const kmRodados=(kmAtual!=null&&kmAnterior!=null)?(kmAtual-kmAnterior):null;
   const custoPorKm=kmRodados&&kmRodados>0?(total/kmRodados):null;
   const v=veiculos.find(x=>x.id===vid);
   const vNome=v?.nome||'Veículo';
@@ -5236,9 +5252,9 @@ async function salvarShareComprovante() {
       const kmAtual=parseFloat($('snl-ab-km')?.value)||null;
       const catId=$('snl-ab-cat')?.value||null;
       const posto=$('snl-ab-posto')?.value||null;
-      const ultimos=abastecimentos.filter(x=>x.veiculo_id===vid);
-      const ultimoKm=ultimos.length?parseFloat(ultimos[0].km_odometro||0):0;
-      const kmRodados=kmAtual&&ultimoKm?(kmAtual-ultimoKm):null;
+      const prevAb=findPrevAbastecimento(vid,data,null);
+      const ultimoKm=prevAb?parseFloat(prevAb.km_odometro||0):null;
+      const kmRodados=(kmAtual!=null&&ultimoKm!=null)?(kmAtual-ultimoKm):null;
       const custoPorKm=kmRodados&&kmRodados>0?(total/kmRodados):null;
       const {error:e1}=await sb.from('fin_abastecimentos').insert([{
         veiculo_id:vid, data, litros, valor_total:total, preco_litro:preco,

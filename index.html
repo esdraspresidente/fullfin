@@ -554,6 +554,11 @@
     /* ── CALENDÁRIO ── */
     /* Portado do app Diligências (mesmo padrão visual do PreviMater), com a
        paleta do Fullfin: cinza --gray nos rótulos e verde no realce de hoje. */
+    .cal-mode-toggle{display:flex;gap:8px;margin-bottom:12px;}
+    .cal-mode-btn{flex:1;padding:9px 10px;border-radius:10px;border:1.5px solid var(--border);background:#fff;font-size:12px;font-weight:700;color:var(--gray);cursor:pointer;font-family:inherit;transition:all .12s;}
+    .cal-mode-btn.active{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);}
+    .cal-cell.gasto{background:#FEF2F2;border-color:#FECACA;}
+    .cal-day-valor{font-size:9.5px;font-weight:800;color:#B91C1C;margin-top:3px;line-height:1.2;word-break:break-word;}
     .cal-legend{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px;}
     .cal-legend-item{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--gray);}
     .cal-legend-dot{width:9px;height:9px;border-radius:3px;flex-shrink:0;}
@@ -653,7 +658,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.70 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.72 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -797,17 +802,27 @@
             <button class="desk-month-btn" onclick="mudaMes(1)">›</button>
           </div>
         </div>
+        <div class="cal-mode-toggle">
+          <button class="cal-mode-btn active" id="cal-modo-pag" onclick="setCalModo('pagamentos')">📅 Pagamentos</button>
+          <button class="cal-mode-btn" id="cal-modo-gastos" onclick="setCalModo('gastos')">💸 Gastos por dia</button>
+        </div>
         <div class="centro-pills" id="cal-centro-pills"></div>
-        <div class="cal-legend">
+        <div class="centro-pills hidden" id="cal-cat-pills"></div>
+        <div class="cal-legend" id="cal-legend-pag">
           <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#FECACA"></div>Atrasado</div>
           <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#FDE68A"></div>Previsto</div>
           <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#BBF7D0"></div>Pago / recebido</div>
           <div class="cal-legend-item">💳 Fatura de cartão</div>
           <div class="cal-legend-item">🔄 Custo fixo previsto</div>
         </div>
+        <div class="cal-legend hidden" id="cal-legend-gastos">
+          <div class="cal-legend-item"><div class="cal-legend-dot" style="background:#FEE2E2"></div>Dia com gasto</div>
+          <div class="cal-legend-item">💳 Inclui compras de cartão (dia do vencimento da fatura)</div>
+        </div>
         <div class="card pad">
           <div class="cal-grid" id="cal-grid"></div>
         </div>
+        <div id="cal-gastos-obs" class="hidden" style="font-size:11px;color:var(--gray);margin-top:10px;line-height:1.6"></div>
       </div>
 
       <!-- ══ RELATÓRIO ══ -->
@@ -1114,6 +1129,8 @@ let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos =
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
 let lanceAba = 'todas';
 let calCentro = 'GERAL';   // filtro de centro do calendário (independente do Início)
+let calModo = 'pagamentos'; // 'pagamentos' | 'gastos'
+let calCategoriaGasto = 'TODAS'; // 'TODAS' | 'SEM_CAT' | <id da categoria>
 let calDiaAtual = null;    // dia aberto no modal
 let lanceCentroPill = ''; // '' = todos, ou centro_id
 let lanceFiltros = { desc:'', carteira:'', categoria:'', forma:'' };
@@ -1334,10 +1351,31 @@ function renderCentroPills(){
     $('rel-centro-pills').innerHTML=pills.map(p=>`<button class="cpill${relCentro===p.id?' active':''}" onclick="setRelCentro('${p.id}')">${p.nome}</button>`).join('');
   if($('cal-centro-pills'))
     $('cal-centro-pills').innerHTML=pills.map(p=>`<button class="cpill${calCentro===p.id?' active':''}" onclick="setCalCentro('${p.id}')">${p.nome}</button>`).join('');
+  renderCalCategoriaPills();
 }
 function setCentro(id){centroAtual=id;renderCentroPills();renderHome();}
 function setRelCentro(id){relCentro=id;renderCentroPills();renderRelatorio();}
 function setCalCentro(id){calCentro=id;renderCentroPills();renderCalendario();}
+
+// ── PILLS DE CATEGORIA (só usadas no modo "Gastos por dia" do Calendário) ──
+function renderCalCategoriaPills(){
+  const el=$('cal-cat-pills'); if(!el) return;
+  const catsSaida=categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos');
+  const pills=[{id:'TODAS',nome:'🌐 Todas'},{id:'SEM_CAT',nome:'🏷️ Sem categoria'},...catsSaida.map(c=>({id:c.id,nome:c.icone+' '+c.nome}))];
+  el.innerHTML=pills.map(p=>`<button class="cpill${calCategoriaGasto===p.id?' active':''}" onclick="setCalCategoriaGasto('${p.id}')">${p.nome}</button>`).join('');
+}
+function setCalCategoriaGasto(id){calCategoriaGasto=id;renderCalCategoriaPills();renderCalendario();}
+
+function setCalModo(modo){
+  calModo=modo;
+  $('cal-modo-pag').classList.toggle('active', modo==='pagamentos');
+  $('cal-modo-gastos').classList.toggle('active', modo==='gastos');
+  $('cal-cat-pills').classList.toggle('hidden', modo!=='gastos');
+  $('cal-legend-pag').classList.toggle('hidden', modo==='gastos');
+  $('cal-legend-gastos').classList.toggle('hidden', modo!=='gastos');
+  $('cal-gastos-obs').classList.toggle('hidden', modo!=='gastos');
+  renderCalendario();
+}
 
 // ════════════════════════════════════════════════
 //  CÁLCULOS
@@ -1468,6 +1506,40 @@ function itensDoMes(mesISO, centroId){
 function contasAPagarDoMes(mesISO, centroId){
   return itensDoMes(mesISO, centroId).filter(m=>m.tipo==='saida' && m.status!=='pago');
 }
+
+// ════════════════════════════════════════════════
+//  BASE DE ANÁLISE — REGIME DE COMPETÊNCIA
+// ════════════════════════════════════════════════
+// ATENÇÃO: esta função responde uma pergunta DIFERENTE de itensDoMes().
+//   itensDoMes()       → "quanto saiu/vai sair do banco?"  (fluxo de caixa)
+//   movsAnaliseDoMes() → "onde o dinheiro foi gasto?"      (competência)
+// Quem usa esta: Relatório (gráfico por categoria) e Calendário de Gastos.
+// Quem NÃO usa: Início, Contas a pagar, Cartões, calendário de Pagamentos —
+// esses continuam em regime de caixa e não devem ser migrados.
+//
+// A diferença prática está no cartão de crédito:
+//   • a FATURA consolidada NÃO entra (ela não tem categoria — junta dezenas de
+//     compras de categorias diferentes; era ela que inflava o "Sem categoria")
+//   • as COMPRAS individuais entram, com a categoria e o centro reais delas,
+//     no mês da FATURA a que pertencem (data_vencimento). Usar a data da compra
+//     seria errado: num parcelado todas as parcelas guardam a MESMA data de
+//     compra, então 12x R$100 viraria R$1.200 num dia só.
+// Nunca incluir os dois (compras + fatura) na mesma soma: dobraria todo gasto.
+function movsAnaliseDoMes(mesISO, centroId){
+  return movsVisiveis().filter(m=>{
+    if(ehTransferencia(m)) return false;                 // troca de bolso, não é gasto
+    if(!_matchCentro(m.centro_id, centroId)) return false;
+    if(ehCompraCartao(m)) return (m.data_vencimento||'').startsWith(mesISO);
+    if(m.origem==='fatura') return false;                // evita contar em dobro
+    if(m.status!=='pago') return false;                  // fora do cartão, só o que já rolou
+    return (m.data||'').startsWith(mesISO);
+  });
+}
+
+// Dia em que um gasto aparece no calendário de Gastos.
+// Compra no cartão cai no dia do VENCIMENTO da fatura: a compra pode ter sido
+// feita meses antes (parcelado), e aquele dia não existe na grade deste mês.
+const diaGastoDe = m => ((ehCompraCartao(m) ? m.data_vencimento : m.data)||'').split('T')[0];
 
 function calcMes(){
   const mesISO=isoMes(mesAtual);
@@ -2456,6 +2528,7 @@ function calSituacao(m, refISO, hojeISO){
 const calRefDe = m => (mesRefMov(m)||'').split('T')[0];
 
 function renderCalendario(){
+  if(calModo==='gastos') return renderCalendarioGastos();
   renderCentroPills();
   atualizaMesLabels();
   const ano=mesAtual.getFullYear(), mes=mesAtual.getMonth();
@@ -2501,6 +2574,54 @@ function renderCalendario(){
   $('cal-grid').innerHTML=h;
 }
 
+// Gastos que entram no calendário: mesma base do Relatório (competência),
+// filtrados por categoria. Os totais das duas telas batem por construção.
+function gastosDoDia(mesISO, centroId, catFiltro){
+  return movsAnaliseDoMes(mesISO, centroId).filter(m=>{
+    if(m.tipo!=='saida') return false;
+    if(catFiltro==='TODAS') return true;
+    if(catFiltro==='SEM_CAT') return !m.categoria_id;
+    return m.categoria_id===catFiltro;
+  });
+}
+
+function renderCalendarioGastos(){
+  renderCentroPills();
+  atualizaMesLabels();
+  const ano=mesAtual.getFullYear(), mes=mesAtual.getMonth();
+  const mesISO=isoMes(mesAtual);
+  const dias=new Date(ano,mes+1,0).getDate();
+  const primeiroDia=(new Date(ano,mes,1).getDay()+6)%7;
+  const hojeISO=calHojeISO();
+
+  const itens=gastosDoDia(mesISO, calCentro, calCategoriaGasto);
+  const mapa={}, mapaCartao={};
+  itens.forEach(m=>{
+    const iso=diaGastoDe(m); if(!iso) return;
+    mapa[iso]=(mapa[iso]||0)+parseFloat(m.valor||0);
+    if(ehCompraCartao(m)) mapaCartao[iso]=true;
+  });
+  const totalMes=itens.reduce((s,m)=>s+parseFloat(m.valor||0),0);
+
+  let h='';
+  ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'].forEach(d=>h+=`<div class="cal-weekday">${d}</div>`);
+  for(let i=0;i<primeiroDia;i++) h+=`<div class="cal-cell empty"></div>`;
+  for(let dia=1; dia<=dias; dia++){
+    const iso=`${ano}-${String(mes+1).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+    const v=mapa[iso]||0;
+    let cls='cal-cell'+(v>0?' gasto':'');
+    if(iso===hojeISO) cls+=' today';
+    const ico=mapaCartao[iso]?'<span class="cal-badge-ico">💳</span>':'';
+    h+=`<div class="${cls}" onclick="abreCalDia('${iso}')"><div class="cal-day-num">${dia}${ico}</div>${v>0?`<div class="cal-day-valor">${fmt(v)}</div>`:''}</div>`;
+  }
+  $('cal-grid').innerHTML=h;
+
+  const nomeCat=calCategoriaGasto==='TODAS'?'todas as categorias':calCategoriaGasto==='SEM_CAT'?'sem categoria':(getCatNome(calCategoriaGasto)||'—');
+  const totalCartao=itens.filter(m=>ehCompraCartao(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  $('cal-gastos-obs').classList.remove('hidden');
+  $('cal-gastos-obs').innerHTML=`💰 Total do mês em <b>${nomeCat}</b>: <b>${fmt(totalMes)}</b>${totalCartao?` — sendo <b>${fmt(totalCartao)}</b> em compras no cartão 💳`:''}. Compras no cartão aparecem no dia do <b>vencimento da fatura</b>, com a categoria real de cada uma (a compra pode ter sido feita meses antes, no caso de parcelado).`;
+}
+
 // ── MODAL DO DIA ──
 function fmtDataCompleta(iso){
   const [y,m,d]=iso.split('-');
@@ -2509,7 +2630,7 @@ function fmtDataCompleta(iso){
 }
 function abreCalDia(iso){
   calDiaAtual=iso;
-  renderCalDia(iso);
+  if(calModo==='gastos') renderCalDiaGastos(iso); else renderCalDia(iso);
   $('cal-day-modal').classList.remove('hidden');
 }
 function closeCalDayModal(){
@@ -2525,7 +2646,7 @@ function calNavDia(delta){
     mesAtual=new Date(dt.getFullYear(),dt.getMonth(),1);
     renderCalendario();
   }
-  renderCalDia(calDiaAtual);
+  if(calModo==='gastos') renderCalDiaGastos(calDiaAtual); else renderCalDia(calDiaAtual);
 }
 
 function renderCalDia(iso){
@@ -2604,6 +2725,48 @@ function renderCalDia(iso){
     }).join('')+`</div>`;
   }
 
+  html+=`<button class="btn btn-primary" style="width:100%" onclick="novoLancamentoNoDia('${iso}')">+ Novo lançamento neste dia</button>`;
+  $('cal-day-body').innerHTML=html;
+}
+
+// Detalhe do dia no modo "Gastos por dia" — lista as saídas pagas daquele dia
+// respeitando os filtros de centro e categoria escolhidos nas pills.
+function renderCalDiaGastos(iso){
+  $('cal-day-title').textContent=fmtDataCompleta(iso);
+  const mesISO=isoMes(new Date(iso+'T12:00:00'));
+  const itens=gastosDoDia(mesISO, calCentro, calCategoriaGasto).filter(m=>diaGastoDe(m)===iso);
+  itens.sort((a,b)=>parseFloat(b.valor||0)-parseFloat(a.valor||0));
+  const total=itens.reduce((s,m)=>s+parseFloat(m.valor||0),0);
+
+  let html=`<div class="cal-resumo-grid" style="grid-template-columns:1fr">
+    <div class="cal-resumo-box" style="background:#FEF2F2;border:1px solid #FECACA">
+      <div class="cal-resumo-label" style="color:#B91C1C">Total gasto no dia</div>
+      <div class="cal-resumo-valor" style="color:#991B1B">${fmt(total)}</div>
+      <div class="cal-resumo-sub" style="color:#B91C1C">${itens.length} lançamento(s)</div>
+    </div>
+  </div>`;
+
+  html+=`<div class="section-label">Lançamentos do dia (${itens.length})</div>`;
+  if(!itens.length){
+    html+=`<div style="font-size:12px;color:var(--gray);margin-bottom:12px">Nenhuma saída paga neste dia com este filtro.</div>`;
+  } else {
+    html+=`<div class="mov-list" style="margin-bottom:12px">`+itens.map(m=>{
+      const centro=getCName(m.centro_id);
+      const cart=ehCompraCartao(m);
+      const parc=m.parcela_atual?` · ${m.parcela_atual}/${m.total_parcelas}`:'';
+      const extra=cart?` · 💳 compra em ${fmtDate(m.data)}${parc}`:'';
+      return `<div class="mov-item" onclick="fecharCalEAbrirDetalhe('${m.id}')">
+        <div class="mov-icon-wrap" style="background:#FEE2E2">${getCatIcon(m.categoria_id)}</div>
+        <div class="mov-body">
+          <div class="mov-desc">${m.descricao||'—'}</div>
+          <div class="mov-meta">${getCatNome(m.categoria_id)||'Sem categoria'}${centro?' · '+centro:''}${extra}</div>
+        </div>
+        <div class="mov-right">
+          <div class="mov-value saida">-${fmt(m.valor)}</div>
+        </div>
+      </div>`;
+    }).join('')+`</div>`;
+  }
   html+=`<button class="btn btn-primary" style="width:100%" onclick="novoLancamentoNoDia('${iso}')">+ Novo lançamento neste dia</button>`;
   $('cal-day-body').innerHTML=html;
 }
@@ -2718,6 +2881,23 @@ async function exportarExcelMes(){
       });
     });
 
+    // ── 2b) COMPRAS DO CARTÃO detalhadas (regime de competência) ──
+    // A aba Faturas mostra o consolidado; esta mostra o que compõe cada fatura,
+    // com categoria e centro — é o detalhe que faltava para fechar o mês.
+    const comprasCartao=movsVisiveis()
+      .filter(m=>ehCompraCartao(m) && (m.data_vencimento||'').startsWith(mesISO))
+      .sort((a,b)=>(a.data||'').localeCompare(b.data||''));
+    const linhasCompras=comprasCartao.map(m=>({
+      'Data da compra': fmtDate(m.data),
+      'Venc. da fatura': fmtDate(m.data_vencimento),
+      'Cartão': cartoes.find(c=>c.id===m.cartao_id)?.nome||'',
+      'Descrição': m.descricao||'',
+      'Categoria': getCatNome(m.categoria_id)||'(sem categoria)',
+      'Centro de custo': getCName(m.centro_id)||'',
+      'Parcela': m.parcela_atual?`${m.parcela_atual}/${m.total_parcelas}`:'',
+      'Valor': parseFloat(m.valor||0)
+    }));
+
     // ── 3) RESUMO do mês ──
     const somaSit=(tipo,pago)=>movs.filter(m=>m.tipo===tipo&&(pago?m.status==='pago':m.status!=='pago')&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const entPago=somaSit('entrada',true), saiPago=somaSit('saida',true);
@@ -2742,6 +2922,21 @@ async function exportarExcelMes(){
       if(v>0) resumo.push({'Indicador':`   ${c.nome}`,'Valor (R$)':v});
     });
 
+    // Saídas por categoria em regime de COMPETÊNCIA — mesma base do Relatório
+    // (fatura fora, compras do cartão dentro com a categoria real).
+    // Este total pode divergir de "Saídas pagas" acima, que é caixa. É esperado.
+    const baseAnalise=movsAnaliseDoMes(mesISO, 'GERAL').filter(m=>m.tipo==='saida');
+    if(baseAnalise.length){
+      const porCat={};
+      baseAnalise.forEach(m=>{const n=getCatNome(m.categoria_id)||'(sem categoria)';porCat[n]=(porCat[n]||0)+parseFloat(m.valor||0);});
+      resumo.push({'Indicador':'','Valor (R$)':''});
+      resumo.push({'Indicador':'— Saídas por categoria (onde o dinheiro foi) —','Valor (R$)':''});
+      Object.entries(porCat).sort((a,b)=>b[1]-a[1]).forEach(([n,v])=>{
+        resumo.push({'Indicador':`   ${n}`,'Valor (R$)':v});
+      });
+      resumo.push({'Indicador':'   TOTAL','Valor (R$)':baseAnalise.reduce((s,m)=>s+parseFloat(m.valor||0),0)});
+    }
+
     // ── Monta o workbook ──
     const wb=XLSX.utils.book_new();
 
@@ -2763,6 +2958,12 @@ async function exportarExcelMes(){
       XLSX.utils.book_append_sheet(wb, wsF, 'Faturas de cartão');
     }
 
+    if(linhasCompras.length){
+      const wsC=XLSX.utils.json_to_sheet(linhasCompras);
+      wsC['!cols']=[{wch:14},{wch:15},{wch:18},{wch:34},{wch:20},{wch:18},{wch:9},{wch:13}];
+      XLSX.utils.book_append_sheet(wb, wsC, 'Compras do cartão');
+    }
+
     const nomeArq=`Fullfin_${MESES[parseInt(mesN)-1]}_${ano}.xlsx`;
     XLSX.writeFile(wb, nomeArq);
     showToast('✅ Excel gerado!');
@@ -2777,15 +2978,17 @@ async function exportarExcelMes(){
 function renderRelatorio(){
   renderCentroPills();
   const mesISO=isoMes(mesAtual);
-  const fl=m=>(relCentro==='GERAL'||m.centro_id===relCentro)&&(m.data||'').startsWith(mesISO);
-  const movs=movimentacoes.filter(fl);
-  const ent=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const sai=movs.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  // Base de COMPETÊNCIA (ver movsAnaliseDoMes): fatura consolidada fora,
+  // compras do cartão dentro com a categoria real, no mês da fatura.
+  const movs=movsAnaliseDoMes(mesISO, relCentro);
+  const ent=movs.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const sai=movs.filter(m=>m.tipo==='saida'  ).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const saldo=ent-sai;
   // Saídas por categoria
   const catSai={}, catEnt={};
-  movs.filter(m=>m.tipo==='saida'&&m.status==='pago'&&!ehTransferencia(m)).forEach(m=>{const n=getCatNome(m.categoria_id)||'Outros';catSai[n]=(catSai[n]||0)+parseFloat(m.valor||0);});
-  movs.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).forEach(m=>{const n=getCatNome(m.categoria_id)||'Outros';catEnt[n]=(catEnt[n]||0)+parseFloat(m.valor||0);});
+  movs.filter(m=>m.tipo==='saida' ).forEach(m=>{const n=getCatNome(m.categoria_id)||'🏷️ Sem categoria';catSai[n]=(catSai[n]||0)+parseFloat(m.valor||0);});
+  movs.filter(m=>m.tipo==='entrada').forEach(m=>{const n=getCatNome(m.categoria_id)||'🏷️ Sem categoria';catEnt[n]=(catEnt[n]||0)+parseFloat(m.valor||0);});
+  const nCartao=movs.filter(m=>ehCompraCartao(m)).length;
   const barRows=(obj,total,cor)=>Object.entries(obj).sort((a,b)=>b[1]-a[1]).map(([n,v])=>{
     const pct=total?(v/total*100).toFixed(0):0;
     return`<div class="rel-row"><div class="rel-row-label">${n}</div><div class="rel-row-value" style="color:${cor}">${fmt(v)}</div></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${cor}"></div></div>`;
@@ -2796,6 +2999,12 @@ function renderRelatorio(){
       <div class="stat-card"><div class="stat-label">▼ Saídas</div><div class="stat-value vermelho">${fmt(sai)}</div></div>
       <div class="stat-card"><div class="stat-label">💰 Saldo</div><div class="stat-value ${saldo>=0?'verde':'vermelho'}">${fmt(saldo)}</div></div>
       <div class="stat-card"><div class="stat-label">📋 Lançamentos</div><div class="stat-value">${movs.length}</div></div>
+    </div>
+    <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:10px 12px;font-size:11px;color:#1E40AF;margin-bottom:14px;line-height:1.6">
+      ℹ️ Esta tela mostra <b>onde o dinheiro foi gasto</b>, não quanto saiu do banco.
+      As <b>compras do cartão entram com a categoria real</b>${nCartao?` (${nCartao} neste mês)`:''}, no mês da fatura a que pertencem —
+      e a fatura consolidada não é somada, para não contar duas vezes.
+      Por isso o total de Saídas aqui <b>não bate com a tela de Lançamentos</b>, que segue o caixa. Os dois estão certos; respondem perguntas diferentes.
     </div>
     ${Object.keys(catEnt).length?`<div class="card pad" style="margin-bottom:12px"><div class="section-label">▲ Entradas por categoria</div>${barRows(catEnt,ent,'var(--accent)')}</div>`:''}
     ${Object.keys(catSai).length?`<div class="card pad"><div class="section-label">▼ Saídas por categoria</div>${barRows(catSai,sai,'var(--red)')}</div>`:''}
@@ -2899,9 +3108,6 @@ function buildSheetForm(preCartaoId){
   const bannerComprovante = _bannerComprovanteHtml();
   $('sheet-body').innerHTML=`
     ${bannerComprovante}
-    <div class="form-mb field" id="sh-carteira-wrap"><label>💰 Carteira / Cartão *</label>
-      <select id="sh-carteira-unif" onchange="onCarteiraChange()">${walletOpts}</select>
-    </div>
     <div class="form-mb field" id="sh-tipo-wrap">
       <label>Tipo de lançamento *</label>
       <select id="sh-lanc-tipo" onchange="setSheetLancTipo(this.value)">
@@ -2911,6 +3117,9 @@ function buildSheetForm(preCartaoId){
         <option value="a_receber"${sheetLancTipo==='a_receber'?' selected':''}>🟢 Conta a receber (vou receber)</option>
         <option value="transferencia"${sheetLancTipo==='transferencia'?' selected':''}>⇄ Transferência entre contas</option>
       </select>
+    </div>
+    <div class="form-mb field" id="sh-carteira-wrap"><label>💰 Carteira / Cartão *</label>
+      <select id="sh-carteira-unif" onchange="onCarteiraChange()">${walletOpts}</select>
     </div>
     <div class="form-grid-2" style="margin-bottom:10px">
       <div class="field">
@@ -5605,6 +5814,7 @@ const SELFCHECK_ELEMENTOS = [
   'sheet','sheet-body','sheet-title','sheet-overlay',
   'lance-list','lance-abas','lance-busca','lance-centro-pills','lance-sort-pills','sb-version',
   'cal-grid','cal-day-modal','cal-day-title','cal-day-body','cal-centro-pills',
+  'cal-cat-pills','cal-modo-pag','cal-modo-gastos',
   'page-home','page-lancamentos','page-calendario','page-relatorio','page-carteiras','page-cartoes',
   'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config'
 ];
@@ -5614,8 +5824,9 @@ const SELFCHECK_FUNCOES = [
   'loadAll','renderAll','abreDetalhe','salvarLancamento','salvarEdicaoMov',
   'confirmarPagamento','openSheetRaw','closeSheet','openConfirm','closeConfirm',
   'checkSharedFile','showToast','doLogin','renderLancamentosLista',
-  'itensDoMes','contasAPagarDoMes','faturasEmAbertoDoMes',
-  'renderCalendario','renderCalDia','abreCalDia','closeCalDayModal','calNavDia'
+  'itensDoMes','contasAPagarDoMes','faturasEmAbertoDoMes','movsAnaliseDoMes','gastosDoDia',
+  'renderCalendario','renderCalDia','abreCalDia','closeCalDayModal','calNavDia',
+  'renderCalendarioGastos','renderCalDiaGastos','setCalModo','setCalCategoriaGasto'
 ];
 
 // Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais

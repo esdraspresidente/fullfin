@@ -1,4 +1,4 @@
-const CACHE = 'fullfin-v3.70';
+const CACHE = 'fullfin-v3.72';
 const SHARE_CACHE = 'fullfin-share';
 const ASSETS = [
   '/fullfin/',
@@ -9,7 +9,13 @@ const ASSETS = [
 
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
+    // cache:'reload' força buscar do SERVIDOR, ignorando o cache HTTP do navegador.
+    // Sem isso, o SW novo se instala mas grava no cache a versão VELHA do index.html
+    // (o navegador só revalida o sw.js automaticamente, não os outros arquivos),
+    // e o app continua abrindo a tela antiga mesmo com o cache renomeado.
+    caches.open(CACHE)
+      .then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
   );
 });
 
@@ -34,8 +40,17 @@ self.addEventListener('fetch', e => {
 
   if (url.includes('supabase.co')) return;
 
+  // O HTML é o arquivo que carrega TODO o app — ele nunca pode vir do cache HTTP
+  // do navegador, senão um deploy novo demora até 10 min para aparecer (e ainda
+  // por cima fica gravado no cache do SW). Para ele, força ida ao servidor.
+  // Os demais arquivos (ícones, manifest) seguem o caminho normal.
+  const isHTML = e.request.mode === 'navigate' ||
+                 url.endsWith('/fullfin/') ||
+                 url.endsWith('.html');
+  const req = isHTML ? new Request(e.request.url, { cache: 'reload' }) : e.request;
+
   e.respondWith(
-    fetch(e.request)
+    fetch(req)
       .then(res => {
         if (res.ok && e.request.method === 'GET') {
           const clone = res.clone();

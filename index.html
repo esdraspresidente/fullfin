@@ -3766,8 +3766,13 @@ function renderLucroReal(){
 // Acha a categoria "Dízimo" e a categoria "Oferta" cadastradas (mesmo padrão
 // de busca já usado no histórico avulso). Não cria categoria nova — assume
 // que já existem, como o Esdras confirmou.
+// Hoje só existe UMA categoria cadastrada: "Dízimo e oferta" (combinada).
+// _catDizimo() acha ela; _catOferta() também aponta pra mesma (não exclui
+// mais quem contém "dízimo" no nome) — se um dia vocês criarem categorias
+// separadas, basta cadastrar "Oferta" sozinha que o código passa a achar
+// as duas certinho, sem precisar mexer aqui.
 function _catDizimo(){ return categorias.find(c=>/d[ií]zimo/i.test(c.nome||'')); }
-function _catOferta(){ return categorias.find(c=>/oferta/i.test(c.nome||'')&&!/d[ií]zimo/i.test(c.nome||'')); }
+function _catOferta(){ return categorias.find(c=>/^oferta$/i.test((c.nome||'').trim())) || _catDizimo(); }
 // Centro Casa/Família, usado como centro do lançamento automático do dízimo/oferta.
 function _centroCasaFamilia(){
   const norm=s=>(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();

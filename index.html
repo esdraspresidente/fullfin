@@ -658,7 +658,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.73 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.74 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -3915,6 +3915,26 @@ async function deleteDizimo(did){
 // inconsistência que possa existir nas movimentações geradas/atualizadas.
 // Só entra dívida no modo "Por parcelas" (empréstimo, financiamento, cartão parcelado);
 // dívidas no modo "Valor livre" não têm parcela numerada e ficam de fora deste resumo.
+// ── FONTE ÚNICA: "parcela paga" cruzando os dois caminhos possíveis ──
+// 1) fin_divida_parcelas — preenchida pelo botão dedicado "Registrar Pagamento".
+// 2) fin_movimentacoes com status='pago' pro divida_id/parcela_atual — preenchida
+//    quando o lançamento é editado direto em Lançamentos (sem passar pelo botão).
+// Uma parcela pode estar registrada nos dois, mas nunca é contada 2x.
+function numsPagosDivida(dividaId){
+  const viaTabela=dividaParcelas.filter(p=>p.divida_id===dividaId).map(p=>p.num_parcela);
+  const viaMov=movimentacoes.filter(m=>m.divida_id===dividaId&&m.status==='pago'&&m.parcela_atual!=null).map(m=>m.parcela_atual);
+  return new Set([...viaTabela,...viaMov]);
+}
+// Soma o valor pago cruzando as duas fontes. Se uma parcela está nas duas
+// (registrada no fluxo dedicado E o lançamento também foi marcado pago),
+// conta o valor da fin_divida_parcelas (fonte mais detalhada) e ignora o da mov.
+function totalPagoDivida(dividaId){
+  const viaTabela=dividaParcelas.filter(p=>p.divida_id===dividaId);
+  const numsViaTabela=new Set(viaTabela.map(p=>p.num_parcela));
+  const totalTabela=viaTabela.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
+  const totalMovs=movimentacoes.filter(m=>m.divida_id===dividaId&&m.status==='pago'&&m.parcela_atual!=null&&!numsViaTabela.has(m.parcela_atual)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  return totalTabela+totalMovs;
+}
 function renderResumoMensalDividas(){
   const el=$('dividas-resumo-mensal'); if(!el) return;
   const hojeISO=new Date().toISOString().split('T')[0];
@@ -3922,8 +3942,7 @@ function renderResumoMensalDividas(){
 
   const itens=[];
   ativas.forEach(d=>{
-    const pagas=dividaParcelas.filter(p=>p.divida_id===d.id);
-    const numsPagos=new Set(pagas.map(p=>p.num_parcela));
+    const numsPagos=numsPagosDivida(d.id);
     const tipoIcon={'emprestimo':'🤝','financiamento':'🏠','cartao_parcelado':'💳'}[d.tipo]||'📉';
     for(let n=1;n<=d.n_parcelas;n++){
       if(numsPagos.has(n)) continue;
@@ -3997,8 +4016,7 @@ function renderDividas(){
   const ativas=dividas.filter(d=>d.ativo!==false);
 
   const totalDevendo=ativas.reduce((s,d)=>{
-    const pagas=dividaParcelas.filter(p=>p.divida_id===d.id);
-    const numsPagos=new Set(pagas.map(p=>p.num_parcela));
+    const numsPagos=numsPagosDivida(d.id);
     const restantes=Array.from({length:d.n_parcelas},(_,i)=>i+1).filter(n=>!numsPagos.has(n));
     return s+(restantes.length*parseFloat(d.valor_parcela||0));
   },0);
@@ -4019,16 +4037,16 @@ function renderDividas(){
 
   el.innerHTML=ativas.map(d=>{
     const isLivre=d.tipo_controle==='livre';
-    const pagas=dividaParcelas.filter(p=>p.divida_id===d.id);
-    const numsPagos=new Set(pagas.map(p=>p.num_parcela));
-    const totalPagoParcelas=pagas.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
+    const pagas=dividaParcelas.filter(p=>p.divida_id===d.id); // fonte 1 (fluxo dedicado) — usada só p/ economia
+    const numsPagos=numsPagosDivida(d.id); // fontes 1+2 combinadas
+    const totalPagoParcelas=totalPagoDivida(d.id);
     const confs=dividaConfirmacoes.filter(c=>c.divida_id===d.id);
     const totalPagoLivre=confs.reduce((s,c)=>s+parseFloat(c.valor_pago||0),0);
     const totalPago=isLivre?totalPagoLivre:totalPagoParcelas;
     const economia=pagas.reduce((s,p)=>s+(parseFloat(p.valor_original||0)-parseFloat(p.valor_pago||0)),0);
     const restantes=Array.from({length:d.n_parcelas},(_,i)=>i+1).filter(n=>!numsPagos.has(n));
     const saldoDevedor=isLivre?Math.max(0,(parseFloat(d.valor_total)||0)-totalPago):restantes.length*parseFloat(d.valor_parcela||0);
-    const pctParcelas=d.n_parcelas?(pagas.length/d.n_parcelas*100).toFixed(0):0;
+    const pctParcelas=d.n_parcelas?(numsPagos.size/d.n_parcelas*100).toFixed(0):0;
     const pctLivre=d.valor_total?Math.min(100,(totalPago/(parseFloat(d.valor_total)||1)*100)).toFixed(0):0;
     const pct=isLivre?pctLivre:pctParcelas;
     const tipoIcon={'emprestimo':'🤝','financiamento':'🏠','cartao_parcelado':'💳'}[d.tipo]||'📉';
@@ -4037,7 +4055,12 @@ function renderDividas(){
     const hojeISOgrid=new Date().toISOString().split('T')[0];
     const gridParcelas=Array.from({length:d.n_parcelas},(_,i)=>{
       const n=i+1;
-      const p=pagas.find(x=>x.num_parcela===n);
+      let p=pagas.find(x=>x.num_parcela===n);
+      let pagaViaMov=false;
+      if(!p&&numsPagos.has(n)){
+        const mv=movimentacoes.find(m=>m.divida_id===d.id&&m.parcela_atual===n&&m.status==='pago');
+        if(mv){ p={valor_pago:mv.valor,valor_original:mv.valor,data_pagamento:mv.data}; pagaViaMov=true; }
+      }
       const dtPrevista=new Date(d.data_inicio+'T12:00:00'); dtPrevista.setMonth(dtPrevista.getMonth()+(n-1));
       const vencISOgrid=dtPrevista.toISOString().split('T')[0];
       const atrasada=!p && vencISOgrid<hojeISOgrid;
@@ -4045,7 +4068,7 @@ function renderDividas(){
       if(p){
         cor=parseFloat(p.valor_pago)<parseFloat(p.valor_original)?'#FEF3C7':'#D1FAE5';
         textCor=parseFloat(p.valor_pago)<parseFloat(p.valor_original)?'#92400E':'#065F46';
-        title=`Parcela ${n}: pago ${fmt(p.valor_pago)} (original ${fmt(p.valor_original)})${parseFloat(p.valor_pago)<parseFloat(p.valor_original)?' ⚡ amortizada':''}`;
+        title=`Parcela ${n}: pago ${fmt(p.valor_pago)} (original ${fmt(p.valor_original)})${parseFloat(p.valor_pago)<parseFloat(p.valor_original)?' ⚡ amortizada':''}${pagaViaMov?' · via Lançamentos':''}`;
       } else if(atrasada){
         cor='#FEE2E2'; textCor='#991B1B';
         title=`Parcela ${n}: atrasada — venceu em ${fmtDate(vencISOgrid)}`;
@@ -4080,7 +4103,7 @@ function renderDividas(){
       ` : `
       <div class="stats-grid" style="margin-bottom:12px">
         <div class="stat-card"><div class="stat-label">💳 Parcela original</div><div class="stat-value">${fmt(d.valor_parcela)}</div></div>
-        <div class="stat-card"><div class="stat-label">✅ Pagas</div><div class="stat-value verde">${pagas.length}/${d.n_parcelas} (${pct}%)</div></div>
+        <div class="stat-card"><div class="stat-label">✅ Pagas</div><div class="stat-value verde">${numsPagos.size}/${d.n_parcelas} (${pct}%)</div></div>
         <div class="stat-card"><div class="stat-label">💰 Total pago</div><div class="stat-value">${fmt(totalPago)}</div></div>
         ${economia>0?`<div class="stat-card"><div class="stat-label">⚡ Economizado</div><div class="stat-value verde">${fmt(economia)}</div></div>`:`<div class="stat-card"><div class="stat-label">⏳ Restantes</div><div class="stat-value amarelo">${restantes.length} parcelas</div></div>`}
       </div>
@@ -4127,17 +4150,30 @@ function renderDividas(){
 function verParcela(did, num){
   const p=dividaParcelas.find(x=>x.divida_id===did&&x.num_parcela===num);
   const d=dividas.find(x=>x.id===did);
-  if(!p){showToast(`Parcela ${num} ainda não paga`,'info');return;}
-  const economia=parseFloat(p.valor_original||0)-parseFloat(p.valor_pago||0);
-  const carteira=carteiras.find(c=>c.id===p.carteira_id);
+  if(p){
+    const economia=parseFloat(p.valor_original||0)-parseFloat(p.valor_pago||0);
+    const carteira=carteiras.find(c=>c.id===p.carteira_id);
+    openConfirm(
+      `Parcela ${num}/${d?.n_parcelas} — ${d?.descricao}`,
+      `📅 Paga em: ${fmtDate(p.data_pagamento)}\n💳 Original: ${fmt(p.valor_original)}\n💰 Pago: ${fmt(p.valor_pago)}${economia>0?`\n⚡ Economizado: ${fmt(economia)}`:''}${carteira?`\n🏦 Via: ${carteira.nome}`:''}${p.forma_pagamento?` (${p.forma_pagamento})`:''}${p.observacao?`\n📝 ${p.observacao}`:''}`,
+      async()=>{
+        if(!confirm(`Remover registro da parcela ${num}?`)) return;
+        await sb.from('fin_divida_parcelas').delete().eq('id',p.id);
+        await loadAll(); renderDividas(); showToast('Removido.','info');
+      }, '🗑 Remover'
+    );
+    return;
+  }
+  // Sem registro no fluxo dedicado — verifica se foi paga editando o lançamento
+  // direto em Lançamentos (mesmo divida_id + parcela_atual, status pago).
+  const mv=movimentacoes.find(m=>m.divida_id===did&&m.parcela_atual===num&&m.status==='pago');
+  if(!mv){showToast(`Parcela ${num} ainda não paga`,'info');return;}
+  const carteiraMv=carteiras.find(c=>c.id===mv.carteira_id);
   openConfirm(
     `Parcela ${num}/${d?.n_parcelas} — ${d?.descricao}`,
-    `📅 Paga em: ${fmtDate(p.data_pagamento)}\n💳 Original: ${fmt(p.valor_original)}\n💰 Pago: ${fmt(p.valor_pago)}${economia>0?`\n⚡ Economizado: ${fmt(economia)}`:''}${carteira?`\n🏦 Via: ${carteira.nome}`:''}${p.forma_pagamento?` (${p.forma_pagamento})`:''}${p.observacao?`\n📝 ${p.observacao}`:''}`,
-    async()=>{
-      if(!confirm(`Remover registro da parcela ${num}?`)) return;
-      await sb.from('fin_divida_parcelas').delete().eq('id',p.id);
-      await loadAll(); renderDividas(); showToast('Removido.','info');
-    }, '🗑 Remover'
+    `📅 Paga em: ${fmtDate(mv.data)}\n💰 Pago: ${fmt(mv.valor)}${carteiraMv?`\n🏦 Via: ${carteiraMv.nome}`:''}${mv.forma_pagamento?` (${mv.forma_pagamento})`:''}\n\nℹ️ Paga direto em Lançamentos (fora do fluxo "Registrar Pagamento") — sem dado de economia/amortização registrado.`,
+    ()=>{ goPage('lancamentos'); },
+    '📋 Ver em Lançamentos'
   );
 }
 
@@ -4274,8 +4310,7 @@ async function registrarPagamentoDivida(did){
   if(d.tipo_controle==='livre') { abrirPagamentoLivre(did); return; }
 
   // ── modo parcelas (fluxo existente) ──
-  const pagas=dividaParcelas.filter(p=>p.divida_id===did);
-  const numsPagos=new Set(pagas.map(p=>p.num_parcela));
+  const numsPagos=numsPagosDivida(did);
   const pendentes=Array.from({length:d.n_parcelas},(_,i)=>i+1).filter(n=>!numsPagos.has(n));
   const wOpts=carteiras.map(c=>`<option value="${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join('');
   const parOpts=pendentes.map(n=>`<option value="${n}">Parcela ${n} de ${d.n_parcelas}</option>`).join('');
@@ -4284,7 +4319,7 @@ async function registrarPagamentoDivida(did){
   $('sheet-body').innerHTML=`
     <div style="background:var(--accent-bg);border-radius:10px;padding:12px;margin-bottom:14px">
       <div style="font-size:13px;font-weight:700;color:var(--text)">${d.descricao}</div>
-      <div style="font-size:11px;color:var(--gray);margin-top:3px">Parcela original: ${fmt(d.valor_parcela)} · ${pagas.length} de ${d.n_parcelas} pagas</div>
+      <div style="font-size:11px;color:var(--gray);margin-top:3px">Parcela original: ${fmt(d.valor_parcela)} · ${numsPagos.size} de ${d.n_parcelas} pagas</div>
     </div>
     <div class="form-mb field">
       <label>Qual parcela está pagando? *</label>
@@ -4491,13 +4526,15 @@ async function confirmarPagamentoDivida(did){
   if(e1||e2){showToast('Erro ao registrar.','err');return;}
 
   // Atualiza parcelas_pagas na dívida
-  const novasPagas=dividaParcelas.filter(p=>p.divida_id===did).length+1;
+  // Esta parcela só chegou até aqui porque não estava em numsPagosDivida antes
+  // (o dropdown de "Registrar Pagamento" já filtra isso) — por isso o +1 é seguro,
+  // sem risco de contar 2x uma parcela que já tinha sido paga via Lançamentos.
+  const novasPagas=numsPagosDivida(did).size+1;
   await sb.from('fin_dividas').update({parcelas_pagas:novasPagas,ativo:novasPagas<d.n_parcelas}).eq('id',did);
 
   // Se dívida tem confirmação bilateral, dispara email para o credor
   if(d.envia_confirmacao && d.credor_email) {
-    const pagas2=dividaParcelas.filter(p=>p.divida_id===did);
-    const totalPagoAnterior=pagas2.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
+    const totalPagoAnterior=totalPagoDivida(did);
     const saldoOriginal=parseFloat(d.valor_total||0)||(d.n_parcelas*parseFloat(d.valor_parcela||0));
     const saldoAnterior=saldoOriginal-totalPagoAnterior;
     const saldoNovo=Math.max(0,saldoAnterior-valorPago);

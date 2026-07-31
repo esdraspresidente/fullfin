@@ -658,7 +658,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.75 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.77 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -4181,6 +4181,7 @@ function openSheetDivida(did){
   const d=did?dividas.find(x=>x.id===did):null;
   $('sheet-title').textContent=d?'Editar Dívida':'Nova Dívida';
   const centroOpts=centros.map(c=>`<option value="${c.id}"${d?.centro_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
+  const catDividaOpts=categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos').map(c=>`<option value="${c.id}"${d?.categoria_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
   const wOpts=carteiras.map(c=>`<option value="${c.id}"${d?.carteira_id===c.id?' selected':''}>${c.icone||'🏦'} ${c.nome}</option>`).join('');
   const modoAtual=d?.tipo_controle||'parcelas';
   $('sheet-body').innerHTML=`
@@ -4217,8 +4218,9 @@ function openSheetDivida(did){
     </div>
     <div class="form-grid-2" style="margin-top:10px">
       <div class="field"><label>Centro</label><select id="div-centro"><option value="">Geral</option>${centroOpts}</select></div>
-      <div class="field"><label>Carteira</label><select id="div-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
+      <div class="field"><label>Categoria</label><select id="div-categoria"><option value="">Sem categoria</option>${catDividaOpts}</select></div>
     </div>
+    <div class="form-mb field" style="margin-top:10px"><label>Carteira</label><select id="div-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
     <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#EFF6FF;border-radius:10px;cursor:pointer;margin-top:14px;margin-bottom:8px">
       <input type="checkbox" id="div-confirmacao" ${d?.envia_confirmacao?'checked':''} onchange="divToggleEmail()" style="width:18px;height:18px;accent-color:#1D4ED8"/>
       <div><div style="font-size:13px;font-weight:700;color:#1D4ED8">📬 Confirmação bilateral</div><div style="font-size:11px;color:#6B7280">Envia email ao credor para confirmar cada pagamento</div></div>
@@ -4265,6 +4267,7 @@ async function salvarDivida(did){
     taxa_juros:0,
     data_inicio:inicio,
     centro_id:$('div-centro').value||null,
+    categoria_id:$('div-categoria').value||null,
     carteira_id:$('div-carteira').value||null,
     envia_confirmacao:temConfirmacao,
     credor_email:temConfirmacao?($('div-credor-email')?.value||null):null
@@ -4296,6 +4299,7 @@ async function gerarParcelasFuturasDivida(dividaId, payload, desc){
       valor:payload.valor_parcela, tipo:'saida',
       data_vencimento:dt.toISOString().split('T')[0], status:'agendado',
       carteira_id:payload.carteira_id||null, centro_id:payload.centro_id||null,
+      categoria_id:payload.categoria_id||null,
       parcela_atual:n, total_parcelas:payload.n_parcelas,
       divida_id:dividaId, origem:'divida'
     });
@@ -4510,7 +4514,11 @@ async function confirmarPagamentoDivida(did){
       carteira_id:$('dpag-carteira')?.value||null,
       forma_pagamento:$('dpag-forma')?.value||null,
       observacao:$('dpag-obs')?.value||null,
-      comprovante_url:comprovanteUrl
+      comprovante_url:comprovanteUrl,
+      // Só preenche categoria/centro se a parcela ainda não tinha um valor
+      // (nunca sobrescreve uma categorização manual já feita antes).
+      categoria_id:movExistente.categoria_id||d.categoria_id||null,
+      centro_id:movExistente.centro_id||d.centro_id||null
     }).eq('id',movExistente.id));
   } else {
     ({error:e2}=await sb.from('fin_movimentacoes').insert([{
@@ -4518,6 +4526,7 @@ async function confirmarPagamentoDivida(did){
       valor:valorPago, tipo:'saida', data, status:'pago',
       carteira_id:$('dpag-carteira')?.value||null,
       centro_id:d.centro_id||null,
+      categoria_id:d.categoria_id||null,
       forma_pagamento:$('dpag-forma')?.value||null,
       origem:'manual', comprovante_url:comprovanteUrl
     }]));
@@ -4694,8 +4703,11 @@ function openSheetAbastecimento(vid, aid){
     (m.data||'').startsWith((a.data||'').split('T')[0])
   ):null;
   // Categorias de saída (combustível, manutenção, etc.)
+  // Pré-seleciona a categoria real "Combustível" (por nome, não por ID fixo) —
+  // é um lançamento bem específico, então já vem marcada, mas o usuário pode trocar.
+  const catCombustivelPadrao=categorias.find(c=>/^combust[ií]vel$/i.test((c.nome||'').trim()));
   const catOpts=categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos')
-    .map(c=>`<option value="${c.id}"${a?.categoria_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
+    .map(c=>`<option value="${c.id}"${(a?a.categoria_id===c.id:c.id===catCombustivelPadrao?.id)?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
   const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}"${movVinc?.carteira_id===w.id?' selected':''}>${w.nome}</option>`).join('');
   const formasAb=['Pix','Boleto','Débito','Débito Automático','Transferência','Cartão de Crédito','Dinheiro'];
   const formaOpts=formasAb.map(f=>`<option value="${f}"${movVinc?.forma_pagamento===f?' selected':''}>${f}</option>`).join('');
@@ -4713,7 +4725,7 @@ function openSheetAbastecimento(vid, aid){
     <div class="form-grid-2">
       <div class="field"><label>Posto</label><input type="text" id="ab-posto" placeholder="Nome do posto (opcional)" value="${a?.posto||''}"/></div>
       <div class="field"><label>Categoria</label>
-        <select id="ab-cat"><option value="">Combustível (sem categ.)</option>${catOpts}</select>
+        <select id="ab-cat"><option value="">Selecione…</option>${catOpts}</select>
       </div>
     </div>
     <div class="form-grid-2">
@@ -5415,7 +5427,7 @@ function showShareModal() {
   const previewHtml = isImg
     ? `<img id="share-preview-img" style="width:100%;max-height:130px;object-fit:contain;border-radius:10px;background:#F9FAFB;margin-bottom:12px"/>`
     : `<div style="background:#FEF3C7;border-radius:10px;padding:12px;text-align:center;margin-bottom:12px;font-size:13px;color:#92400E;font-weight:600">📄 ${f.name}</div>`;
-  const catSaidaOpts = categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos').map(c=>`<option value="${c.id}">${c.icone} ${c.nome}</option>`).join('');
+  const catSaidaOpts = categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos').map(c=>`<option value="${c.id}"${/^combust[ií]vel$/i.test((c.nome||'').trim())?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
   const veiOpts = veiculos.map(v=>`<option value="${v.id}">${v.nome}</option>`).join('');
   const wOptsShare = carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.nome}</option>`).join('');
   const formasShare = ['Pix','Boleto','Débito','Débito Automático','Transferência','Cartão de Crédito','Dinheiro'];
@@ -5473,7 +5485,7 @@ function showShareModal() {
           <div class="field"><label>Km odômetro</label><input type="number" id="snl-ab-km" placeholder="Ex: 45320"/></div>
           <div class="field"><label>Posto</label><input type="text" id="snl-ab-posto" placeholder="Nome do posto"/></div>
         </div>
-        <div class="form-mb field"><label>Categoria</label><select id="snl-ab-cat"><option value="">Combustível (sem categ.)</option>${catSaidaOpts}</select></div>
+        <div class="form-mb field"><label>Categoria</label><select id="snl-ab-cat"><option value="">Selecione…</option>${catSaidaOpts}</select></div>
         <div class="form-grid-2" style="margin-bottom:8px">
           <div class="field"><label>Carteira *</label><select id="snl-ab-carteira"><option value="">Selecione…</option>${wOptsShare}</select></div>
           <div class="field"><label>Forma de pagamento *</label><select id="snl-ab-forma"><option value="">Selecione…</option>${formaOptsShare}</select></div>

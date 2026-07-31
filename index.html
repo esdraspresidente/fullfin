@@ -658,7 +658,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.74 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.75 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -897,8 +897,8 @@
           <button class="btn btn-primary" onclick="openSheetDivida()">+ Nova Dívida</button>
         </div>
         <div id="dividas-resumo" style="margin-bottom:16px"></div>
-        <div id="dividas-resumo-mensal" style="margin-bottom:16px"></div>
         <div id="dividas-lista"></div>
+        <div id="dividas-resumo-mensal" style="margin-top:16px"></div>
       </div>
 
       <!-- ══ VEÍCULOS ══ -->
@@ -3979,7 +3979,7 @@ function renderResumoMensalDividas(){
       </div>
     </div>`;
 
-  let html='';
+  let html=`<div class="section-title" style="font-size:13px;font-weight:700;color:var(--text);margin:6px 0 10px">📅 Parcelas em aberto — atrasadas e projeção mês a mês</div>`;
 
   if(atrasadas.length){
     const totalAtrasado=atrasadas.reduce((s,i)=>s+i.valor,0);

@@ -658,7 +658,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.72 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.73 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -942,14 +942,14 @@
       <div id="page-dizimo" class="page">
         <div style="margin-bottom:20px">
           <div class="page-title">🙏 Dízimo & Oferta</div>
-          <div class="page-sub">Pró-labore (Casa) — Base para o dízimo fiel</div>
+          <div class="page-sub">Base para o dízimo fiel — Casa + Esdras + Naiarha + Imóveis</div>
         </div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
           <div class="field" style="flex:1;min-width:140px"><label>Mês de referência</label><input type="month" id="lr-mes" oninput="renderLucroReal()"/></div>
           <button class="btn btn-secondary" style="margin-top:15px" onclick="$('lr-mes').value=mesAtualISO();renderLucroReal()">Mês atual</button>
         </div>
         <div class="lr-big">
-          <div class="lr-label">Pró-labore (Base do Dízimo)</div>
+          <div class="lr-label">Base do Dízimo</div>
           <div class="lr-value" id="lr-lucro">R$ 0,00</div>
           <div class="lr-detail-grid" id="lr-details"></div>
         </div>
@@ -963,6 +963,11 @@
             <div class="field"><label>Dízimo pago (R$)</label><input type="text" data-money="1" id="lr-dizimo-pago" placeholder="0,00"/></div>
             <div class="field"><label>Oferta paga (R$)</label><input type="text" data-money="1" id="lr-oferta-paga" placeholder="0,00"/></div>
           </div>
+          <div class="form-grid-2" style="margin-top:8px">
+            <div class="field"><label>Carteira *</label><select id="lr-carteira"></select></div>
+            <div class="field"><label>Forma de pagamento *</label><select id="lr-forma"></select></div>
+          </div>
+          <div style="font-size:10px;color:var(--gray);margin-top:4px">* obrigatório só se houver valor pago de dízimo ou oferta — vira lançamento em Lançamentos/Relatório</div>
           <div class="field form-mb" style="margin-top:8px"><label>Observação</label><textarea id="lr-obs" placeholder="Ex: Culto, 22/06…" rows="2"></textarea></div>
           <button class="btn btn-primary" style="width:100%;padding:12px" onclick="salvarDizimo()">💾 Salvar registro</button>
         </div>
@@ -1570,12 +1575,21 @@ function calcLucroReal(mesISO){
     ent:movs.filter(m=>m.centro_id===c.id&&m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
     sai:movs.filter(m=>m.centro_id===c.id&&m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
   })).map(c=>({...c,saldo:c.ent-c.sai}));
-  // Pró-labore = saídas pagas com centro Casa/Família
-  const centroCasa=centros.find(c=>c.nome?.toLowerCase().includes('casa')||c.nome?.toLowerCase().includes('fam'));
-  const prolabore=centroCasa
-    ? movs.filter(m=>m.centro_id===centroCasa.id&&m.tipo==='saida'&&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0)
+  // Base do dízimo = saídas pagas dos centros PESSOAIS (Casa/Família, Esdras,
+  // Naiarha, Imóveis) — dinheiro que entrou no negócio e foi gasto/retirado
+  // pra vida pessoal em qualquer um desses 4 centros. Match por nome exato
+  // (normalizado, sem acento) pra nunca confundir "Naiarha" com "NAIARHA ADV".
+  const _normNome = s => (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+  const DIZIMO_CENTROS_NOMES = ['casa / familia','esdras','naiarha','imoveis'];
+  const centrosDizimo = centros.filter(c => DIZIMO_CENTROS_NOMES.includes(_normNome(c.nome)));
+  // Exclui as próprias categorias Dízimo/Oferta da base — senão o dízimo pago
+  // vira "gasto pessoal" e infla a base do próximo dízimo (efeito cascata).
+  const _catsDizimoOferta = categorias.filter(c=>/d[ií]zimo|oferta/i.test(c.nome||'')).map(c=>c.id);
+  const prolabore = centrosDizimo.length
+    ? movs.filter(m=>centrosDizimo.some(c=>c.id===m.centro_id)&&m.tipo==='saida'&&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)&&!_catsDizimoOferta.includes(m.categoria_id)).reduce((s,m)=>s+parseFloat(m.valor||0),0)
     : 0;
-  return{receita,custos,lucro,prolabore,centroCasaNome:centroCasa?.nome||'Casa/Família',dizimo:prolabore*0.1,porCentro};
+  const centroCasaNome = centrosDizimo.length ? centrosDizimo.map(c=>c.nome).join(' + ') : 'Casa/Família';
+  return{receita,custos,lucro,prolabore,centroCasaNome,dizimo:prolabore*0.1,porCentro};
 }
 
 function calcSaldoCarteira(cid){
@@ -3718,7 +3732,18 @@ async function executarImport(){
 // ════════════════════════════════════════════════
 //  LUCRO REAL + DÍZIMO
 // ════════════════════════════════════════════════
+function renderDizimoFormOpts(){
+  const selC=$('lr-carteira'), selF=$('lr-forma');
+  if(!selC||!selF) return;
+  const valC=selC.value, valF=selF.value;
+  selC.innerHTML=`<option value="">Selecione…</option>`+carteiras.map(c=>`<option value="${c.id}">${c.icone||'🏦'} ${c.nome}</option>`).join('');
+  const formas=['Pix','Boleto','Débito','Débito Automático','Transferência','Cartão de Crédito','Dinheiro'];
+  selF.innerHTML=`<option value="">Selecione…</option>`+formas.map(f=>`<option value="${f}">${f}</option>`).join('');
+  if(valC) selC.value=valC;
+  if(valF) selF.value=valF;
+}
 function renderLucroReal(){
+  renderDizimoFormOpts();
   const mes=$('lr-mes')?.value||mesAtualISO();
   const lr=calcLucroReal(mes);
   $('lr-lucro').textContent=fmt(lr.prolabore);
@@ -3732,11 +3757,21 @@ function renderLucroReal(){
     </div>
     ${lr.porCentro.map(c=>`<div class="lr-detail-item" style="padding-left:12px"><div class="lr-detail-label" style="font-size:10px">${c.icone} ${c.nome}</div><div class="lr-detail-value" style="font-size:11px">${fmt(c.sai)}</div></div>`).join('')}
     <div class="lr-detail-item" style="border-top:1px solid rgba(255,255,255,.15);margin-top:8px;padding-top:8px">
-      <div class="lr-detail-label" style="color:#FDE68A;font-weight:700">🏠 Pró-labore (${lr.centroCasaNome})</div>
+      <div class="lr-detail-label" style="color:#FDE68A;font-weight:700">🏠 Base do Dízimo</div>
       <div class="lr-detail-value" style="color:#FDE68A;font-weight:800">${fmt(lr.prolabore)}</div>
     </div>
-    <div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:6px;text-align:center">Base do dízimo = saídas pagas com centro ${lr.centroCasaNome}</div>
+    <div style="font-size:10px;color:rgba(255,255,255,.5);margin-top:6px;text-align:center">Base do dízimo = saídas pagas nos centros ${lr.centroCasaNome}</div>
   `;
+}
+// Acha a categoria "Dízimo" e a categoria "Oferta" cadastradas (mesmo padrão
+// de busca já usado no histórico avulso). Não cria categoria nova — assume
+// que já existem, como o Esdras confirmou.
+function _catDizimo(){ return categorias.find(c=>/d[ií]zimo/i.test(c.nome||'')); }
+function _catOferta(){ return categorias.find(c=>/oferta/i.test(c.nome||'')&&!/d[ií]zimo/i.test(c.nome||'')); }
+// Centro Casa/Família, usado como centro do lançamento automático do dízimo/oferta.
+function _centroCasaFamilia(){
+  const norm=s=>(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+  return centros.find(c=>norm(c.nome)==='casa / familia');
 }
 async function salvarDizimo(){
   const mes=$('lr-mes')?.value||mesAtualISO();
@@ -3744,17 +3779,57 @@ async function salvarDizimo(){
   const dizimoPago=getMaskValue($('lr-dizimo-pago'))||0;
   const ofertaPaga=getMaskValue($('lr-oferta-paga'))||0;
   if(!dizimoPago&&!ofertaPaga){showToast('Informe pelo menos um valor.','err');return;}
+
+  const carteiraId=$('lr-carteira')?.value||'';
+  const forma=$('lr-forma')?.value||'';
+  if(!carteiraId||!forma){showToast('Selecione a carteira e a forma de pagamento.','err');return;}
+
+  const catDizimo=_catDizimo(), catOferta=_catOferta(), centroCasa=_centroCasaFamilia();
+  if(dizimoPago&&!catDizimo){showToast('Categoria "Dízimo" não encontrada.','err');return;}
+  if(ofertaPaga&&!catOferta){showToast('Categoria "Oferta" não encontrada.','err');return;}
+
+  const hoje=new Date().toISOString().split('T')[0];
+  const obs=$('lr-obs')?.value||null;
+
   const{error}=await sb.from('fin_dizimos').insert([{
-    data:new Date().toISOString().split('T')[0], periodo_referencia:mes,
+    data:hoje, periodo_referencia:mes,
     receita_bruta:lr.receita, total_custos:lr.custos, lucro_real:lr.prolabore,
     percentual_dizimo:10, valor_dizimo_sugerido:lr.dizimo,
     valor_dizimo_pago:dizimoPago, valor_oferta_pago:ofertaPaga,
-    observacao:$('lr-obs')?.value||null
+    observacao:obs
   }]);
-  if(error){showToast('Erro.','err');return;}
+  if(error){showToast('Erro ao salvar registro de dízimo.','err');return;}
+
+  // Cria os lançamentos reais em fin_movimentacoes, pra aparecer em
+  // Lançamentos/Relatório/Calendário de Gastos normalmente.
+  const novosLancs=[];
+  if(dizimoPago) novosLancs.push({
+    data:hoje, tipo:'saida', valor:dizimoPago, status:'pago',
+    descricao:'Dízimo — '+MESES[parseInt(mes.split('-')[1])-1]+'/'+mes.split('-')[0],
+    categoria_id:catDizimo.id, centro_id:centroCasa?.id||null,
+    carteira_id:carteiraId, forma_pagamento:forma, origem:'dizimo'
+  });
+  if(ofertaPaga) novosLancs.push({
+    data:hoje, tipo:'saida', valor:ofertaPaga, status:'pago',
+    descricao:'Oferta — '+MESES[parseInt(mes.split('-')[1])-1]+'/'+mes.split('-')[0],
+    categoria_id:catOferta.id, centro_id:centroCasa?.id||null,
+    carteira_id:carteiraId, forma_pagamento:forma, origem:'dizimo'
+  });
+
+  let erroLanc=null;
+  for(const l of novosLancs){
+    const{error:eLanc}=await sb.from('fin_movimentacoes').insert([l]);
+    if(eLanc) erroLanc=eLanc;
+  }
+
   await loadAll(); renderDizimoHistorico();
   $('lr-dizimo-pago').value=''; $('lr-oferta-paga').value=''; $('lr-obs').value='';
-  showToast('Dízimo registrado! 🙏');
+  $('lr-carteira').value=''; $('lr-forma').value='';
+  if(erroLanc){
+    showToast('Dízimo registrado, mas o lançamento em Lançamentos falhou — confira manualmente.','err');
+  } else {
+    showToast('Dízimo registrado e lançado! 🙏');
+  }
 }
 function renderDizimoHistorico(){
   const el=$('dizimo-historico'); if(!el) return;

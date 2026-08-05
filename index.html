@@ -658,7 +658,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.77 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.78 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -2289,10 +2289,11 @@ function custosFixosVirtuais(mesISO){
   // qualquer que seja a origem/status. Robusto contra lançamentos criados por
   // qualquer caminho (manual, importação, versões antigas).
   const jaLancado=(r)=>movimentacoes.some(mv=>{
-    const ref=(mv.data||mv.data_vencimento||'');
-    if(!ref.startsWith(mesISO)) return false;
     if((mv.descricao||'').trim().toLowerCase()!==(r.descricao||'').trim().toLowerCase()) return false;
-    return (mv.centro_id||null)===(r.centro_id||null);
+    if((mv.centro_id||null)!==(r.centro_id||null)) return false;
+    const refData=(mv.data||'');
+    const refVenc=(mv.data_vencimento||'');
+    return refData.startsWith(mesISO) || refVenc.startsWith(mesISO);
   });
 
   return ativos.filter(r=>!jaLancado(r)).map(r=>{

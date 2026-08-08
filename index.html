@@ -674,7 +674,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.79 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.80 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1029,12 +1029,48 @@
 
       <!-- ══ FIGURINHAS COPA (temporário) ══ -->
       <div id="page-figurinhas" class="page">
-        <div style="margin-bottom:18px">
+        <div style="margin-bottom:14px">
           <div class="page-title">⚽ Figurinhas Copa</div>
-          <div class="page-sub">Toque numa figurinha pra marcar como conquistada</div>
+          <div class="page-sub">Faltantes, repetidas e relatório do álbum</div>
         </div>
-        <div id="fig-progress-wrap"></div>
-        <div id="fig-lista"></div>
+        <div style="display:flex;gap:6px;margin-bottom:16px">
+          <button class="fpill active" id="fig-tab-faltam"    onclick="setFigTab('faltam')">Faltam</button>
+          <button class="fpill"        id="fig-tab-repetidas" onclick="setFigTab('repetidas')">Repetidas</button>
+          <button class="fpill"        id="fig-tab-relatorio" onclick="setFigTab('relatorio')">Relatório</button>
+        </div>
+
+        <!-- ── FALTAM ── -->
+        <div id="fig-view-faltam">
+          <div id="fig-progress-wrap"></div>
+          <div id="fig-lista"></div>
+        </div>
+
+        <!-- ── REPETIDAS ── -->
+        <div id="fig-view-repetidas" class="hidden">
+          <div class="card pad" style="margin-bottom:14px">
+            <div class="section-label">+ Adicionar repetida</div>
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+              <div class="field" style="flex:1;min-width:80px"><label>Seleção</label>
+                <input type="text" id="figrep-sel" placeholder="Ex: TUR" maxlength="4" style="text-transform:uppercase"/>
+              </div>
+              <div class="field" style="width:70px"><label>Número</label>
+                <input type="number" id="figrep-num" placeholder="17"/>
+              </div>
+              <div class="field" style="width:70px"><label>Qtd</label>
+                <input type="number" id="figrep-qtd" placeholder="1" value="1" min="1"/>
+              </div>
+              <button class="btn btn-primary" style="padding:9px 16px;font-size:12px" onclick="figRepAdicionar()">Adicionar</button>
+            </div>
+          </div>
+          <div id="fig-rep-resumo" style="margin-bottom:10px"></div>
+          <div id="fig-rep-lista"></div>
+        </div>
+
+        <!-- ── RELATÓRIO ── -->
+        <div id="fig-view-relatorio" class="hidden">
+          <div id="fig-rel-stats"></div>
+          <div id="fig-rel-lista"></div>
+        </div>
       </div>
 
     </div>
@@ -1160,6 +1196,12 @@ const $ = id => document.getElementById(id);
 let currentUser = null;
 let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos = [];
 let figurinhasCopa = [];
+let figurinhasRepetidas = [];
+let figSubTab = 'faltam';
+// Roster completo de seleções/categorias do álbum (inclui as já 100% completas,
+// que por isso nunca entraram em fin_figurinhas_copa). Usado só pro Relatório
+// calcular quantas seleções estão completas.
+const FIG_ROSTER = ['OO','FWC','MEX','RSA','KOR','CZE','CAN','QAT','SUI','BRA','MAR','HAI','SCO','USA','PAR','AUS','TUR','GER','CUW','CIV','ECU','NED','JPN','SWE','TUN','BEL','EGY','IRN','NZL','ESP','CPV','KSA','URU','FRA','SEN','IRQ','NOR','ARG','ALG','AUT','JOR','POR','COD','UZB','COL','ENG','CRO','GHA','PAN'];
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
 let lanceAba = 'todas';
 let calCentro = 'GERAL';   // filtro de centro do calendário (independente do Início)
@@ -1350,7 +1392,7 @@ function goPage(page){
   if(page==='recorrentes') renderRecorrentes();
   if(page==='dizimo'){$('lr-mes').value=mesAtualISO();renderLucroReal();renderDizimoHistorico();}
   if(page==='config') renderConfig();
-  if(page==='figurinhas') renderFigurinhas();
+  if(page==='figurinhas') setFigTab(figSubTab);
 }
 
 function atualizaMesLabels(){
@@ -5840,6 +5882,129 @@ async function toggleFigurinha(id) {
   if (error) { item.conquistada = !novoValor; renderFigurinhas(); showToast('Erro ao salvar.', 'err'); }
 }
 
+function setFigTab(tab) {
+  figSubTab = tab;
+  ['faltam', 'repetidas', 'relatorio'].forEach(t => {
+    $('fig-view-' + t)?.classList.toggle('hidden', t !== tab);
+    $('fig-tab-' + t)?.classList.toggle('active', t === tab);
+  });
+  if (tab === 'faltam') renderFigurinhas();
+  if (tab === 'repetidas') renderFigurinhasRepetidas();
+  if (tab === 'relatorio') renderFigurinhasRelatorio();
+}
+
+// ── REPETIDAS ──
+let figRepCarregando = false;
+async function renderFigurinhasRepetidas() {
+  const resumo = $('fig-rep-resumo'), lista = $('fig-rep-lista');
+  if (!resumo || !lista) return;
+  if (!figurinhasRepetidas.length && !figRepCarregando) {
+    figRepCarregando = true;
+    lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">⏳</div><div class="empty-title">Carregando…</div></div>`;
+    const { data, error } = await sb.from('fin_figurinhas_repetidas').select().order('selecao');
+    figRepCarregando = false;
+    if (error) { lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">⚠️</div><div class="empty-title">Erro ao carregar</div></div>`; return; }
+    figurinhasRepetidas = data || [];
+  }
+  const distintas = figurinhasRepetidas.length;
+  const totalCopias = figurinhasRepetidas.reduce((s, f) => s + (f.quantidade || 0), 0);
+  resumo.innerHTML = `<div class="card pad-sm" style="display:flex;justify-content:space-around;text-align:center">
+    <div><div style="font-size:20px;font-weight:800;color:var(--text)">${distintas}</div><div style="font-size:10px;color:var(--gray);font-weight:700;text-transform:uppercase">Figurinhas distintas</div></div>
+    <div><div style="font-size:20px;font-weight:800;color:var(--text)">${totalCopias}</div><div style="font-size:10px;color:var(--gray);font-weight:700;text-transform:uppercase">Cópias no total</div></div>
+  </div>`;
+  if (!figurinhasRepetidas.length) {
+    lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">🔁</div><div class="empty-title">Nenhuma repetida cadastrada</div></div>`;
+    return;
+  }
+  const ordenadas = [...figurinhasRepetidas].sort((a, b) => a.selecao === b.selecao ? a.numero - b.numero : a.selecao.localeCompare(b.selecao));
+  lista.innerHTML = ordenadas.map(f => `
+    <div class="card pad-sm" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px">
+      <div style="font-size:13px;font-weight:800;color:var(--text)">${f.selecao} <span style="color:var(--gray);font-weight:600">${f.numero}</span></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="btn btn-secondary" style="padding:4px 10px;font-size:14px" onclick="figRepDec('${f.id}')">−</button>
+        <span style="font-size:14px;font-weight:800;min-width:18px;text-align:center">${f.quantidade}</span>
+        <button class="btn btn-secondary" style="padding:4px 10px;font-size:14px" onclick="figRepInc('${f.id}')">+</button>
+        <button class="btn btn-danger" style="padding:4px 8px;font-size:12px" onclick="figRepDelete('${f.id}')">🗑</button>
+      </div>
+    </div>`).join('');
+}
+
+async function figRepAdicionar() {
+  const sel = ($('figrep-sel').value || '').trim().toUpperCase();
+  const num = parseInt($('figrep-num').value, 10);
+  const qtd = parseInt($('figrep-qtd').value, 10) || 1;
+  if (!sel || !num) { showToast('Preencha seleção e número.', 'err'); return; }
+  const existente = figurinhasRepetidas.find(f => f.selecao === sel && f.numero === num);
+  if (existente) {
+    await figRepSalvarQtd(existente, existente.quantidade + qtd);
+  } else {
+    const { data, error } = await sb.from('fin_figurinhas_repetidas').insert([{ selecao: sel, numero: num, quantidade: qtd }]);
+    if (error) { showToast('Erro ao adicionar.', 'err'); return; }
+    figurinhasRepetidas.push(Array.isArray(data) ? data[0] : data);
+  }
+  $('figrep-sel').value = ''; $('figrep-num').value = ''; $('figrep-qtd').value = '1';
+  renderFigurinhasRepetidas();
+  showToast('✅ Adicionada!');
+}
+
+async function figRepSalvarQtd(item, novaQtd) {
+  if (novaQtd <= 0) return figRepDelete(item.id);
+  const antiga = item.quantidade;
+  item.quantidade = novaQtd; // otimista
+  renderFigurinhasRepetidas();
+  const { error } = await sb.from('fin_figurinhas_repetidas').update({ quantidade: novaQtd }).eq('id', item.id);
+  if (error) { item.quantidade = antiga; renderFigurinhasRepetidas(); showToast('Erro ao salvar.', 'err'); }
+}
+function figRepInc(id) { const item = figurinhasRepetidas.find(f => f.id === id); if (item) figRepSalvarQtd(item, item.quantidade + 1); }
+function figRepDec(id) { const item = figurinhasRepetidas.find(f => f.id === id); if (item) figRepSalvarQtd(item, item.quantidade - 1); }
+async function figRepDelete(id) {
+  const { error } = await sb.from('fin_figurinhas_repetidas').delete().eq('id', id);
+  if (error) { showToast('Erro ao remover.', 'err'); return; }
+  figurinhasRepetidas = figurinhasRepetidas.filter(f => f.id !== id);
+  renderFigurinhasRepetidas();
+}
+
+// ── RELATÓRIO ──
+async function renderFigurinhasRelatorio() {
+  const stats = $('fig-rel-stats'), lista = $('fig-rel-lista');
+  if (!stats || !lista) return;
+  if (!figurinhasCopa.length && !figCarregando) {
+    figCarregando = true;
+    const { data, error } = await sb.from('fin_figurinhas_copa').select().order('selecao');
+    figCarregando = false;
+    if (!error) figurinhasCopa = data || [];
+  }
+  const porSelecao = {};
+  figurinhasCopa.forEach(f => { (porSelecao[f.selecao] = porSelecao[f.selecao] || []).push(f); });
+  const faltando = FIG_ROSTER
+    .map(sel => ({ sel, itens: (porSelecao[sel] || []).filter(i => !i.conquistada) }))
+    .filter(x => x.itens.length > 0)
+    .sort((a, b) => b.itens.length - a.itens.length);
+  const totalSelecoes = FIG_ROSTER.length;
+  const completas = totalSelecoes - faltando.length;
+  const totalFaltando = faltando.reduce((s, x) => s + x.itens.length, 0);
+  stats.innerHTML = `
+    <div class="stats-grid" style="grid-template-columns:1fr 1fr">
+      <div class="stat-card">
+        <div class="stat-label">Seleções completas</div>
+        <div style="font-size:24px;font-weight:800;color:var(--text)">${completas} <span style="font-size:13px;color:var(--gray);font-weight:600">/ ${totalSelecoes}</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Figurinhas faltando</div>
+        <div style="font-size:24px;font-weight:800;color:var(--text)">${totalFaltando}</div>
+      </div>
+    </div>`;
+  if (!faltando.length) {
+    lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">🏆</div><div class="empty-title">Álbum completo!</div></div>`;
+    return;
+  }
+  lista.innerHTML = `<div class="section-label">Ainda faltam</div>` + faltando.map(x => `
+    <div class="card pad-sm" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:13px;font-weight:800;color:var(--text)">${x.sel}</div>
+      <div style="font-size:11px;font-weight:700;color:var(--gray)">${x.itens.length} faltando · ${x.itens.map(i => i.numero).sort((a,b)=>a-b).join(', ')}</div>
+    </div>`).join('');
+}
+
 // ── Centros ──
 function openSheetCentro(cid) {
   const c = cid ? centros.find(x => x.id === cid) : null;
@@ -6034,7 +6199,8 @@ const SELFCHECK_ELEMENTOS = [
   'cal-grid','cal-day-modal','cal-day-title','cal-day-body','cal-centro-pills',
   'cal-cat-pills','cal-modo-pag','cal-modo-gastos',
   'page-home','page-lancamentos','page-calendario','page-relatorio','page-carteiras','page-cartoes',
-  'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config','page-figurinhas'
+  'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config','page-figurinhas',
+  'fig-view-faltam','fig-view-repetidas','fig-view-relatorio'
 ];
 
 // Funções que precisam existir pro app funcionar.
@@ -6045,7 +6211,8 @@ const SELFCHECK_FUNCOES = [
   'itensDoMes','contasAPagarDoMes','faturasEmAbertoDoMes','movsAnaliseDoMes','gastosDoDia',
   'renderCalendario','renderCalDia','abreCalDia','closeCalDayModal','calNavDia',
   'renderCalendarioGastos','renderCalDiaGastos','setCalModo','setCalCategoriaGasto',
-  'renderFigurinhas','toggleFigurinha'
+  'renderFigurinhas','toggleFigurinha','setFigTab','renderFigurinhasRepetidas','figRepAdicionar',
+  'figRepInc','figRepDec','figRepDelete','renderFigurinhasRelatorio'
 ];
 
 // Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais

@@ -413,6 +413,22 @@
     .fpill{flex-shrink:0;padding:6px 14px;border-radius:20px;border:1.5px solid var(--border);background:#fff;font-size:12px;font-weight:600;color:var(--gray);cursor:pointer;font-family:inherit;transition:all .12s;}
     .fpill.active{border-color:var(--accent);background:var(--accent-bg);color:var(--accent);}
 
+    /* ── FIGURINHAS COPA (aba temporária) ── */
+    .fig-progress{background:linear-gradient(135deg,#1E3A8A,#1D4ED8);border-radius:var(--radius);padding:18px 20px;color:#fff;margin-bottom:16px;}
+    .fig-progress-label{font-size:10px;color:rgba(255,255,255,.65);font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px;}
+    .fig-progress-value{font-size:26px;font-weight:800;letter-spacing:-.5px;}
+    .fig-progress-bar{margin-top:10px;height:8px;border-radius:6px;background:rgba(255,255,255,.18);overflow:hidden;}
+    .fig-progress-bar-fill{height:100%;background:#34D399;border-radius:6px;transition:width .25s ease;}
+    .fig-country-card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px;}
+    .fig-country-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+    .fig-country-name{font-size:13px;font-weight:800;color:var(--text);letter-spacing:.3px;}
+    .fig-country-count{font-size:11px;font-weight:700;color:var(--gray);}
+    .fig-chips{display:flex;flex-wrap:wrap;gap:6px;}
+    .fig-chip{width:34px;height:34px;border-radius:8px;border:1.5px solid var(--border);background:#fff;font-size:12px;font-weight:700;color:var(--text);cursor:pointer;font-family:inherit;transition:all .12s;display:flex;align-items:center;justify-content:center;}
+    .fig-chip.conquistada{background:#D1FAE5;border-color:#059669;color:#065F46;text-decoration:line-through;opacity:.7;}
+    .fig-country-card.completo{opacity:.55;}
+    .fig-country-card.completo .fig-country-name::after{content:' ✓';color:#059669;}
+
     /* ── FORM FIELDS ── */
     .field{display:flex;flex-direction:column;gap:4px;}
     .field label{font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.6px;}
@@ -658,7 +674,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.78 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.79 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -676,6 +692,8 @@
     <button class="nav-item" id="nav-recorrentes" onclick="goPage('recorrentes')"><span class="nav-icon">🔄</span> Custos Fixos</button>
     <button class="nav-item" id="nav-dizimo" onclick="goPage('dizimo')"><span class="nav-icon">🙏</span> Dízimo & Oferta</button>
     <button class="nav-item" id="nav-config" onclick="goPage('config')"><span class="nav-icon">⚙️</span> Configurações</button>
+    <div class="sb-section">Temporário</div>
+    <button class="nav-item" id="nav-figurinhas" onclick="goPage('figurinhas')"><span class="nav-icon">⚽</span> Figurinhas Copa</button>
     <div class="sb-footer">
       <div class="sb-user">
         <div class="sb-avatar" id="sb-avatar">?</div>
@@ -1009,6 +1027,16 @@
         </div>
       </div>
 
+      <!-- ══ FIGURINHAS COPA (temporário) ══ -->
+      <div id="page-figurinhas" class="page">
+        <div style="margin-bottom:18px">
+          <div class="page-title">⚽ Figurinhas Copa</div>
+          <div class="page-sub">Toque numa figurinha pra marcar como conquistada</div>
+        </div>
+        <div id="fig-progress-wrap"></div>
+        <div id="fig-lista"></div>
+      </div>
+
     </div>
   </div>
   <nav id="bottom-nav">
@@ -1131,6 +1159,7 @@ const sb = supabase;
 const $ = id => document.getElementById(id);
 let currentUser = null;
 let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos = [];
+let figurinhasCopa = [];
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
 let lanceAba = 'todas';
 let calCentro = 'GERAL';   // filtro de centro do calendário (independente do Início)
@@ -1321,6 +1350,7 @@ function goPage(page){
   if(page==='recorrentes') renderRecorrentes();
   if(page==='dizimo'){$('lr-mes').value=mesAtualISO();renderLucroReal();renderDizimoHistorico();}
   if(page==='config') renderConfig();
+  if(page==='figurinhas') renderFigurinhas();
 }
 
 function atualizaMesLabels(){
@@ -5752,6 +5782,64 @@ function renderConfigCats() {
     </div>`).join('');
 }
 
+// ════════════════════════════════════════════════
+//  FIGURINHAS COPA (aba temporária)
+// ════════════════════════════════════════════════
+let figCarregando = false;
+async function renderFigurinhas() {
+  const wrapProg = $('fig-progress-wrap'), lista = $('fig-lista');
+  if (!wrapProg || !lista) return;
+  if (!figurinhasCopa.length && !figCarregando) {
+    figCarregando = true;
+    lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">⏳</div><div class="empty-title">Carregando…</div></div>`;
+    const { data, error } = await sb.from('fin_figurinhas_copa').select().order('selecao');
+    figCarregando = false;
+    if (error) { lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">⚠️</div><div class="empty-title">Erro ao carregar</div></div>`; return; }
+    figurinhasCopa = data || [];
+  }
+  const total = figurinhasCopa.length;
+  const conquistadas = figurinhasCopa.filter(f => f.conquistada).length;
+  const pct = total ? Math.round((conquistadas / total) * 100) : 0;
+  wrapProg.innerHTML = `
+    <div class="fig-progress">
+      <div class="fig-progress-label">Conquistadas</div>
+      <div class="fig-progress-value">${conquistadas} de ${total} (${pct}%)</div>
+      <div class="fig-progress-bar"><div class="fig-progress-bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  const porSelecao = {};
+  figurinhasCopa.forEach(f => { (porSelecao[f.selecao] = porSelecao[f.selecao] || []).push(f); });
+  const selecoes = Object.keys(porSelecao).sort();
+  if (!selecoes.length) {
+    lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">⚽</div><div class="empty-title">Nenhuma figurinha cadastrada</div></div>`;
+    return;
+  }
+  lista.innerHTML = selecoes.map(sel => {
+    const itens = porSelecao[sel].sort((a, b) => a.numero - b.numero);
+    const feitas = itens.filter(i => i.conquistada).length;
+    const completo = feitas === itens.length;
+    return `
+    <div class="fig-country-card${completo ? ' completo' : ''}">
+      <div class="fig-country-head">
+        <div class="fig-country-name">${sel}</div>
+        <div class="fig-country-count">${feitas}/${itens.length}</div>
+      </div>
+      <div class="fig-chips">
+        ${itens.map(i => `<button class="fig-chip${i.conquistada ? ' conquistada' : ''}" onclick="toggleFigurinha('${i.id}')">${i.numero}</button>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function toggleFigurinha(id) {
+  const item = figurinhasCopa.find(f => f.id === id);
+  if (!item) return;
+  const novoValor = !item.conquistada;
+  item.conquistada = novoValor; // otimista
+  renderFigurinhas();
+  const { error } = await sb.from('fin_figurinhas_copa').update({ conquistada: novoValor }).eq('id', id);
+  if (error) { item.conquistada = !novoValor; renderFigurinhas(); showToast('Erro ao salvar.', 'err'); }
+}
+
 // ── Centros ──
 function openSheetCentro(cid) {
   const c = cid ? centros.find(x => x.id === cid) : null;
@@ -5946,7 +6034,7 @@ const SELFCHECK_ELEMENTOS = [
   'cal-grid','cal-day-modal','cal-day-title','cal-day-body','cal-centro-pills',
   'cal-cat-pills','cal-modo-pag','cal-modo-gastos',
   'page-home','page-lancamentos','page-calendario','page-relatorio','page-carteiras','page-cartoes',
-  'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config'
+  'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config','page-figurinhas'
 ];
 
 // Funções que precisam existir pro app funcionar.
@@ -5956,7 +6044,8 @@ const SELFCHECK_FUNCOES = [
   'checkSharedFile','showToast','doLogin','renderLancamentosLista',
   'itensDoMes','contasAPagarDoMes','faturasEmAbertoDoMes','movsAnaliseDoMes','gastosDoDia',
   'renderCalendario','renderCalDia','abreCalDia','closeCalDayModal','calNavDia',
-  'renderCalendarioGastos','renderCalDiaGastos','setCalModo','setCalCategoriaGasto'
+  'renderCalendarioGastos','renderCalDiaGastos','setCalModo','setCalCategoriaGasto',
+  'renderFigurinhas','toggleFigurinha'
 ];
 
 // Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais

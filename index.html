@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
@@ -429,6 +430,23 @@
     .fig-country-card.completo{opacity:.55;}
     .fig-country-card.completo .fig-country-name::after{content:' ✓';color:#059669;}
 
+    /* ── PDF DO ÁLBUM (só aparece na impressão) ── */
+    #print-album{display:none;}
+    @media print{
+      body *{visibility:hidden;}
+      #print-album,#print-album *{visibility:visible;}
+      #print-album{display:block;position:absolute;top:0;left:0;width:100%;padding:24px;}
+      .pdf-header{text-align:center;border-bottom:3px solid #064E3B;padding-bottom:14px;margin-bottom:20px;}
+      .pdf-title{font-size:22px;font-weight:900;color:#064E3B;letter-spacing:-.3px;}
+      .pdf-sub{font-size:12px;color:#555;margin-top:4px;}
+      .pdf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+      .pdf-team-card{border:1px solid #ddd;border-left:5px solid #064E3B;border-radius:6px;padding:8px 10px;break-inside:avoid;}
+      .pdf-team-name{font-size:13px;font-weight:900;color:#111;margin-bottom:5px;}
+      .pdf-team-nums{display:flex;flex-wrap:wrap;gap:4px;}
+      .pdf-num-chip{display:inline-block;min-width:20px;text-align:center;font-size:11px;font-weight:700;background:#F3F4F6;border:1px solid #ccc;border-radius:4px;padding:2px 5px;}
+      .pdf-footer{margin-top:20px;text-align:center;font-size:10px;color:#999;}
+    }
+
     /* ── FORM FIELDS ── */
     .field{display:flex;flex-direction:column;gap:4px;}
     .field label{font-size:10px;font-weight:700;color:var(--gray);text-transform:uppercase;letter-spacing:.6px;}
@@ -674,7 +692,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.81 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.82 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1063,6 +1081,7 @@
             </div>
           </div>
           <div id="fig-rep-resumo" style="margin-bottom:10px"></div>
+          <input type="text" id="fig-rep-busca" placeholder="🔎 Buscar (ex: TUR17 ou TUR 17)" oninput="renderFigurinhasRepetidas()" style="width:100%;padding:9px 12px;font-size:13px;border:1px solid var(--border);border-radius:8px;font-family:inherit;box-sizing:border-box;margin-bottom:10px"/>
           <div id="fig-rep-lista"></div>
         </div>
 
@@ -1089,6 +1108,9 @@
 </div><!-- /app -->
 
 <div id="toast"></div>
+
+<!-- Container só visível na impressão (Gerar PDF das figurinhas faltantes) -->
+<div id="print-album"></div>
 
 <!-- ⚠️ ELEMENTO CRÍTICO — NÃO REMOVER -->
 <!-- Container do modal de comprovante compartilhado (Web Share Target). -->
@@ -1198,10 +1220,14 @@ let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos =
 let figurinhasCopa = [];
 let figurinhasRepetidas = [];
 let figSubTab = 'faltam';
+let figFaltandoParaPDF = [];
 // Roster completo de seleções/categorias do álbum (inclui as já 100% completas,
 // que por isso nunca entraram em fin_figurinhas_copa). Usado só pro Relatório
 // calcular quantas seleções estão completas.
 const FIG_ROSTER = ['OO','FWC','MEX','RSA','KOR','CZE','CAN','BIH','QAT','SUI','BRA','MAR','HAI','SCO','USA','PAR','AUS','TUR','GER','CUW','CIV','ECU','NED','JPN','SWE','TUN','BEL','EGY','IRN','NZL','ESP','CPV','KSA','URU','FRA','SEN','IRQ','NOR','ARG','ALG','AUT','JOR','POR','COD','UZB','COL','ENG','CRO','GHA','PAN'];
+// Total oficial do álbum Panini FIFA World Cup 2026 (fonte: paninigroup.com):
+// 48 seleções x 20 figurinhas (960) + 19 especiais FWC + 1 logo Panini (a "00") = 980
+const FIG_ALBUM_TOTAL = 980;
 let centroAtual = 'GERAL', mesAtual = new Date(), filterTipo = 'todos', relCentro = 'GERAL';
 let lanceAba = 'todas';
 let calCentro = 'GERAL';   // filtro de centro do calendário (independente do Início)
@@ -5839,13 +5865,13 @@ async function renderFigurinhas() {
     if (error) { lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">⚠️</div><div class="empty-title">Erro ao carregar</div></div>`; return; }
     figurinhasCopa = data || [];
   }
-  const total = figurinhasCopa.length;
-  const conquistadas = figurinhasCopa.filter(f => f.conquistada).length;
-  const pct = total ? Math.round((conquistadas / total) * 100) : 0;
+  const aindaFaltam = figurinhasCopa.filter(f => !f.conquistada).length;
+  const conquistadas = FIG_ALBUM_TOTAL - aindaFaltam;
+  const pct = Math.round((conquistadas / FIG_ALBUM_TOTAL) * 100);
   wrapProg.innerHTML = `
     <div class="fig-progress">
       <div class="fig-progress-label">Conquistadas</div>
-      <div class="fig-progress-value">${conquistadas} de ${total} (${pct}%)</div>
+      <div class="fig-progress-value">${conquistadas} de ${FIG_ALBUM_TOTAL} (${pct}%)</div>
       <div class="fig-progress-bar"><div class="fig-progress-bar-fill" style="width:${pct}%"></div></div>
     </div>`;
   const porSelecao = {};
@@ -5916,7 +5942,23 @@ async function renderFigurinhasRepetidas() {
     lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">🔁</div><div class="empty-title">Nenhuma repetida cadastrada</div></div>`;
     return;
   }
-  const ordenadas = [...figurinhasRepetidas].sort((a, b) => a.selecao === b.selecao ? a.numero - b.numero : a.selecao.localeCompare(b.selecao));
+  // Busca aceita "TUR17", "TUR 17", "tur 17", só "TUR" ou só "17"
+  const buscaRaw = ($('fig-rep-busca')?.value || '').trim().toUpperCase().replace(/\s+/g, '');
+  let base = figurinhasRepetidas;
+  if (buscaRaw) {
+    const m = buscaRaw.match(/^([A-Z]*)(\d*)$/);
+    if (m) {
+      const letras = m[1] || '', digitos = m[2] || '';
+      base = base.filter(f => f.selecao.startsWith(letras) && (!digitos || String(f.numero) === digitos));
+    } else {
+      base = base.filter(f => (f.selecao + f.numero).includes(buscaRaw));
+    }
+  }
+  const ordenadas = [...base].sort((a, b) => a.selecao === b.selecao ? a.numero - b.numero : a.selecao.localeCompare(b.selecao));
+  if (!ordenadas.length) {
+    lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">🔎</div><div class="empty-title">Nada encontrado pra "${buscaRaw}"</div></div>`;
+    return;
+  }
   lista.innerHTML = ordenadas.map(f => `
     <div class="card pad-sm" style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px">
       <div style="font-size:13px;font-weight:800;color:var(--text)">${f.selecao} <span style="color:var(--gray);font-weight:600">${f.numero}</span></div>
@@ -5983,6 +6025,7 @@ async function renderFigurinhasRelatorio() {
   const totalSelecoes = FIG_ROSTER.length;
   const completas = totalSelecoes - faltando.length;
   const totalFaltando = faltando.reduce((s, x) => s + x.itens.length, 0);
+  figFaltandoParaPDF = faltando;
   stats.innerHTML = `
     <div class="stats-grid" style="grid-template-columns:1fr 1fr">
       <div class="stat-card">
@@ -5993,7 +6036,8 @@ async function renderFigurinhasRelatorio() {
         <div class="stat-label">Figurinhas faltando</div>
         <div style="font-size:24px;font-weight:800;color:var(--text)">${totalFaltando}</div>
       </div>
-    </div>`;
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px" onclick="gerarPDFAlbum()">📄 Gerar PDF pra trocar figurinhas</button>`;
   if (!faltando.length) {
     lista.innerHTML = `<div class="empty" style="padding:24px"><div class="empty-icon">🏆</div><div class="empty-title">Álbum completo!</div></div>`;
     return;
@@ -6003,6 +6047,32 @@ async function renderFigurinhasRelatorio() {
       <div style="font-size:13px;font-weight:800;color:var(--text)">${x.sel}</div>
       <div style="font-size:11px;font-weight:700;color:var(--gray)">${x.itens.length} faltando · ${x.itens.map(i => i.numero).sort((a,b)=>a-b).join(', ')}</div>
     </div>`).join('');
+}
+
+// Gera um PDF bonito com as figurinhas faltantes, pra mandar pra quem quiser trocar.
+// Usa a impressão do navegador (Salvar como PDF) — sem depender de biblioteca externa.
+function gerarPDFAlbum() {
+  if (!figFaltandoParaPDF.length) { showToast('Álbum completo — nada faltando!'); return; }
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  const totalFaltam = figFaltandoParaPDF.reduce((s, x) => s + x.itens.length, 0);
+  const cores = ['#5B21B6','#059669','#D97706','#2563EB','#DC2626','#0EA5E9','#7C3AED','#16A34A'];
+  const cardsHtml = figFaltandoParaPDF.map((x, idx) => `
+    <div class="pdf-team-card" style="border-left-color:${cores[idx % cores.length]}">
+      <div class="pdf-team-name">${x.sel}</div>
+      <div class="pdf-team-nums">
+        ${x.itens.map(i => i.numero).sort((a,b)=>a-b).map(n => `<span class="pdf-num-chip">${n}</span>`).join('')}
+      </div>
+    </div>`).join('');
+  $('print-album').innerHTML = `
+    <div class="pdf-header">
+      <div class="pdf-title">🏆 ÁLBUM DA COPA 2026 DO ALEXANDRE</div>
+      <div class="pdf-sub">Figurinhas que faltam — bora trocar! · ${totalFaltam} figurinhas · gerado em ${hoje}</div>
+    </div>
+    <div class="pdf-grid">${cardsHtml}</div>
+    <div class="pdf-footer">Fullfin · Figurinhas Copa</div>`;
+  document.title = 'Album Copa 2026 - Figurinhas Faltantes';
+  window.print();
+  setTimeout(() => { document.title = 'Fullfin'; }, 1000);
 }
 
 // ── Centros ──
@@ -6200,7 +6270,7 @@ const SELFCHECK_ELEMENTOS = [
   'cal-cat-pills','cal-modo-pag','cal-modo-gastos',
   'page-home','page-lancamentos','page-calendario','page-relatorio','page-carteiras','page-cartoes',
   'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config','page-figurinhas',
-  'fig-view-faltam','fig-view-repetidas','fig-view-relatorio'
+  'fig-view-faltam','fig-view-repetidas','fig-view-relatorio','print-album'
 ];
 
 // Funções que precisam existir pro app funcionar.
@@ -6212,7 +6282,7 @@ const SELFCHECK_FUNCOES = [
   'renderCalendario','renderCalDia','abreCalDia','closeCalDayModal','calNavDia',
   'renderCalendarioGastos','renderCalDiaGastos','setCalModo','setCalCategoriaGasto',
   'renderFigurinhas','toggleFigurinha','setFigTab','renderFigurinhasRepetidas','figRepAdicionar',
-  'figRepInc','figRepDec','figRepDelete','renderFigurinhasRelatorio'
+  'figRepInc','figRepDec','figRepDelete','renderFigurinhasRelatorio','gerarPDFAlbum'
 ];
 
 // Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais

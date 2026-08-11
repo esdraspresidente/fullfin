@@ -692,7 +692,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.82 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.83 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -2014,7 +2014,7 @@ function renderPendencias(){
     lista.forEach(m => {
       const cat = catDe(m);
       if(m._custoFixo){
-        html += `<div class="pendencia-item" onclick="pagarCustoFixo('${m._recorrenteId}','${m._mRef}')">`;
+        html += `<div class="pendencia-item" onclick="abrirPagarCustoFixo('${m._recorrenteId}','${m._mRef}')">`;
         html += `<div style="flex:1;min-width:0">`;
         html += `<div class="pendencia-desc">🔄 ${m.descricao}</div>`;
         html += `<div class="pendencia-meta">Vence ${fmtDate(m.data_vencimento)}${getCName(m.centro_id)?' · '+getCName(m.centro_id):''} · custo fixo</div>`;
@@ -2521,7 +2521,7 @@ function renderLancamentosLista(){
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:14px;font-weight:800;color:#B45309">${m.tipo==='entrada'?'+':'-'}${fmt(m.valor)}</div>
           <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end">
-            <button onclick="pagarCustoFixo('${m._recorrenteId}','${m._mRef}')" style="width:28px;height:28px;border-radius:7px;background:#059669;color:#fff;border:none;cursor:pointer;font-size:13px" title="Registrar pagamento">✅</button>
+            <button onclick="abrirPagarCustoFixo('${m._recorrenteId}','${m._mRef}')" style="width:28px;height:28px;border-radius:7px;background:#059669;color:#fff;border:none;cursor:pointer;font-size:13px" title="Registrar pagamento">✅</button>
             <button onclick="goPage('recorrentes')" style="width:28px;height:28px;border-radius:7px;background:#1D4ED8;color:#fff;border:none;cursor:pointer;font-size:12px" title="Editar custo fixo">✏️</button>
           </div>
         </div>
@@ -2820,7 +2820,7 @@ function renderCalDia(iso){
       const tLabel=(sit==='pago'&&m.tipo==='entrada')?'Recebido':t.l;
       // Cada tipo de item leva para a ação certa — igual à lista de Lançamentos.
       const acao=m._fatura      ? `abrirPagarFatura('${m._cartaoId}','${m._mRef}')`
-                : m._custoFixo  ? `pagarCustoFixo('${m._recorrenteId}','${m._mRef}')`
+                : m._custoFixo  ? `abrirPagarCustoFixo('${m._recorrenteId}','${m._mRef}')`
                 :                 `fecharCalEAbrirDetalhe('${m.id}')`;
       const ico=m._fatura?'💳':m._custoFixo?'🔄':getCatIcon(m.categoria_id);
       const centro=getCName(m.centro_id);
@@ -5083,27 +5083,76 @@ async function salvarRecorrente(rid){
   await loadAll(); renderRecorrentes(); closeSheet(); showToast('Custo fixo salvo!');
 }
 
-// Registra o pagamento de um custo fixo previsto: grava UMA movimentação real
-// (paga) no mês. É o único ponto que grava custo fixo — sob ação explícita do usuário.
-async function pagarCustoFixo(recorrenteId, mesISO){
+// Abre o modal de confirmação de pagamento de um custo fixo previsto.
+// Pré-preenche valor/data/carteira/forma com o que está cadastrado no custo fixo,
+// mas deixa o usuário revisar e ajustar antes de gravar — nada é salvo sem essa
+// confirmação explícita (ver confirmarPagamentoCustoFixo).
+let pagCustoFixoCtx=null;
+function abrirPagarCustoFixo(recorrenteId, mesISO){
   const r=recorrentes.find(x=>x.id===recorrenteId);
   if(!r){showToast('Custo fixo não encontrado.','err');return;}
   const [y,m]=mesISO.split('-');
   const ultimoDia=new Date(Number(y),Number(m),0).getDate();
   const dia=Math.min(parseInt(r.dia_vencimento)||1,ultimoDia);
-  const dataMov=`${y}-${m}-${String(dia).padStart(2,'0')}`;
-  const hoje=new Date().toISOString().split('T')[0];
+  const dataSugerida=`${y}-${m}-${String(dia).padStart(2,'0')}`;
+  pagCustoFixoCtx={recorrenteId, mesISO};
+
+  const wOpts=carteiras.filter(w=>w.ativo!==false)
+    .map(w=>`<option value="${w.id}"${w.id===r.carteira_id?' selected':''}>${w.icone||'🏦'} ${w.nome}</option>`).join('');
+  const formas=['Pix','Boleto','Débito','Débito Automático'];
+  const fOpts=formas.map(f=>`<option value="${f}"${f===r.forma_pagamento?' selected':''}>${f}</option>`).join('');
+
+  $('sheet-title').textContent='Pagar custo fixo';
+  $('sheet-body').innerHTML=`
+    <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:14px;margin-bottom:14px">
+      <div style="font-size:13px;font-weight:700">🔄 ${r.descricao}</div>
+    </div>
+    <div class="form-mb field"><label>💰 Valor *</label>
+      <input type="text" data-money="1" id="pcf-valor" inputmode="numeric" value="${_fmtCentavos(Math.round((parseFloat(r.valor)||0)*100))}"/>
+    </div>
+    <div class="form-mb field"><label>📅 Data do pagamento *</label>
+      <input type="date" id="pcf-data" value="${dataSugerida}"/>
+    </div>
+    <div class="form-mb field"><label>De qual carteira *</label>
+      <select id="pcf-carteira"><option value="">Selecione…</option>${wOpts}</select>
+    </div>
+    <div class="form-mb field"><label>Forma de pagamento *</label>
+      <select id="pcf-forma"><option value="">Selecione…</option>${fOpts}</select>
+    </div>
+    <button class="salvar-btn ${r.tipo==='entrada'?'entrada':'saida'}" onclick="confirmarPagamentoCustoFixo()">✓ Confirmar pagamento</button>
+  `;
+  openSheetRaw();
+}
+
+// Grava a movimentação real do custo fixo (paga) no mês, com os dados revisados
+// pelo usuário no modal. É o único ponto que grava custo fixo — sob ação explícita.
+async function confirmarPagamentoCustoFixo(){
+  if(!pagCustoFixoCtx) return;
+  const r=recorrentes.find(x=>x.id===pagCustoFixoCtx.recorrenteId);
+  if(!r){showToast('Custo fixo não encontrado.','err');return;}
+
+  const valor=getMaskValue($('pcf-valor'));
+  const data=$('pcf-data')?.value;
+  const carteiraId=$('pcf-carteira')?.value;
+  const forma=$('pcf-forma')?.value;
+  if(!valor||valor<=0){showToast('Informe o valor.','err');return;}
+  if(!data){showToast('Informe a data.','err');return;}
+  if(!carteiraId){showToast('Selecione a carteira.','err');return;}
+  if(!forma){showToast('Selecione a forma de pagamento.','err');return;}
+
+  const btn=document.querySelector('.salvar-btn'); if(btn){btn.textContent='Salvando…';btn.disabled=true;}
 
   const{error}=await sb.from('fin_movimentacoes').insert([{
-    descricao:r.descricao, valor:r.valor, tipo:r.tipo||'saida',
-    data:hoje, data_vencimento:dataMov, status:'pago',
-    carteira_id:r.carteira_id||null, categoria_id:r.categoria_id||null,
-    centro_id:r.centro_id||null, forma_pagamento:r.forma_pagamento||null,
+    descricao:r.descricao, valor, tipo:r.tipo||'saida',
+    data, data_vencimento:data, status:'pago',
+    carteira_id:carteiraId, categoria_id:r.categoria_id||null,
+    centro_id:r.centro_id||null, forma_pagamento:forma,
     origem:'recorrente'
   }]);
-  if(error){showToast(error.message?('Erro: '+error.message):'Erro ao registrar.','err');return;}
+  if(error){showToast(error.message?('Erro: '+error.message):'Erro ao registrar.','err');if(btn){btn.textContent='✓ Confirmar pagamento';btn.disabled=false;}return;}
   await loadAll();
   renderLancamentosLista();
+  closeSheet();
   showToast('✅ Custo fixo pago e lançado!');
 }
 

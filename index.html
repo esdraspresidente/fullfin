@@ -95,6 +95,30 @@
       async signOut(){try{await fetch(url+'/auth/v1/logout',{method:'POST',headers:hdrs()});}catch(e){}
         _session=null;localStorage.removeItem('supa_sess');notify('SIGNED_OUT',null);}
     };
+    // Devolve um access_token VÁLIDO, renovando pelo refresh_token quando o
+    // atual já venceu. Sem isso o token do login morre em ~1h e toda operação
+    // que depende dele (upload/download no Storage) passa a falhar calada —
+    // o app continua lendo as tabelas normalmente porque elas não exigem token,
+    // então o defeito não aparecia. Só é usado onde o token é obrigatório.
+    async function tokenValido(){
+      if(!_session?.access_token) return null;
+      const expMs = _session.expires_at ? _session.expires_at*1000 : 0;
+      // 60s de folga: evita o token vencer no meio do upload de um arquivo grande.
+      if(expMs && Date.now() < expMs-60000) return _session.access_token;
+      if(!_session.refresh_token) return _session.access_token;
+      try{
+        const r=await fetch(url+'/auth/v1/token?grant_type=refresh_token',{
+          method:'POST',headers:{'Content-Type':'application/json','apikey':key},
+          body:JSON.stringify({refresh_token:_session.refresh_token})
+        });
+        const d=await r.json();
+        if(r.ok && d?.access_token){
+          _session=d; localStorage.setItem('supa_sess',JSON.stringify(d));
+          return d.access_token;
+        }
+      }catch(e){}
+      return _session.access_token; // último recurso: tenta com o que tem
+    }
     function from(table){
       let _filters=[],_orderCol=null,_orderAsc=true,_limit=null;
       const q={
@@ -170,7 +194,7 @@
       };return q;
     }
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else setTimeout(init,0);
-    return{auth,from};
+    return{auth,from,token:tokenValido};
   })();
   </script>
 
@@ -692,7 +716,7 @@
       <div class="sb-icon">💰</div>
       <div>
         <div class="sb-name">Fullfin</div>
-        <div class="sb-version" id="sb-version">v3.83 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.84 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -700,6 +724,7 @@
     <button class="nav-item" id="nav-lancamentos" onclick="goPage('lancamentos')"><span class="nav-icon">💸</span> Lançamentos</button>
     <button class="nav-item" id="nav-calendario" onclick="goPage('calendario')"><span class="nav-icon">📅</span> Calendário</button>
     <button class="nav-item" id="nav-relatorio" onclick="goPage('relatorio')"><span class="nav-icon">📊</span> Relatório</button>
+    <button class="nav-item" id="nav-documentos" onclick="goPage('documentos')"><span class="nav-icon">📁</span> Documentos</button>
     <div class="sb-section">Importar</div>
     <button class="nav-item" id="nav-importar" onclick="goPage('importar')"><span class="nav-icon">📥</span> Importar dados</button>
     <div class="sb-section">Configurar</div>
@@ -792,6 +817,7 @@
             <div class="saldo-geral-sub" id="saldo-geral-sub">soma de todas as carteiras</div>
           </div>
         </div>
+        <div id="doc-alerta-home"></div>
         <div id="faturas-section"></div>
         <div id="pendencias-section"></div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
@@ -954,6 +980,18 @@
         </div>
         <div id="rec-filtros" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
         <div id="recorrentes-lista"></div>
+      </div>
+
+      <!-- ══ DOCUMENTOS ══ -->
+      <div id="page-documentos" class="page">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:10px">
+          <div><div class="page-title">📁 Documentos</div><div class="page-sub">Arquivos da família — RG, CNH, certidões, comprovantes</div></div>
+          <button class="btn btn-primary" onclick="openSheetDocumento()">+ Novo documento</button>
+        </div>
+        <div class="field" style="margin-bottom:12px">
+          <input type="text" id="doc-busca" placeholder="🔎 Buscar por nome… (ex: certidão Pedro)" oninput="renderDocumentosLista()"/>
+        </div>
+        <div id="doc-lista"></div>
       </div>
 
       <!-- ══ CARTÕES ══ -->
@@ -1217,6 +1255,7 @@ const sb = supabase;
 const $ = id => document.getElementById(id);
 let currentUser = null;
 let centros = [], carteiras = [], categorias = [], movimentacoes = [], dizimos = [];
+let documentos = [];
 let figurinhasCopa = [];
 let figurinhasRepetidas = [];
 let figSubTab = 'faltam';
@@ -1364,6 +1403,10 @@ async function loadAll(){
   if(!r12.error) dividaConfirmacoes=r12.data||[];
   const r13=await sb.from('fin_pagamentos_fatura').select().order('created_at',{ascending:false});
   if(!r13.error) pagamentosFatura=r13.data||[];
+  // Documentos vêm no boot (são poucos registros) porque a Home precisa deles
+  // para avisar sobre validade vencendo, mesmo sem abrir a tela Documentos.
+  const r14=await sb.from('fin_documentos').select().order('created_at',{ascending:false});
+  if(!r14.error) documentos=r14.data||[];
 }
 
 // ════════════════════════════════════════════════
@@ -1410,6 +1453,7 @@ function goPage(page){
   if(page==='lancamentos') renderLancamentos();
   if(page==='calendario') renderCalendario();
   if(page==='relatorio') renderRelatorio();
+  if(page==='documentos') renderDocumentos();
   if(page==='importar') initImportar();
   if(page==='carteiras') renderCarteiras();
   if(page==='cartoes') renderCartoes();
@@ -1729,6 +1773,7 @@ function renderHome(){
     sgEl.style.color=saldoGeral<0?'#FCA5A5':'#fff';
     $('saldo-geral-sub').textContent=carteiras.filter(c=>c.ativo!==false).length+' carteira(s) ativa(s)';
   }
+  renderDocAlertaHome();
   // Faturas de cartão agora aparecem unificadas dentro de Pendências (A Pagar)
   const fatSec=$('faturas-section'); if(fatSec) fatSec.innerHTML='';
   // Pendências — contas + faturas de cartão em aberto de qualquer mês
@@ -4546,10 +4591,11 @@ async function uploadComprovante(file, nomeBase){
   try{
     const ext=file.name.split('.').pop();
     const path=`pagamentos/${nomeBase}.${ext}`;
-    const sess=JSON.parse(localStorage.getItem('supa_sess')||'{}');
+    // Token renovado: sem isso o upload falha calado depois de ~1h de app aberto.
+    const tk=await sb.token();
     const r=await fetch(`https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/comprovantes/${path}`,{
       method:'POST',
-      headers:{'Authorization':'Bearer '+sess.access_token,'Content-Type':file.type},
+      headers:{'Authorization':'Bearer '+tk,'Content-Type':file.type},
       body:file
     });
     if(!r.ok) return null;
@@ -5802,10 +5848,10 @@ async function _uploadComprovanteFile(file) {
   const mime = (file.type && file.type !== 'application/octet-stream') ? file.type : _mimeFromExt(file.name);
   const ext = {'image/png':'png','image/jpeg':'jpg','application/pdf':'pdf'}[mime]||'jpg';
   const path = `compartilhados/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-  const sess = JSON.parse(localStorage.getItem('supa_sess')||'{}');
+  const tk = await sb.token();   // token renovado (ver tokenValido no mini-client)
   const r = await fetch(
     `https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/comprovantes/${path}`,
-    { method:'POST', headers:{'Authorization':'Bearer '+sess.access_token,'Content-Type':mime}, body:file }
+    { method:'POST', headers:{'Authorization':'Bearer '+tk,'Content-Type':mime}, body:file }
   );
   if (!r.ok) { const d=await r.json().catch(()=>({})); throw new Error(d.message||`HTTP ${r.status}`); }
   return `https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/public/comprovantes/${path}`;
@@ -5833,6 +5879,235 @@ function fecharComp(){
 function fecharShareModal() {
   $('share-modal')?.classList.remove('open');
   sharedFileObj=null; shareMovSelecionado=null; shareTab='existente';
+}
+
+// ════════════════════════════════════════════════
+//  DOCUMENTOS DA FAMÍLIA
+//  Bucket 'documentos' é PRIVADO (ao contrário de 'comprovantes', que é
+//  público). Documento de identidade não pode ter link que abre sem login.
+//  Por isso ver/baixar não usam URL fixa: geram uma URL assinada que expira
+//  em 1 hora. E toda chamada ao Storage pede o token renovado em sb.token().
+// ════════════════════════════════════════════════
+const DOC_BUCKET='documentos';
+const DOC_MAX_BYTES=25*1024*1024;
+
+function docExtDe(nome){ return (String(nome||'').split('.').pop()||'').toLowerCase(); }
+
+function docMime(file){
+  const t=file.type;
+  if(t && t!=='application/octet-stream') return t;
+  const ext=docExtDe(file.name);
+  return {pdf:'application/pdf',png:'image/png',jpg:'image/jpeg',jpeg:'image/jpeg',
+          webp:'image/webp',heic:'image/heic',heif:'image/heif'}[ext] || 'application/octet-stream';
+}
+
+function docTamanhoLegivel(b){
+  if(!b) return '';
+  if(b<1024) return b+' B';
+  if(b<1024*1024) return (b/1024).toFixed(0)+' KB';
+  return (b/1024/1024).toFixed(1)+' MB';
+}
+
+// Classifica a validade: vencido, vencendo (30 dias) ou em dia.
+function docStatusValidade(validade){
+  if(!validade) return null;
+  const hoje=new Date(); hoje.setHours(0,0,0,0);
+  const v=new Date(validade+'T00:00:00');
+  const dias=Math.round((v-hoje)/86400000);
+  if(dias<0)  return {chave:'vencido', dias, texto:'Vencido há '+Math.abs(dias)+' dia(s)', cor:'#DC2626', fundo:'#FEE2E2'};
+  if(dias<=30) return {chave:'vencendo', dias, texto:dias===0?'Vence hoje':'Vence em '+dias+' dia(s)', cor:'#92400E', fundo:'#FEF3C7'};
+  return {chave:'ok', dias, texto:'Válido até '+v.toLocaleDateString('pt-BR'), cor:'var(--text2)', fundo:'var(--border2)'};
+}
+
+// URL assinada temporária. Sem 'download' o navegador tenta exibir;
+// com 'download' ele salva o arquivo com o nome do documento.
+async function docUrlAssinada(path, nomeDownload){
+  const tk=await sb.token();
+  const r=await fetch(`https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/sign/${DOC_BUCKET}/${path}`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+tk},
+    body:JSON.stringify({expiresIn:3600})
+  });
+  if(!r.ok) throw new Error('Não foi possível gerar o link do arquivo.');
+  const d=await r.json();
+  let url='https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1'+(d.signedURL||d.signedUrl||'');
+  if(nomeDownload) url+='&download='+encodeURIComponent(nomeDownload);
+  return url;
+}
+
+function renderDocumentos(){
+  const b=$('doc-busca'); if(b) b.value='';
+  renderDocumentosLista();
+}
+
+function renderDocumentosLista(){
+  const el=$('doc-lista'); if(!el) return;
+  const termo=($('doc-busca')?.value||'').trim().toLowerCase();
+  const lista=documentos.filter(d=>{
+    if(!termo) return true;
+    return (d.titulo||'').toLowerCase().includes(termo)
+        || (d.observacao||'').toLowerCase().includes(termo);
+  });
+  if(!lista.length){
+    el.innerHTML=`<div style="text-align:center;padding:40px 16px;color:var(--gray);font-size:13px">
+      ${documentos.length?'Nenhum documento encontrado para essa busca.':'Nenhum documento guardado ainda.<br/>Toque em <b>+ Novo documento</b> para subir o primeiro.'}
+    </div>`;
+    return;
+  }
+  el.innerHTML=lista.map(d=>{
+    const st=docStatusValidade(d.validade);
+    const ext=docExtDe(d.arquivo_path);
+    const icone=ext==='pdf'?'📄':'🖼️';
+    const badge=st?`<span style="font-size:10px;font-weight:700;color:${st.cor};background:${st.fundo};border-radius:6px;padding:3px 7px">${st.texto}</span>`:'';
+    const meta=[docTamanhoLegivel(d.tamanho), d.created_at?new Date(d.created_at).toLocaleDateString('pt-BR'):''].filter(Boolean).join(' · ');
+    return `<div style="background:var(--white);border:1px solid var(--border);border-radius:12px;padding:12px 14px;margin-bottom:8px">
+      <div style="display:flex;align-items:flex-start;gap:10px">
+        <div style="font-size:20px;line-height:1">${icone}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;color:var(--text);word-break:break-word">${d.titulo||'(sem nome)'}</div>
+          <div style="font-size:11px;color:var(--gray);margin-top:2px">${meta}</div>
+          ${d.observacao?`<div style="font-size:11px;color:var(--text2);margin-top:4px;word-break:break-word">${d.observacao}</div>`:''}
+          ${badge?`<div style="margin-top:6px">${badge}</div>`:''}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px">
+        <button class="btn btn-secondary" style="flex:1;font-size:12px;padding:7px" onclick="verDocumento('${d.id}')">👁 Ver</button>
+        <button class="btn btn-secondary" style="flex:1;font-size:12px;padding:7px" onclick="baixarDocumento('${d.id}')">⬇ Baixar</button>
+        <button style="padding:7px 12px;border-radius:10px;background:#FEE2E2;color:#DC2626;border:none;font-weight:700;font-size:12px;cursor:pointer;font-family:inherit" onclick="excluirDocumento('${d.id}')">🗑</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Aviso na Home: só aparece quando existe documento vencido ou vencendo.
+function renderDocAlertaHome(){
+  const el=$('doc-alerta-home'); if(!el) return;
+  const alertas=documentos.map(d=>({d,st:docStatusValidade(d.validade)}))
+    .filter(x=>x.st && (x.st.chave==='vencido'||x.st.chave==='vencendo'))
+    .sort((a,b)=>a.st.dias-b.st.dias);
+  if(!alertas.length){ el.innerHTML=''; return; }
+  const temVencido=alertas.some(x=>x.st.chave==='vencido');
+  const cor=temVencido?'#DC2626':'#92400E', fundo=temVencido?'#FEE2E2':'#FEF3C7', borda=temVencido?'#FCA5A5':'#FDE68A';
+  el.innerHTML=`<div style="background:${fundo};border:1px solid ${borda};border-radius:12px;padding:12px 14px;margin-bottom:14px;cursor:pointer" onclick="goPage('documentos')">
+    <div style="font-size:12px;font-weight:700;color:${cor};margin-bottom:6px">📁 Documento com validade a vencer</div>
+    ${alertas.slice(0,4).map(x=>`<div style="font-size:12px;color:${cor};display:flex;justify-content:space-between;gap:8px;margin-top:3px">
+      <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${x.d.titulo}</span>
+      <span style="flex-shrink:0">${x.st.texto}</span></div>`).join('')}
+    ${alertas.length>4?`<div style="font-size:11px;color:${cor};margin-top:6px;opacity:.8">+${alertas.length-4} outro(s)</div>`:''}
+  </div>`;
+}
+
+function openSheetDocumento(){
+  $('sheet-title').textContent='Novo documento';
+  $('sheet-body').innerHTML=`
+    <div class="form-mb field"><label>Arquivo * (PDF ou foto, até 25 MB)</label>
+      <input type="file" id="doc-file" accept=".pdf,.png,.jpg,.jpeg,.webp,.heic" style="padding:8px;background:#F9FAFB;border:1px solid var(--border);border-radius:8px;width:100%;font-size:12px" onchange="docSugereTitulo()"/>
+    </div>
+    <div class="form-mb field"><label>Nome do documento *</label>
+      <input type="text" id="doc-titulo" placeholder="Ex: Certidão de nascimento do Pedro"/>
+    </div>
+    <div class="form-mb field"><label>Validade (opcional)</label>
+      <input type="date" id="doc-validade"/>
+      <div style="font-size:11px;color:var(--gray);margin-top:4px">CNH, passaporte etc. Avisa na tela inicial 30 dias antes.</div>
+    </div>
+    <div class="form-mb field"><label>Observação (opcional)</label>
+      <input type="text" id="doc-obs" placeholder="Ex: via digital, 2ª via emitida em 2024"/>
+    </div>
+    <button class="salvar-btn entrada" style="margin-top:16px" id="doc-salvar-btn" onclick="salvarDocumento()">Salvar documento</button>
+  `;
+  openSheetRaw();
+}
+
+// Preenche o nome com o do arquivo, só para poupar digitação; o campo é editável.
+function docSugereTitulo(){
+  const f=$('doc-file')?.files?.[0]; const t=$('doc-titulo');
+  if(!f || !t || t.value.trim()) return;
+  t.value=f.name.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();
+}
+
+async function salvarDocumento(){
+  const file=$('doc-file')?.files?.[0];
+  const titulo=($('doc-titulo')?.value||'').trim();
+  if(!file){ showToast('Escolha o arquivo.','err'); return; }
+  if(!titulo){ showToast('Dê um nome ao documento.','err'); return; }
+  if(file.size>DOC_MAX_BYTES){ showToast('Arquivo maior que 25 MB.','err'); return; }
+
+  const btn=$('doc-salvar-btn');
+  if(btn){ btn.textContent='Enviando…'; btn.disabled=true; btn.style.opacity='.7'; }
+  try{
+    const mime=docMime(file);
+    const ext=docExtDe(file.name)||'bin';
+    const path=`familia/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+    const tk=await sb.token();
+    if(!tk) throw new Error('Sessão expirada. Entre novamente.');
+
+    const r=await fetch(`https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/${DOC_BUCKET}/${path}`,{
+      method:'POST',
+      headers:{'Authorization':'Bearer '+tk,'Content-Type':mime},
+      body:file
+    });
+    if(!r.ok){
+      const d=await r.json().catch(()=>({}));
+      throw new Error(d.message||`Falha no envio (HTTP ${r.status})`);
+    }
+
+    // O registro no banco só entra depois que o arquivo subiu, para nunca
+    // sobrar item na lista apontando para arquivo que não existe.
+    const {error}=await sb.from('fin_documentos').insert([{
+      titulo,
+      validade:$('doc-validade')?.value||null,
+      observacao:($('doc-obs')?.value||'').trim()||null,
+      arquivo_path:path,
+      mime,
+      tamanho:file.size,
+      criado_por:(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.user?.email)||null
+    }]);
+    if(error) throw new Error(error.message||'Erro ao gravar o documento.');
+
+    await loadAll();
+    closeSheet(); renderDocumentosLista(); showToast('Documento guardado!');
+  }catch(e){
+    showToast('Erro: '+(e.message||'tente novamente'),'err');
+    if(btn){ btn.textContent='Salvar documento'; btn.disabled=false; btn.style.opacity='1'; }
+  }
+}
+
+async function verDocumento(id){
+  const d=documentos.find(x=>x.id===id); if(!d) return;
+  try{
+    showToast('Abrindo…','info');
+    const url=await docUrlAssinada(d.arquivo_path);
+    abrirComprovante(url);
+  }catch(e){ showToast('Erro: '+(e.message||'não foi possível abrir'),'err'); }
+}
+
+async function baixarDocumento(id){
+  const d=documentos.find(x=>x.id===id); if(!d) return;
+  try{
+    const ext=docExtDe(d.arquivo_path);
+    const nome=(d.titulo||'documento').replace(/[\\/:*?"<>|]+/g,'-')+'.'+ext;
+    const url=await docUrlAssinada(d.arquivo_path,nome);
+    const a=document.createElement('a');
+    a.href=url; a.download=nome; a.target='_blank'; a.rel='noopener';
+    document.body.appendChild(a); a.click(); a.remove();
+  }catch(e){ showToast('Erro: '+(e.message||'não foi possível baixar'),'err'); }
+}
+
+function excluirDocumento(id){
+  const d=documentos.find(x=>x.id===id); if(!d) return;
+  openConfirm('Excluir este documento?','"'+(d.titulo||'')+'" será apagado junto com o arquivo. Não dá para desfazer.',async()=>{
+    try{
+      const tk=await sb.token();
+      // Apaga o arquivo primeiro; se falhar, o registro fica e nada some da lista.
+      const r=await fetch(`https://ggyngtqknonwnohbzkyj.supabase.co/storage/v1/object/${DOC_BUCKET}/${d.arquivo_path}`,{
+        method:'DELETE', headers:{'Authorization':'Bearer '+tk}
+      });
+      if(!r.ok && r.status!==404) throw new Error('Falha ao apagar o arquivo.');
+      const {error}=await sb.from('fin_documentos').delete().eq('id',id);
+      if(error) throw new Error(error.message||'Falha ao apagar o registro.');
+      await loadAll(); renderDocumentosLista(); showToast('Documento excluído.','info');
+    }catch(e){ showToast('Erro: '+(e.message||'tente novamente'),'err'); }
+  },'🗑 Excluir');
 }
 // ════════════════════════════════════════════════
 //  CONFIGURAÇÕES — Centros de custo & Categorias
@@ -6319,6 +6594,7 @@ const SELFCHECK_ELEMENTOS = [
   'cal-cat-pills','cal-modo-pag','cal-modo-gastos',
   'page-home','page-lancamentos','page-calendario','page-relatorio','page-carteiras','page-cartoes',
   'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config','page-figurinhas',
+  'page-documentos','doc-lista','doc-busca','doc-alerta-home','comp-modal','comp-body','comp-link',
   'fig-view-faltam','fig-view-repetidas','fig-view-relatorio','print-album'
 ];
 
@@ -6331,7 +6607,10 @@ const SELFCHECK_FUNCOES = [
   'renderCalendario','renderCalDia','abreCalDia','closeCalDayModal','calNavDia',
   'renderCalendarioGastos','renderCalDiaGastos','setCalModo','setCalCategoriaGasto',
   'renderFigurinhas','toggleFigurinha','setFigTab','renderFigurinhasRepetidas','figRepAdicionar',
-  'figRepInc','figRepDec','figRepDelete','renderFigurinhasRelatorio','gerarPDFAlbum'
+  'figRepInc','figRepDec','figRepDelete','renderFigurinhasRelatorio','gerarPDFAlbum',
+  'renderDocumentos','renderDocumentosLista','renderDocAlertaHome','openSheetDocumento',
+  'docSugereTitulo','salvarDocumento','verDocumento','baixarDocumento','excluirDocumento',
+  'docUrlAssinada','docStatusValidade','abrirComprovante','fecharComp'
 ];
 
 // Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais

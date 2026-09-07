@@ -1,22 +1,22 @@
 {
   "name": "Fullfin — Controle Financeiro",
   "short_name": "Fullfin",
-  "description": "Controle financeiro do Escritório Naiarha",
+  "description": "Controle financeiro da casa e dos negócios",
   "start_url": "/fullfin/",
   "scope": "/fullfin/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#064E3B",
-  "theme_color": "#064E3B",
+  "background_color": "#0B1F5C",
+  "theme_color": "#0B1F5C",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "ff-icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icon-512.png",
+      "src": "ff-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

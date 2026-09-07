@@ -1,10 +1,10 @@
-const CACHE = 'fullfin-v3.84';
+const CACHE = 'fullfin-v3.85';
 const SHARE_CACHE = 'fullfin-share';
 const ASSETS = [
   '/fullfin/',
   '/fullfin/index.html',
   '/fullfin/manifest.json',
-  '/fullfin/icon-192.png'
+  '/fullfin/ff-icon-192.png'
 ];
 
 self.addEventListener('install', e => {

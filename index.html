@@ -747,7 +747,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.86 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.87 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -822,7 +822,7 @@
           <div class="saldo-value" id="saldo-mes">R$ 0,00</div>
           <div class="saldo-sub" id="saldo-sub">Carregando…</div>
           <div class="saldo-row">
-            <div><div class="saldo-item-label">▲ Entradas</div><div class="saldo-item-value verde" id="saldo-ent">—</div></div>
+            <div><div class="saldo-item-label">▲ Entradas</div><div class="saldo-item-value verde" id="saldo-ent">—</div><div id="saldo-ent-capital" style="display:none;font-size:10px;opacity:.85;margin-top:2px"></div></div>
             <div><div class="saldo-item-label">▼ Saídas</div><div class="saldo-item-value vermelho" id="saldo-sai">—</div></div>
           </div>
         </div>
@@ -1572,6 +1572,18 @@ const ehCompraCartao = m => !!m.cartao_id && m.origem !== 'fatura';
 // precisa ser excluída de qualquer soma de Entradas/Saídas/Custos/Receita.
 const ehTransferencia = m => m.origem === 'transferencia';
 
+// Capital de empréstimo que caiu numa carteira (lançado ao cadastrar a dívida).
+// É dinheiro real no bolso, então ENTRA no saldo da carteira (calcSaldoCarteira
+// soma tudo). Mas não é receita: é dívida. Se entrasse em Entradas/Receita/
+// Lucro Real, o mês do crédito pareceria um mês de faturamento alto e ainda
+// seria contado de novo como custo quando as parcelas fossem pagas.
+// Por isso fica fora de toda soma de resultado e aparece separado no Início.
+const ehCapitalDivida = m => m.origem === 'divida_capital';
+
+// Movimento que mexe no saldo da carteira mas não é receita nem despesa.
+// Ponto único: se surgir outro caso parecido, entra aqui e vale para todas as telas.
+const foraDoResultado = m => ehTransferencia(m) || ehCapitalDivida(m);
+
 // ── FATURAS DE CARTÃO ──────────────────────────────
 // Total já pago de uma fatura (soma dos pagamentos parciais registrados)
 function totalPagoFatura(cartaoId, mesRef){
@@ -1706,7 +1718,7 @@ function contasAPagarDoMes(mesISO, centroId){
 // Nunca incluir os dois (compras + fatura) na mesma soma: dobraria todo gasto.
 function movsAnaliseDoMes(mesISO, centroId){
   return movsVisiveis().filter(m=>{
-    if(ehTransferencia(m)) return false;                 // troca de bolso, não é gasto
+    if(foraDoResultado(m)) return false;                 // troca de bolso ou capital de empréstimo: não é receita nem gasto
     if(!_matchCentro(m.centro_id, centroId)) return false;
     if(ehCompraCartao(m)) return (m.data_vencimento||'').startsWith(mesISO);
     if(m.origem==='fatura') return false;                // evita contar em dobro
@@ -1725,8 +1737,11 @@ function calcMes(){
   const movs=movsVisiveis();
   const fl=m=>(centroAtual==='GERAL'||m.centro_id===centroAtual)&&mesRefMov(m).startsWith(mesISO);
   const movsFil=movs.filter(fl);
-  const ent=movsFil.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const ent=movsFil.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!foraDoResultado(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const sai=movsFil.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!foraDoResultado(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  // Capital de empréstimo recebido no mês: fora de "Entradas" (não é receita),
+  // mas exibido à parte para o dinheiro que caiu na conta não sumir da vista.
+  const cap=movsFil.filter(m=>ehCapitalDivida(m)&&m.status==='pago').reduce((s,m)=>s+parseFloat(m.valor||0),0);
   // Custos fixos previstos (virtuais) entram em "a receber"/"a pagar", nunca em pago.
   // Só o lado "a receber" é somado aqui; o lado "a pagar" vem de contasAPagarDoMes.
   const cfix=custosFixosVirtuais(mesISO).filter(cf=>centroAtual==='GERAL'||cf.centro_id===centroAtual);
@@ -1736,18 +1751,18 @@ function calcMes(){
   // previstos. Antes esta linha somava só os lançamentos reais + custos fixos, e por
   // isso o card do Início mostrava MENOS que a aba "Contas a pagar" de Lançamentos.
   const aPag=contasAPagarDoMes(mesISO, centroAtual).reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  return{ent,sai,aRec,aPag,saldo:ent-sai,mesISO,movs:movsFil};
+  return{ent,sai,cap,aRec,aPag,saldo:ent-sai,mesISO,movs:movsFil};
 }
 
 function calcLucroReal(mesISO){
   const movs=movsVisiveis().filter(m=>mesRefMov(m).startsWith(mesISO));
-  const receita=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  const custos =movs.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const receita=movs.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!foraDoResultado(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const custos =movs.filter(m=>m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!foraDoResultado(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
   const lucro=receita-custos;
   const porCentro=centros.map(c=>({
     nome:c.nome,icone:c.icone,id:c.id,
-    ent:movs.filter(m=>m.centro_id===c.id&&m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
-    sai:movs.filter(m=>m.centro_id===c.id&&m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
+    ent:movs.filter(m=>m.centro_id===c.id&&m.tipo==='entrada'&&m.status==='pago'&&!foraDoResultado(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
+    sai:movs.filter(m=>m.centro_id===c.id&&m.tipo==='saida'  &&m.status==='pago'&&!ehCompraCartao(m)&&!foraDoResultado(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0),
   })).map(c=>({...c,saldo:c.ent-c.sai}));
   // Base do dízimo = saídas pagas dos centros PESSOAIS (Casa/Família, Esdras,
   // Naiarha, Imóveis) — dinheiro que entrou no negócio e foi gasto/retirado
@@ -1760,7 +1775,7 @@ function calcLucroReal(mesISO){
   // vira "gasto pessoal" e infla a base do próximo dízimo (efeito cascata).
   const _catsDizimoOferta = categorias.filter(c=>/d[ií]zimo|oferta/i.test(c.nome||'')).map(c=>c.id);
   const prolabore = centrosDizimo.length
-    ? movs.filter(m=>centrosDizimo.some(c=>c.id===m.centro_id)&&m.tipo==='saida'&&m.status==='pago'&&!ehCompraCartao(m)&&!ehTransferencia(m)&&!_catsDizimoOferta.includes(m.categoria_id)).reduce((s,m)=>s+parseFloat(m.valor||0),0)
+    ? movs.filter(m=>centrosDizimo.some(c=>c.id===m.centro_id)&&m.tipo==='saida'&&m.status==='pago'&&!ehCompraCartao(m)&&!foraDoResultado(m)&&!_catsDizimoOferta.includes(m.categoria_id)).reduce((s,m)=>s+parseFloat(m.valor||0),0)
     : 0;
   const centroCasaNome = centrosDizimo.length ? centrosDizimo.map(c=>c.nome).join(' + ') : 'Casa/Família';
   return{receita,custos,lucro,prolabore,centroCasaNome,dizimo:prolabore*0.1,porCentro};
@@ -1778,12 +1793,15 @@ function calcSaldoCarteira(cid){
 //  HOME
 // ════════════════════════════════════════════════
 function renderHome(){
-  const {ent,sai,aRec,aPag,saldo,mesISO,movs}=calcMes();
+  const {ent,sai,cap,aRec,aPag,saldo,mesISO,movs}=calcMes();
   const nomeMes=MESES[mesAtual.getMonth()]+' '+mesAtual.getFullYear();
   const centrNome=centroAtual==='GERAL'?'Todos os centros':centros.find(c=>c.id===centroAtual)?.nome||'';
   $('saldo-mes').textContent=fmt(saldo);
   $('saldo-sub').textContent=nomeMes+' · '+centrNome;
   $('saldo-ent').textContent=fmt(ent);
+  // Linha própria para capital de empréstimo — só aparece se houve crédito no mês.
+  const capEl=$('saldo-ent-capital');
+  if(capEl){ capEl.style.display=cap>0?'block':'none'; capEl.textContent=cap>0?('+ '+fmt(cap)+' de empréstimo'):''; }
   $('saldo-sai').textContent=fmt(sai);
   $('stat-rec').textContent=fmt(aRec);
   $('stat-pag').textContent=fmt(aPag);
@@ -2145,6 +2163,7 @@ function getOrigBadge(origem){
   if(origem==='previmater') return '<span class="badge-previmater">PreviMater</span>';
   if(origem==='diligencia') return '<span class="badge-diligencia">Diligências</span>';
   if(origem==='divida') return '<span class="badge-divida">Dívida</span>';
+  if(origem==='divida_capital') return '<span class="badge-divida">Capital de empréstimo</span>';
   return '';
 }
 
@@ -2431,6 +2450,7 @@ function lancamentoFaltantes(m){
   if(!m) return [];
   if(m._fatura || m._custoFixo) return [];            // linhas virtuais, não são lançamentos reais
   if(ehTransferencia(m)) return [];                   // transferência tem lógica própria
+  if(ehCapitalDivida(m)) return [];                   // capital de empréstimo: não tem categoria de receita nem forma de pagamento — é crédito do banco/credor
   if(m.tipo==='a_pagar' || m.tipo==='a_receber') return []; // sem carteira/forma por definição
   const faltando=[];
   if(!m.categoria_id)     faltando.push('Categoria');
@@ -2515,8 +2535,8 @@ function renderLancamentosLista(){
   // "Contas a receber"/"Contas a pagar" = só o que está PENDENTE (ainda vai sair/entrar).
   // Cada lançamento cai em UM dos dois grupos — nunca nos dois ao mesmo tempo.
   const todas=base;
-  const entradas=base.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!ehTransferencia(m));
-  const saidas=base.filter(m=>m.tipo==='saida'&&m.status==='pago'&&!ehTransferencia(m));
+  const entradas=base.filter(m=>m.tipo==='entrada'&&m.status==='pago'&&!foraDoResultado(m));
+  const saidas=base.filter(m=>m.tipo==='saida'&&m.status==='pago'&&!foraDoResultado(m));
   const aReceber=base.filter(m=>m.tipo==='entrada'&&m.status!=='pago');
   const aPagar=base.filter(m=>m.tipo==='saida'&&m.status!=='pago');
   const incompletos=base.filter(m=>lancamentoIncompleto(m));
@@ -3089,7 +3109,7 @@ async function exportarExcelMes(){
     }));
 
     // ── 3) RESUMO do mês ──
-    const somaSit=(tipo,pago)=>movs.filter(m=>m.tipo===tipo&&(pago?m.status==='pago':m.status!=='pago')&&!ehTransferencia(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+    const somaSit=(tipo,pago)=>movs.filter(m=>m.tipo===tipo&&(pago?m.status==='pago':m.status!=='pago')&&!foraDoResultado(m)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
     const entPago=somaSit('entrada',true), saiPago=somaSit('saida',true);
     const aReceber=somaSit('entrada',false), aPagar=somaSit('saida',false);
     const totalFaturasRestante=linhasFatura.reduce((s,f)=>s+f['Restante'],0);
@@ -4360,10 +4380,25 @@ function openSheetDivida(did){
   const catDividaOpts=categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos').map(c=>`<option value="${c.id}"${d?.categoria_id===c.id?' selected':''}>${c.icone} ${c.nome}</option>`).join('');
   const wOpts=carteiras.map(c=>`<option value="${c.id}"${d?.carteira_id===c.id?' selected':''}>${c.icone||''} ${c.nome}</option>`).join('');
   const modoAtual=d?.tipo_controle||'parcelas';
+  // Na edição o bloco de capital não aparece: a regra vale só para dívida nova.
+  // Se já houver capital lançado, mostra só a informação (corrige-se pelo lançamento).
+  const capExistente=d?movimentacoes.find(m=>m.divida_id===d.id&&ehCapitalDivida(m)):null;
+  const tipoNovo=d?.tipo||'emprestimo';
+  const blocoCapital=!d?`
+    <div id="div-capital-wrap" style="display:${(tipoNovo==='emprestimo'||tipoNovo==='financiamento')?'block':'none'};margin-top:14px">
+      <label style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--accent-bg);border-radius:10px;cursor:pointer">
+        <input type="checkbox" id="div-capital-chk" onchange="divToggleCapital()" style="width:18px;height:18px;accent-color:var(--accent)"/>
+        <div><div style="font-size:13px;font-weight:700;color:var(--accent)">O dinheiro entrou numa carteira</div><div style="font-size:11px;color:var(--gray)">Marque se é empréstimo novo e o valor caiu na conta. Deixe desmarcado para dívida antiga ou financiamento pago direto ao vendedor.</div></div>
+      </label>
+      <div id="div-capital-campos" class="form-grid-2" style="display:none;margin-top:10px">
+        <div class="field"><label>Valor recebido (R$) *</label><input type="text" data-money="1" id="div-capital-valor" placeholder="0,00"/></div>
+        <div class="field"><label>Data do crédito *</label><input type="date" id="div-capital-data"/></div>
+      </div>
+    </div>`:(capExistente?`<div style="margin-top:14px;padding:10px 12px;background:var(--accent-bg);border-radius:10px;font-size:12px;color:var(--accent)">Capital lançado: <b>${fmt(capExistente.valor)}</b> em ${fmtDate(capExistente.data)}${getWName(capExistente.carteira_id)?(' · '+getWName(capExistente.carteira_id)):''}. Para corrigir, edite o lançamento.</div>`:'');
   $('sheet-body').innerHTML=`
     <div class="form-mb field"><label>Descrição *</label><input type="text" id="div-desc" placeholder="Ex: Dívida com Lucas" value="${d?.descricao||''}"/></div>
     <div class="form-mb field"><label>Tipo</label>
-      <select id="div-tipo">
+      <select id="div-tipo" onchange="divToggleCapital()">
         <option value="emprestimo"${d?.tipo==='emprestimo'?' selected':''}>Empréstimo</option>
         <option value="financiamento"${d?.tipo==='financiamento'?' selected':''}>Financiamento</option>
         <option value="cartao_parcelado"${d?.tipo==='cartao_parcelado'?' selected':''}>Cartão parcelado</option>
@@ -4397,6 +4432,7 @@ function openSheetDivida(did){
       <div class="field"><label>Categoria</label><select id="div-categoria"><option value="">Sem categoria</option>${catDividaOpts}</select></div>
     </div>
     <div class="form-mb field" style="margin-top:10px"><label>Carteira</label><select id="div-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
+    ${blocoCapital}
     <label style="display:flex;align-items:center;gap:10px;padding:12px;background:#E6E9F6;border-radius:10px;cursor:pointer;margin-top:14px;margin-bottom:8px">
       <input type="checkbox" id="div-confirmacao" ${d?.envia_confirmacao?'checked':''} onchange="divToggleEmail()" style="width:18px;height:18px;accent-color:#6F7FC6"/>
       <div><div style="font-size:13px;font-weight:700;color:#6F7FC6"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13l2.5-8h13L21 13v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1zM3 13h5l1.5 3h5L16 13h5"/></svg> Confirmação bilateral</div><div style="font-size:11px;color:#8A92AD">Envia email ao credor para confirmar cada pagamento</div></div>
@@ -4422,6 +4458,21 @@ function divSetModo(modo){
   btnL.style.color=modo==='livre'?'var(--accent)':'var(--gray)';
 }
 
+// Mostra o bloco de capital só para Empréstimo/Financiamento (cartão parcelado
+// nunca gera dinheiro na conta) e os campos só com o checkbox marcado.
+function divToggleCapital(){
+  const wrap=$('div-capital-wrap'); if(!wrap) return; // edição não tem o bloco
+  const t=$('div-tipo')?.value;
+  wrap.style.display=(t==='emprestimo'||t==='financiamento')?'block':'none';
+  const marcado=!!$('div-capital-chk')?.checked;
+  $('div-capital-campos').style.display=marcado?'grid':'none';
+  // Sugere a data de início como data do crédito — é o caso mais comum.
+  if(marcado && !$('div-capital-data').value){
+    const ini=$('div-inicio-parc')?.value||$('div-inicio-livre')?.value||'';
+    if(ini) $('div-capital-data').value=ini;
+  }
+}
+
 function divToggleEmail(){
   $('div-email-wrap').style.display=$('div-confirmacao')?.checked?'block':'none';
 }
@@ -4433,6 +4484,20 @@ async function salvarDivida(did){
   if(!inicio){showToast('Informe a data de início.','err');return;}
   const temConfirmacao=!!$('div-confirmacao')?.checked;
   if(temConfirmacao && !$('div-credor-email')?.value){showToast('Informe o email do credor.','err');return;}
+  // Capital recebido: validado ANTES de gravar a dívida, para nunca ficar
+  // uma dívida salva sem a entrada que o usuário pediu (meio cadastro).
+  const tipoSel=$('div-tipo').value;
+  const lancarCapital=!did && (tipoSel==='emprestimo'||tipoSel==='financiamento') && !!$('div-capital-chk')?.checked;
+  let capValor=0, capData=null, capCarteira=null;
+  if(lancarCapital){
+    capValor=getMaskValue($('div-capital-valor'))||0;
+    capData=$('div-capital-data')?.value||null;
+    capCarteira=$('div-carteira').value||null;
+    if(!(capValor>0)){showToast('Informe o valor recebido.','err');return;}
+    if(!capData){showToast('Informe a data do crédito.','err');return;}
+    // Sem carteira o dinheiro não teria onde entrar — o saldo não mudaria.
+    if(!capCarteira){showToast('Escolha a carteira onde o dinheiro entrou.','err');return;}
+  }
   const payload={
     descricao:desc, tipo:$('div-tipo').value,
     tipo_controle:modo,
@@ -4459,7 +4524,25 @@ async function salvarDivida(did){
   if(!did && modo==='parcelas' && novaDividaId){
     await gerarParcelasFuturasDivida(novaDividaId, payload, desc);
   }
-  await loadAll(); renderDividas(); closeSheet(); showToast(did?'Atualizado!':'Dívida adicionada!');
+  let msgOk=did?'Atualizado!':'Dívida adicionada!';
+  if(lancarCapital){
+    if(!novaDividaId){
+      showToast('Dívida salva, mas não consegui lançar o capital recebido — lance manualmente.','err');
+    }else{
+      const{error:eCap}=await sb.from('fin_movimentacoes').insert([{
+        descricao:`${desc} — Capital recebido`,
+        valor:capValor, tipo:'entrada', status:'pago',
+        data:capData, data_vencimento:capData,
+        carteira_id:capCarteira, centro_id:payload.centro_id||null,
+        // categoria da dívida é de SAÍDA; não serve para esta entrada
+        categoria_id:null,
+        divida_id:novaDividaId, origem:'divida_capital'
+      }]);
+      if(eCap){ console.error('Erro ao lançar capital:',eCap); showToast('Dívida salva, mas o capital não entrou na carteira: '+(eCap.message||''),'err'); }
+      else msgOk=`Dívida adicionada + ${fmt(capValor)} de capital em ${getWName(capCarteira)||'carteira'}.`;
+    }
+  }
+  await loadAll(); renderDividas(); closeSheet(); showToast(msgOk);
 }
 
 // Cria em Lançamentos, de uma vez, as parcelas ainda não pagas de uma dívida "Por parcelas",
@@ -4755,9 +4838,19 @@ async function confirmarPagamentoDivida(did){
 }
 
 async function deleteDivida(did){
-  openConfirm('Remover dívida?','Lançamentos de pagamento não serão removidos.',async()=>{
+  // A entrada de capital sai junto: sem a dívida, ela viraria dinheiro
+  // "fantasma" no saldo da carteira. Pagamentos continuam (dinheiro que de fato saiu).
+  // Apaga por ID, um a um: o mini-client só guarda o ÚLTIMO .eq() no delete,
+  // então .eq('divida_id').eq('origem') apagaria o capital de TODAS as dívidas.
+  const capitais=movimentacoes.filter(m=>m.divida_id===did&&ehCapitalDivida(m));
+  const aviso=capitais.length?'Lançamentos de pagamento não serão removidos. A entrada do capital recebido será removida.':'Lançamentos de pagamento não serão removidos.';
+  openConfirm('Remover dívida?',aviso,async()=>{
+    for(const c of capitais){
+      const{error:eDel}=await sb.from('fin_movimentacoes').delete().eq('id',c.id);
+      if(eDel){ showToast('Não consegui remover a entrada do capital; a dívida foi mantida.','err'); return; }
+    }
     await sb.from('fin_dividas').delete().eq('id',did);
-    await loadAll(); renderDividas(); showToast('Removida.','info');
+    await loadAll(); renderDividas(); showToast(capitais.length?'Dívida e entrada do capital removidas.':'Removida.','info');
   },'Remover');
 }
 

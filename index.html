@@ -185,14 +185,53 @@
               .catch(e=>resolve({error:e}));
           }
         };},
+        // LEITURA PAGINADA.
+        // Por que: o PostgREST devolve no máximo 1.000 linhas por consulta e
+        // corta o resto SEM AVISAR. Em out/26 fin_movimentacoes passou de
+        // 1.000 linhas; os lançamentos mais antigos sumiram do app, os saldos
+        // das carteiras ficaram errados e diligências já importadas voltaram
+        // para a tela Importar e foram importadas de novo (duplicadas).
+        // Agora busca página por página até trazer tudo.
         then(resolve){
-          let qs='?select=*';
-          if(_filters.length)qs+='&'+_filters.join('&');
-          if(_orderCol)qs+='&order='+_orderCol+'.'+(_orderAsc?'asc':'desc');
-          if(_limit)qs+='&limit='+_limit;
-          fetch(url+'/rest/v1/'+table+qs,{headers:hdrs()})
-            .then(r=>r.json().then(d=>resolve(r.ok?{data:d,error:null}:{data:null,error:d})))
-            .catch(e=>resolve({data:null,error:e}));
+          let base='?select=*';
+          if(_filters.length)base+='&'+_filters.join('&');
+          // id como desempate: paginar com offset sobre uma ordem com empates
+          // (várias linhas na mesma data) pode repetir ou pular linhas entre
+          // uma página e outra. Toda tabela lida pelo app tem coluna id.
+          if(_orderCol)base+='&order='+_orderCol+'.'+(_orderAsc?'asc':'desc')+(_orderCol!=='id'?',id.asc':'');
+          if(_limit){
+            // Limite pedido explicitamente: uma consulta só, como antes.
+            fetch(url+'/rest/v1/'+table+base+'&limit='+_limit,{headers:hdrs()})
+              .then(r=>r.json().then(d=>resolve(r.ok?{data:d,error:null}:{data:null,error:d})))
+              .catch(e=>resolve({data:null,error:e}));
+            return;
+          }
+          (async()=>{
+            const PAG=1000;
+            let todas=[], total=null, off=0;
+            try{
+              for(;;){
+                // count=exact só na 1ª página: devolve o total no Content-Range
+                // ("0-999/1189"). Assim o laço não depende de saber o teto do
+                // servidor — se um dia baixarem para 500, continua trazendo tudo.
+                const r=await fetch(url+'/rest/v1/'+table+base+'&limit='+PAG+'&offset='+off,
+                  {headers:hdrs(off===0?{'Prefer':'count=exact'}:undefined)});
+                const d=await r.json();
+                // Erro em qualquer página = erro na consulta toda. Devolver só
+                // parte dos dados seria repetir o defeito que isto corrige.
+                if(!r.ok){ resolve({data:null,error:d}); return; }
+                todas=todas.concat(d);
+                off+=d.length;
+                if(total===null){
+                  const m=(r.headers.get('content-range')||'').match(/\/(\d+)$/);
+                  if(m) total=parseInt(m[1],10);
+                }
+                if(!d.length) break;
+                if(total!==null ? off>=total : d.length<PAG) break;
+              }
+              resolve({data:todas,error:null});
+            }catch(e){ resolve({data:null,error:e}); }
+          })();
         }
       };return q;
     }
@@ -747,7 +786,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.87 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.88 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -960,6 +999,7 @@
         <div class="import-tab-strip">
           <button class="import-tab active" id="imp-tab-dilig" onclick="setImportTab('diligencias')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M5 21h14M3 8l9-2 9 2M6 8l-3 8a4 4 0 0 0 6 0L6 8zM18 8l-3 8a4 4 0 0 0 6 0l-3-8z"/></svg> Diligências</button>
           <button class="import-tab" id="imp-tab-previ" onclick="setImportTab('previmater')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"/><path d="M12 8v6M9 11h6"/></svg> PreviMater</button>
+          <button class="import-tab" id="imp-tab-tdh" onclick="setImportTab('tdh')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg> Trabalho de Homem</button>
         </div>
         <!-- Selecionar todos -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px">
@@ -3722,7 +3762,18 @@ async function salvarLancamento(){
 // ════════════════════════════════════════════════
 //  IMPORTAR — JEITO A
 // ════════════════════════════════════════════════
-let importDiligData=[], importPreviData=[];
+let importDiligData=[], importPreviData=[], importTdhData=[];
+
+// Trabalho de Homem: as tabelas tdh_* só abrem para a conta do Esdras
+// (RLS is_tdh). Para qualquer outro usuário a consulta volta vazia, sem erro,
+// e a aba mostra "nada novo". Duas origens porque o mesmo serviço gera
+// receita (o que o cliente pagou) e despesa (o repasse ao prestador); a
+// trava contra importar duas vezes é origem + id, então elas não colidem.
+const TDH_CENTRO_NOME='Trabalho de Homem';
+// Escapa texto digitado no app do Trabalho de Homem (descrição, nome de
+// cliente) antes de ir para o innerHTML: um "<" num nome quebraria a lista.
+const esc=s=>String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+const centroTdh=()=>centros.find(c=>(c.nome||'').trim().toLowerCase()===TDH_CENTRO_NOME.toLowerCase());
 
 async function initImportar(){
   // Preenche selects de configuração padrão
@@ -3747,10 +3798,15 @@ async function initImportar(){
   );
 
   // Busca dados externos + a lista de itens marcados como "já tratados"
-  const [rDilig,rParc,rIgnorados]=await Promise.all([
+  const [rDilig,rParc,rIgnorados,rTdhReceb,rTdhRep,rTdhServ,rTdhCli,rTdhPrest]=await Promise.all([
     sb.from('demandas').select('*'),
     sb.from('pm_parcelas').select('*'),
     sb.from('fin_import_ignorados').select('*'),
+    sb.from('tdh_recebimentos').select('*'),
+    sb.from('tdh_servico_prestadores').select('*'),
+    sb.from('tdh_servicos').select('*'),
+    sb.from('tdh_clientes').select('*'),
+    sb.from('tdh_prestadores').select('*'),
   ]);
 
   // Itens marcados manualmente como já tratados (não devem reaparecer)
@@ -3775,6 +3831,45 @@ async function initImportar(){
     return !importados.has('previmater:'+String(p.id));
   });
 
+  // Trabalho de Homem: monta os itens já com nome do serviço, cliente e
+  // prestador, porque o cliente Supabase deste app não faz join.
+  const porId=arr=>Object.fromEntries((arr||[]).map(x=>[String(x.id),x]));
+  const servs=porId(rTdhServ.data), clis=porId(rTdhCli.data), prests=porId(rTdhPrest.data);
+  const nomeServ=sid=>{
+    const s=servs[String(sid)]||{};
+    const cli=clis[String(s.cliente_id)]?.nome;
+    return (s.descricao||'Serviço')+(cli?' · '+cli:'');
+  };
+  const tdhItens=[];
+  (rTdhReceb.data||[]).forEach(r=>{
+    // Só o que o cliente já pagou. Previsto sem recebido_em ainda não é dinheiro.
+    if(!r.recebido_em) return;
+    tdhItens.push({
+      id:'tdh_receb:'+r.id, _origem:'tdh_receb', _ref:String(r.id), tipo:'entrada',
+      data:r.recebido_em, valor:parseFloat(r.valor||0),
+      titulo:nomeServ(r.servico_id),
+      meta:(r.descricao||'Pagamento')+(r.forma_pagamento?' · '+r.forma_pagamento:'')
+    });
+  });
+  (rTdhRep.data||[]).forEach(p=>{
+    if(p.repasse_status!=='pago') return;
+    const pr=prests[String(p.prestador_id)]?.nome||'Prestador';
+    tdhItens.push({
+      id:'tdh_repasse:'+p.id, _origem:'tdh_repasse', _ref:String(p.id), tipo:'saida',
+      // Repasse marcado pago sem data: usa o dia em que o vínculo foi criado,
+      // para não cair num mês aleatório. Dá para corrigir no lançamento depois.
+      data:p.repassado_em||(p.created_at||'').split('T')[0]||new Date().toISOString().split('T')[0],
+      valor:parseFloat(p.valor_repasse||0),
+      titulo:'Repasse '+pr+' — '+nomeServ(p.servico_id),
+      meta:p.funcao||'Repasse ao prestador'
+    });
+  });
+  importTdhData=tdhItens.filter(it=>{
+    if(DATA_CORTE && it.data < DATA_CORTE) return false;
+    if(ignorados.has(it.id)) return false;
+    return !importados.has(it.id);
+  }).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+
   importSelected.clear();
   setImportTab(importTab);
 }
@@ -3790,12 +3885,18 @@ function setImportTab(tab){
   importTab=tab;
   $('imp-tab-dilig').classList.toggle('active',tab==='diligencias');
   $('imp-tab-previ').classList.toggle('active',tab==='previmater');
+  if($('imp-tab-tdh')) $('imp-tab-tdh').classList.toggle('active',tab==='tdh');
+  // Na aba Trabalho de Homem o centro já vem certo: o dinheiro dele nunca é
+  // do escritório, e esquecer de trocar o centro misturaria os resultados.
+  if(tab==='tdh'){ const c=centroTdh(); if(c && $('imp-centro-default')) $('imp-centro-default').value=c.id; }
+  // A seleção é por aba: itens marcados em outra aba não podem ir junto.
+  importSelected.clear();
   $('imp-select-all').checked=false;
   renderImportList();
 }
 
 function renderImportList(){
-  const items=importTab==='diligencias'?importDiligData:importPreviData;
+  const items=importTab==='diligencias'?importDiligData:importTab==='tdh'?importTdhData:importPreviData;
   importItems=items;
   if(!items.length){
     $('imp-list').innerHTML=`<div class="import-empty"><div class="import-empty-icon"><svg class="ic xl" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg></div><div class="import-empty-title">Tudo importado!</div><div style="font-size:12px;color:var(--gray);margin-top:4px">Nenhum registro novo encontrado neste app.</div></div>`;
@@ -3812,6 +3913,16 @@ function renderImportList(){
           <div class="import-item-meta"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg> ${fmtDate(item.data)} · <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="1.5"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M10 21v-3h4v3"/></svg> ${item.plataforma||''} · <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg> ${item.responsavel||''}<br><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg> ${item.local||''}</div>
         </div>
         <div class="import-item-value">+${fmt(item.valor)}</div>
+      </div>`;
+    } else if(importTab==='tdh'){
+      const ent=item.tipo==='entrada';
+      return`<div class="import-item${sel?' selected':''}" data-import-id="${sid}" onclick="toggleImportItem('${sid}')">
+        <div class="import-checkbox">${sel?'✓':''}</div>
+        <div class="import-item-body">
+          <div class="import-item-title">${esc(item.titulo)}</div>
+          <div class="import-item-meta">${ent?'Receita':'Despesa'} · ${fmtDate(item.data)} · ${esc(item.meta)}</div>
+        </div>
+        <div class="import-item-value" style="${ent?'':'color:var(--red)'}">${ent?'+':'−'}${fmt(item.valor)}</div>
       </div>`;
     } else {
       return`<div class="import-item${sel?' selected':''}" data-import-id="${sid}" onclick="toggleImportItem('${sid}')">
@@ -3867,10 +3978,9 @@ async function marcarComoTratado(){
   const btn=$('imp-ignorar-btn');
   if(btn){ btn.textContent='Marcando…'; btn.disabled=true; }
 
-  const rows=selecionados.map(item=>({
-    origem: importTab==='diligencias'?'diligencia':'previmater',
-    ref_id: String(item.id)
-  }));
+  const rows=selecionados.map(item=>importTab==='tdh'
+    ? {origem:item._origem, ref_id:item._ref}
+    : {origem: importTab==='diligencias'?'diligencia':'previmater', ref_id: String(item.id)});
   const{error}=await sb.from('fin_import_ignorados').insertMany(rows);
   if(error){
     console.error('Erro ao marcar tratados:',error);
@@ -3903,6 +4013,15 @@ async function executarImport(){
         status:'pago', carteira_id:wid, centro_id:cid||null,
         observacao:`Importado de Diligências · ${item.plataforma||''} · ${item.responsavel||''}`,
         origem:'diligencia', diligencia_id:String(item.id)
+      };
+    } else if(importTab==='tdh'){
+      // diligencia_id é o "id na origem" de todo import (o PreviMater já usa
+      // assim). O nome ficou da época em que só existiam diligências.
+      payload={
+        descricao:item.titulo, valor:item.valor, tipo:item.tipo, data:item.data,
+        status:'pago', carteira_id:wid, centro_id:cid||null,
+        observacao:`Importado de Trabalho de Homem · ${item.meta}`,
+        origem:item._origem, diligencia_id:item._ref
       };
     } else {
       payload={

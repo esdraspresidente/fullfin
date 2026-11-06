@@ -786,7 +786,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.88 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.89 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -979,7 +979,7 @@
           <div class="page-sub">Registre no Fullfin o que foi pago/recebido nos outros apps</div>
         </div>
         <!-- Config padrão -->
-        <div class="import-config">
+        <div class="import-config" id="imp-config-box">
           <div class="import-config-title"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg> Configuração padrão para importação</div>
           <div class="form-grid-2">
             <div class="field"><label>Carteira padrão</label>
@@ -1000,9 +1000,13 @@
           <button class="import-tab active" id="imp-tab-dilig" onclick="setImportTab('diligencias')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M5 21h14M3 8l9-2 9 2M6 8l-3 8a4 4 0 0 0 6 0L6 8zM18 8l-3 8a4 4 0 0 0 6 0l-3-8z"/></svg> Diligências</button>
           <button class="import-tab" id="imp-tab-previ" onclick="setImportTab('previmater')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-4.5-7-11a4 4 0 0 1 7-2.5A4 4 0 0 1 19 10c0 6.5-7 11-7 11z"/><path d="M12 8v6M9 11h6"/></svg> PreviMater</button>
           <button class="import-tab" id="imp-tab-tdh" onclick="setImportTab('tdh')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg> Trabalho de Homem</button>
+          <button class="import-tab" id="imp-tab-fatura" onclick="setImportTab('fatura')"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 10h18M7 15h3"/></svg> Fatura de cartão</button>
         </div>
+        <!-- Aba Fatura de cartão: tela própria (colar JSON → revisar → gravar).
+             As peças das outras abas (config, lista, botões) ficam escondidas nela. -->
+        <div id="imp-fatura-wrap" class="hidden"></div>
         <!-- Selecionar todos -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px">
+        <div id="imp-selall-row" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px">
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;flex-shrink:0">
             <input type="checkbox" id="imp-select-all" onchange="toggleSelectAll()" style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer"/>
             Selecionar todos
@@ -1020,7 +1024,7 @@
         <button class="btn btn-secondary" id="imp-ignorar-btn" style="width:100%;margin-top:8px" onclick="marcarComoTratado()" disabled>
           ✓ Marcar como já tratado (0)
         </button>
-        <div style="font-size:11px;color:var(--gray);text-align:center;margin-top:8px">Itens já importados ou marcados como tratados não aparecem nesta lista</div>
+        <div id="imp-hint" style="font-size:11px;color:var(--gray);text-align:center;margin-top:8px">Itens já importados ou marcados como tratados não aparecem nesta lista</div>
       </div>
 
       <!-- ══ DÍVIDAS ══ -->
@@ -1938,7 +1942,21 @@ async function confirmarPagamentoFatura(){
   const cartao=cartoes.find(c=>c.id===cartaoId);
   const btn=document.querySelector('.salvar-btn'); if(btn){btn.textContent='Salvando…';btn.disabled=true;}
 
-  // 1. Gera a SAÍDA real na carteira escolhida (é isso que baixa o saldo)
+  const {error}=await gravarPagamentoFatura(cartao, mesRef, valor, carteiraId, dataPag);
+  if(error){ showToast(error==='saida'?'Erro ao registrar saída.':'Erro ao registrar pagamento.','err'); if(btn){btn.disabled=false;btn.textContent='Confirmar pagamento';} return; }
+
+  await loadAll(); renderAll(); closeSheet();
+  showToast('Pagamento registrado!');
+}
+
+// Grava UM pagamento de fatura do jeito que o app inteiro entende:
+//   1. a SAÍDA real na carteira (é isso que baixa o saldo da conta);
+//   2. o registro em fin_pagamentos_fatura ligado a ela (é isso que abate a
+//      fatura e permite pagamento parcial, antecipado e reabertura).
+// Usado pelo "Pagar fatura" e pela importação de fatura. Fica num lugar só
+// porque, se os dois gravassem diferente, um pagamento importado poderia
+// abater a fatura sem baixar a carteira (ou o contrário) e ninguém notaria.
+async function gravarPagamentoFatura(cartao, mesRef, valor, carteiraId, dataPag){
   const {data:movData, error:movErr}=await sb.from('fin_movimentacoes').insert([{
     descricao:`Pagamento fatura ${cartao.nome} — ${mesRef}`,
     valor, tipo:'saida', data:dataPag, data_vencimento:dataPag,
@@ -1946,18 +1964,14 @@ async function confirmarPagamentoFatura(){
     categoria_id:null, centro_id:null,
     forma_pagamento:'Pagamento de fatura', origem:'fatura'
   }]);
-  if(movErr){ showToast('Erro ao registrar saída.','err'); if(btn){btn.disabled=false;btn.textContent='Confirmar pagamento';} return; }
+  if(movErr) return {error:'saida', detalhe:movErr};
   const movId=movData?.[0]?.id||null;
-
-  // 2. Registra o pagamento da fatura (permite parcial/parcelado + reabertura)
   const {error:pagErr}=await sb.from('fin_pagamentos_fatura').insert([{
-    cartao_id:cartaoId, mes_referencia:mesRef, valor,
+    cartao_id:cartao.id, mes_referencia:mesRef, valor,
     carteira_id:carteiraId, data_pagamento:dataPag, movimentacao_id:movId
   }]);
-  if(pagErr){ showToast('Erro ao registrar pagamento.','err'); if(btn){btn.disabled=false;btn.textContent='Confirmar pagamento';} return; }
-
-  await loadAll(); renderAll(); closeSheet();
-  showToast('Pagamento registrado!');
+  if(pagErr) return {error:'registro', detalhe:pagErr};
+  return {error:null};
 }
 
 async function removerPagamentoFatura(pagId){
@@ -3886,6 +3900,15 @@ function setImportTab(tab){
   $('imp-tab-dilig').classList.toggle('active',tab==='diligencias');
   $('imp-tab-previ').classList.toggle('active',tab==='previmater');
   if($('imp-tab-tdh')) $('imp-tab-tdh').classList.toggle('active',tab==='tdh');
+  if($('imp-tab-fatura')) $('imp-tab-fatura').classList.toggle('active',tab==='fatura');
+  // A aba Fatura tem tela própria. Esconde as peças das outras abas em vez de
+  // reaproveitá-las: "Marcar como já tratado" e a carteira padrão não fazem
+  // sentido para compra de cartão e confundiriam.
+  const ehFat=tab==='fatura';
+  ['imp-config-box','imp-selall-row','imp-list','imp-btn','imp-ignorar-btn','imp-hint']
+    .forEach(id=>{ const el=$(id); if(el) el.classList.toggle('hidden',ehFat); }); // classe, não style: preserva o display:flex inline
+  if($('imp-fatura-wrap')) $('imp-fatura-wrap').classList.toggle('hidden',!ehFat);
+  if(ehFat){ importSelected.clear(); renderImportFatura(); return; }
   // Na aba Trabalho de Homem o centro já vem certo: o dinheiro dele nunca é
   // do escritório, e esquecer de trocar o centro misturaria os resultados.
   if(tab==='tdh'){ const c=centroTdh(); if(c && $('imp-centro-default')) $('imp-centro-default').value=c.id; }
@@ -4042,6 +4065,250 @@ async function executarImport(){
   await initImportar(); // recarrega lista (os importados somem)
   if(erros) showToast(`${count} importados, ${erros} erro(s).`,'err');
   else showToast(`${count} lançamento(s) importado(s)!`);
+}
+
+// ════════════════════════════════════════════════
+//  IMPORTAR FATURA DE CARTÃO (JSON montado pelo Claude a partir do print)
+// ════════════════════════════════════════════════
+// Por que JSON colado e não leitura do print aqui dentro: o app não lê imagem.
+// O Claude lê o print, junta cada IOF na compra que o gerou e sugere categoria
+// pelo histórico. Esta tela só confere e grava — a decisão final é de quem usa.
+//
+// Formato esperado (campos opcionais entre colchetes):
+// { "cartao": "Nubank Esdras",          ← nome ou id do cartão no Fullfin
+//   "mes": "2026-11",                   ← mês de VENCIMENTO da fatura
+//   "total_fatura": 3449.78,            ← "Gasto do mês" do app do banco
+//   "compras": [ { "data":"2026-10-06", "descricao":"Facebook Ads", "valor":1427.06,
+//                  ["categoria":"Tráfego Pago"], ["centro":"PreviMater"], ["obs":"..."] } ],
+//   "pagamentos": [ { "data":"2026-10-05", "valor":800, ["mes_referencia":"2026-11"] } ] }
+let impFat=null;        // fatura lida e revisada (null = mostrando a caixa de colar)
+let impFatTexto='';     // último texto colado — volta para a caixa se der erro
+
+const impFatNorm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+const impFatCent=v=>Math.round(parseFloat(v||0)*100);   // compara em centavos: 0.1+0.2 não pode virar "valor diferente"
+
+// Aceita id ou nome (sem acento/caixa). Nome é o que o Claude escreve; id é à prova de renomear.
+function impFatAcha(lista, v){
+  if(!v) return null;
+  const n=impFatNorm(v);
+  return lista.find(x=>x.id===v) || lista.find(x=>impFatNorm(x.nome)===n) || null;
+}
+
+// Última classificação usada para a mesma descrição. Serve para quando o JSON
+// não traz categoria/centro: repete o que a pessoa já decidiu antes.
+function impFatHistorico(desc){
+  const n=impFatNorm(desc);
+  return movimentacoes
+    .filter(m=>m.tipo==='saida' && impFatNorm(m.descricao)===n && (m.categoria_id||m.centro_id))
+    .sort((a,b)=>(b.data||'').localeCompare(a.data||''))[0] || null;
+}
+
+// Vencimento da fatura = dia de vencimento do cartão no mês informado.
+// De propósito NÃO usa calcVencFaturaISO (data da compra + fechamento): o JSON
+// já diz a qual fatura a compra pertence, e se o dia de fechamento cadastrado
+// estiver errado a compra cairia na fatura errada sem ninguém perceber.
+function impFatVenc(cartao, mes){
+  const [y,m]=mes.split('-').map(Number);
+  const d=Math.min(parseInt(cartao.dia_vencimento)||10, new Date(y,m,0).getDate());
+  return `${mes}-${String(d).padStart(2,'0')}`;
+}
+
+// Lê o JSON, resolve cartão/categorias/centros e marca o que já existe.
+// Devolve {erro} ou o objeto pronto para a tela.
+function impFatMontar(texto){
+  let j;
+  try{ j=JSON.parse(String(texto||'').trim().replace(/^```(?:json)?\s*|\s*```$/g,'')); } // aceita colado com a cerca ``` do chat
+  catch(e){ return {erro:'Não consegui ler o JSON. Copie o bloco inteiro de novo.'}; }
+  const cartao=impFatAcha(cartoes, j.cartao_id||j.cartao);
+  if(!cartao) return {erro:`Cartão "${j.cartao||j.cartao_id||''}" não encontrado no Fullfin.`};
+  if(!/^\d{4}-\d{2}$/.test(j.mes||'')) return {erro:'Campo "mes" precisa ser AAAA-MM (mês de vencimento da fatura).'};
+  const dataOk=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'');
+
+  // Duplicidade: compra do mesmo cartão, mesma fatura e mesmo valor já lançada
+  // (inclusive pelas recorrentes, como assinaturas). Cada lançamento existente
+  // só "casa" com UMA linha, para duas compras de mesmo valor não sumirem juntas.
+  const existentes=movimentacoes.filter(m=>m.cartao_id===cartao.id && m.tipo==='saida' && (m.data_vencimento||'').startsWith(j.mes));
+  const usados=new Set();
+  const compras=(j.compras||[]).map((c,i)=>{
+    const valor=impFatCent(c.valor)/100;
+    const dup=existentes.find(m=>!usados.has(m.id) && impFatCent(m.valor)===impFatCent(valor));
+    if(dup) usados.add(dup.id);
+    const hist=impFatHistorico(c.descricao);
+    const cat=impFatAcha(categorias, c.categoria_id||c.categoria);
+    const cen=impFatAcha(centros, c.centro_id||c.centro);
+    return {
+      i, descricao:String(c.descricao||'').trim()||'Compra no cartão', valor, data:c.data,
+      obs:c.obs||'',
+      categoria_id: cat?.id || hist?.categoria_id || '',
+      centro_id:    cen?.id || hist?.centro_id    || '',
+      jaLancado: dup ? dup.descricao : null,
+      invalido: !dataOk(c.data) || !(valor>0),
+      sel: !dup && dataOk(c.data) && valor>0
+    };
+  });
+
+  const pags=(j.pagamentos||[]).map((p,i)=>{
+    const valor=impFatCent(p.valor)/100;
+    const mesRef=/^\d{4}-\d{2}$/.test(p.mes_referencia||'') ? p.mes_referencia : j.mes;
+    const dup=(pagamentosFatura||[]).find(x=>x.cartao_id===cartao.id && x.mes_referencia===mesRef
+      && x.data_pagamento===p.data && impFatCent(x.valor)===impFatCent(valor));
+    return { i, data:p.data, valor, mesRef, jaLancado:!!dup,
+      invalido: !dataOk(p.data) || !(valor>0),
+      sel: !dup && dataOk(p.data) && valor>0 };
+  });
+
+  return { cartao, mes:j.mes, total:j.total_fatura!=null?impFatCent(j.total_fatura)/100:null,
+           compras, pags, carteiraId: cartao.carteira_pagamento_id||'' };
+}
+
+function impFatLer(){
+  impFatTexto=$('impfat-json')?.value||'';
+  const r=impFatMontar(impFatTexto);
+  if(r.erro){ showToast(r.erro,'err'); return; }
+  impFat=r; renderImportFatura();
+}
+function impFatTrocar(){ impFat=null; renderImportFatura(); }
+function impFatToggle(tipo, i){
+  const it=(tipo==='c'?impFat.compras:impFat.pags)[i];
+  if(!it || it.invalido) return;
+  it.sel=!it.sel; renderImportFatura();
+}
+// Só muda o dado; não redesenha, senão o select perde o foco no celular.
+function impFatSet(i, campo, v){ const it=impFat?.compras[i]; if(it) it[campo]=v; }
+function impFatSetCarteira(v){ if(impFat) impFat.carteiraId=v; }
+
+function renderImportFatura(){
+  const box=$('imp-fatura-wrap'); if(!box) return;
+  if(!impFat){
+    box.innerHTML=`
+      <div class="import-config">
+        <div class="import-config-title">Cole aqui o JSON da fatura</div>
+        <div style="font-size:12px;color:var(--gray);margin-bottom:10px;line-height:1.5">Mande o print da fatura para o Claude e peça o JSON para importar no Fullfin. Copie o bloco inteiro e cole abaixo.</div>
+        <textarea id="impfat-json" rows="8" style="width:100%;font-family:monospace;font-size:12px;padding:10px;border:1px solid var(--border);border-radius:10px;box-sizing:border-box" placeholder='{"cartao":"Nubank Esdras","mes":"2026-11", ...}'>${esc(impFatTexto)}</textarea>
+        <button class="import-btn-main" style="margin-top:10px" onclick="impFatLer()">Conferir fatura</button>
+      </div>`;
+    return;
+  }
+  const f=impFat;
+  const [y,m]=f.mes.split('-').map(Number);
+  const catsSaida=categorias.filter(c=>c.tipo==='saida'||c.tipo==='ambos');
+  const opt=(lista,sel)=>`<option value="">Sem ${lista===centros?'centro':'categoria'}</option>`+
+    lista.map(x=>`<option value="${x.id}"${x.id===sel?' selected':''}>${esc(x.nome)}</option>`).join('');
+
+  // Conferência principal: como a fatura vai FICAR no Fullfin depois de importar
+  // (o que já está lá + o que está marcado) contra o total que o banco mostra.
+  const atual=calcFaturaCartao(f.cartao.id, f.mes);
+  const novo=f.compras.filter(c=>c.sel).reduce((s,c)=>s+c.valor,0);
+  const fica=atual+novo;
+  const bate=f.total==null ? null : impFatCent(fica)===impFatCent(f.total);
+  const difTxt=f.total==null ? '' : (bate ? 'Bate com o banco ✓'
+    : `Diferença de ${fmt(Math.abs(fica-f.total))} (${fica>f.total?'sobrando':'faltando'}) — confira antes de importar`);
+  const corDif=bate===null?'var(--gray)':(bate?'#4E7A3A':'#8B2635');
+
+  const pagoAtual=totalPagoFatura(f.cartao.id, f.mes);
+  const pagoNovo=f.pags.filter(p=>p.sel && p.mesRef===f.mes).reduce((s,p)=>s+p.valor,0);
+
+  const linhaCompra=c=>`
+    <div class="import-item${c.sel?' selected':''}" style="flex-wrap:wrap;${c.invalido?'opacity:.5;':''}">
+      <div class="import-checkbox" onclick="impFatToggle('c',${c.i})">${c.sel?'✓':''}</div>
+      <div class="import-item-body" onclick="impFatToggle('c',${c.i})">
+        <div class="import-item-title">${esc(c.descricao)}</div>
+        <div class="import-item-meta">${c.invalido?'<b style="color:#8B2635">Data ou valor inválido</b>':fmtDate(c.data)}${c.jaLancado?` · <b style="color:#8A6A00">já lançado como "${esc(c.jaLancado)}"</b>`:''}${c.obs?' · '+esc(c.obs):''}</div>
+      </div>
+      <div class="import-item-value" style="color:var(--red)">−${fmt(c.valor)}</div>
+      <div style="display:flex;gap:6px;width:100%;margin-top:8px">
+        <select style="flex:1;min-width:0;font-size:12px" onchange="impFatSet(${c.i},'categoria_id',this.value)">${opt(catsSaida,c.categoria_id)}</select>
+        <select style="flex:1;min-width:0;font-size:12px" onchange="impFatSet(${c.i},'centro_id',this.value)">${opt(centros,c.centro_id)}</select>
+      </div>
+    </div>`;
+  const linhaPag=p=>`
+    <div class="import-item${p.sel?' selected':''}" style="${p.invalido?'opacity:.5;':''}" onclick="impFatToggle('p',${p.i})">
+      <div class="import-checkbox">${p.sel?'✓':''}</div>
+      <div class="import-item-body">
+        <div class="import-item-title">Pagamento da fatura${p.mesRef!==f.mes?` de ${p.mesRef}`:''}</div>
+        <div class="import-item-meta">${p.invalido?'<b style="color:#8B2635">Data ou valor inválido</b>':fmtDate(p.data)}${p.jaLancado?' · <b style="color:#8A6A00">já registrado</b>':''}</div>
+      </div>
+      <div class="import-item-value">${fmt(p.valor)}</div>
+    </div>`;
+
+  const nC=f.compras.filter(c=>c.sel).length, nP=f.pags.filter(p=>p.sel).length;
+  const wOpts=carteiras.filter(w=>w.ativo!==false)
+    .map(w=>`<option value="${w.id}"${w.id===f.carteiraId?' selected':''}>${w.icone||''} ${esc(w.nome)}</option>`).join('');
+
+  box.innerHTML=`
+    <div class="import-config">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:14px;font-weight:800">${esc(f.cartao.nome)} · ${MESES[m-1]} ${y}</div>
+        <button class="btn btn-secondary" style="padding:6px 10px;font-size:12px" onclick="impFatTrocar()">Trocar JSON</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>Já no Fullfin</span><b>${fmt(atual)}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px"><span>+ Marcadas para importar</span><b>${fmt(novo)}</b></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;border-top:1px solid var(--border);padding-top:6px;margin-top:4px"><span><b>Fatura vai ficar</b></span><b>${fmt(fica)}</b></div>
+      ${f.total!=null?`<div style="display:flex;justify-content:space-between;font-size:12px;margin-top:3px"><span>Total no banco</span><b>${fmt(f.total)}</b></div>`:''}
+      <div style="font-size:12px;font-weight:700;color:${corDif};margin-top:8px">${difTxt}</div>
+      <div style="font-size:11px;color:var(--gray);margin-top:8px">Pago desta fatura: ${fmt(pagoAtual)} já registrado${pagoNovo?` + ${fmt(pagoNovo)} marcado`:''} · restante ${fmt(Math.max(0,fica-pagoAtual-pagoNovo))}</div>
+    </div>
+    <div class="section-label" style="margin:14px 0 8px">Compras (${f.compras.length})</div>
+    ${f.compras.map(linhaCompra).join('')||'<div style="font-size:12px;color:var(--gray)">Nenhuma compra no JSON.</div>'}
+    ${f.pags.length?`
+      <div class="section-label" style="margin:14px 0 8px">Pagamentos (${f.pags.length})</div>
+      ${f.pags.map(linhaPag).join('')}
+      <div class="field" style="margin-top:6px"><label>Os pagamentos saíram de qual carteira?</label>
+        <select id="impfat-carteira" onchange="impFatSetCarteira(this.value)"><option value="">Selecione…</option>${wOpts}</select>
+      </div>`:''}
+    <button class="import-btn-main" id="impfat-btn" style="margin-top:14px" onclick="importarFaturaConfirmar()" ${nC+nP?'':'disabled'}>
+      Importar ${nC} compra(s)${f.pags.length?` e ${nP} pagamento(s)`:''}
+    </button>
+    <div style="font-size:11px;color:var(--gray);text-align:center;margin-top:8px">Linhas "já lançado" vêm desmarcadas para não duplicar. Toque para marcar se for outra compra.</div>`;
+}
+
+async function importarFaturaConfirmar(){
+  const f=impFat; if(!f) return;
+  const comp=f.compras.filter(c=>c.sel), pags=f.pags.filter(p=>p.sel);
+  if(!comp.length && !pags.length) return showToast('Nada marcado para importar.','err');
+  if(pags.length && !f.carteiraId) return showToast('Escolha a carteira dos pagamentos.','err');
+  const semCat=comp.filter(c=>!c.categoria_id).length;
+  const fica=calcFaturaCartao(f.cartao.id, f.mes)+comp.reduce((s,c)=>s+c.valor,0);
+  const avisos=[];
+  if(semCat) avisos.push(`${semCat} compra(s) sem categoria.`);
+  if(f.total!=null && impFatCent(fica)!==impFatCent(f.total)) avisos.push(`A fatura vai ficar ${fmt(fica)}, mas o banco mostra ${fmt(f.total)}.`);
+  if(!confirm(`Importar ${comp.length} compra(s) e ${pags.length} pagamento(s) no ${f.cartao.nome}?`+(avisos.length?'\n\nAtenção:\n• '+avisos.join('\n• '):''))) return;
+
+  const btn=$('impfat-btn'); if(btn){ btn.disabled=true; btn.textContent='Importando…'; }
+  let okC=0, okP=0, erros=[];
+
+  // Compras numa requisição só: ou entram todas ou nenhuma (evita fatura pela metade).
+  // insertMany porque o insert do mini-client grava só a 1ª linha do array.
+  if(comp.length){
+    const venc=impFatVenc(f.cartao, f.mes);
+    const rows=comp.map(c=>({
+      descricao:c.descricao, valor:c.valor, tipo:'saida',
+      data:c.data, data_vencimento:venc,
+      // 'pendente' igual às compras lançadas à mão: quem quita é o pagamento da fatura
+      status:'pendente', cartao_id:f.cartao.id,
+      categoria_id:c.categoria_id||null, centro_id:c.centro_id||null,
+      origem:'manual', forma_pagamento:'Cartão de Crédito',
+      observacao:`Importado da fatura ${f.mes}`+(c.obs?' · '+c.obs:'')
+    }));
+    const {error}=await sb.from('fin_movimentacoes').insertMany(rows);
+    if(error){ console.error('Importar fatura — compras:',error); erros.push('compras: '+(error.message||'erro')); }
+    else okC=rows.length;
+  }
+  // Pagamentos um a um: cada um são 2 gravações ligadas (saída + registro na fatura).
+  if(!erros.length){
+    for(const p of pags){
+      const {error,detalhe}=await gravarPagamentoFatura(f.cartao, p.mesRef, p.valor, f.carteiraId, p.data);
+      if(error){ console.error('Importar fatura — pagamento:',detalhe); erros.push(`pagamento de ${fmt(p.valor)} em ${fmtDate(p.data)}`); }
+      else okP++;
+    }
+  }
+
+  await loadAll(); renderAll();
+  // Remonta a partir do mesmo JSON: o que entrou agora aparece como "já lançado".
+  const r=impFatMontar(impFatTexto); impFat=r.erro?null:r;
+  renderImportFatura();
+  if(erros.length) showToast(`${okC} compra(s) e ${okP} pagamento(s) importados. Falhou: ${erros.join('; ')}`,'err');
+  else showToast(`${okC} compra(s) e ${okP} pagamento(s) importados!`);
 }
 
 // ════════════════════════════════════════════════
@@ -6867,7 +7134,8 @@ const SELFCHECK_FUNCOES = [
   'figRepInc','figRepDec','figRepDelete','renderFigurinhasRelatorio','gerarPDFAlbum',
   'renderDocumentos','renderDocumentosLista','renderDocAlertaHome','openSheetDocumento',
   'docSugereTitulo','salvarDocumento','verDocumento','baixarDocumento','excluirDocumento',
-  'docUrlAssinada','docStatusValidade','abrirComprovante','fecharComp'
+  'docUrlAssinada','docStatusValidade','abrirComprovante','fecharComp',
+  'gravarPagamentoFatura','renderImportFatura','importarFaturaConfirmar'
 ];
 
 // Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais

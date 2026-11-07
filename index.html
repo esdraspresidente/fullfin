@@ -786,7 +786,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.89 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.90 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -3780,9 +3780,21 @@ let importDiligData=[], importPreviData=[], importTdhData=[];
 
 // Trabalho de Homem: as tabelas tdh_* só abrem para a conta do Esdras
 // (RLS is_tdh). Para qualquer outro usuário a consulta volta vazia, sem erro,
-// e a aba mostra "nada novo". Duas origens porque o mesmo serviço gera
-// receita (o que o cliente pagou) e despesa (o repasse ao prestador); a
-// trava contra importar duas vezes é origem + id, então elas não colidem.
+// e a aba mostra "nada novo".
+//
+// DESDE 07/11/2026 (TdH v1.4.0) o dinheiro de cada serviço é gerido no app
+// do Trabalho de Homem. Aqui entram só dois tipos de item:
+//   * Lucro de serviço FINALIZADO (recebido − gastos − repasses, gravado na
+//     finalização)  → receita; prejuízo → despesa.          origem tdh_lucro
+//   * Custo fixo (gasto sem obra: anúncio, DAS, ferramenta)   → despesa.
+//                                                             origem tdh_gasto
+// Recebimento e repasse avulsos não entram mais: o Fullfin mostraria o
+// faturamento bruto da empresa em vez do que sobrou para o Esdras.
+//
+// O id na origem do lucro é "<servico_id>:<finalizacoes>": serviço reaberto
+// e finalizado de novo gera um id novo, porque a trava contra duplicidade
+// (origem + id) recusaria o mesmo id. O app do TdH avisa para apagar o
+// lançamento antigo aqui.
 const TDH_CENTRO_NOME='Trabalho de Homem';
 // Escapa texto digitado no app do Trabalho de Homem (descrição, nome de
 // cliente) antes de ir para o innerHTML: um "<" num nome quebraria a lista.
@@ -3812,7 +3824,7 @@ async function initImportar(){
   );
 
   // Busca dados externos + a lista de itens marcados como "já tratados"
-  const [rDilig,rParc,rIgnorados,rTdhReceb,rTdhRep,rTdhServ,rTdhCli,rTdhPrest]=await Promise.all([
+  const [rDilig,rParc,rIgnorados,rTdhReceb,rTdhRep,rTdhServ,rTdhCli,rTdhPrest,rTdhGasto]=await Promise.all([
     sb.from('demandas').select('*'),
     sb.from('pm_parcelas').select('*'),
     sb.from('fin_import_ignorados').select('*'),
@@ -3821,6 +3833,7 @@ async function initImportar(){
     sb.from('tdh_servicos').select('*'),
     sb.from('tdh_clientes').select('*'),
     sb.from('tdh_prestadores').select('*'),
+    sb.from('tdh_gastos').select('*'),
   ]);
 
   // Itens marcados manualmente como já tratados (não devem reaparecer)
@@ -3855,27 +3868,34 @@ async function initImportar(){
     return (s.descricao||'Serviço')+(cli?' · '+cli:'');
   };
   const tdhItens=[];
-  (rTdhReceb.data||[]).forEach(r=>{
-    // Só o que o cliente já pagou. Previsto sem recebido_em ainda não é dinheiro.
-    if(!r.recebido_em) return;
+  // Recebimentos e repasses importados ANTES de 07/11/2026 (modelo antigo)
+  // já estão aqui como receita/despesa. O lucro desses serviços desconta o
+  // que já entrou, senão o mesmo dinheiro contaria duas vezes.
+  const recebPorId=porId(rTdhReceb.data), repPorId=porId(rTdhRep.data), jaNet={};
+  movimentacoes.forEach(m=>{
+    if(m.origem==='tdh_receb'){ const r=recebPorId[String(m.diligencia_id)]; if(r) jaNet[r.servico_id]=(jaNet[r.servico_id]||0)+parseFloat(m.valor||0); }
+    if(m.origem==='tdh_repasse'){ const p=repPorId[String(m.diligencia_id)]; if(p) jaNet[p.servico_id]=(jaNet[p.servico_id]||0)-parseFloat(m.valor||0); }
+  });
+  (rTdhServ.data||[]).forEach(sv=>{
+    if(!sv.finalizado_em) return;
+    const antes=jaNet[sv.id]||0;
+    const v=Math.round((parseFloat(sv.lucro_final||0)-antes)*100)/100;
+    if(Math.abs(v)<0.005) return;
     tdhItens.push({
-      id:'tdh_receb:'+r.id, _origem:'tdh_receb', _ref:String(r.id), tipo:'entrada',
-      data:r.recebido_em, valor:parseFloat(r.valor||0),
-      titulo:nomeServ(r.servico_id),
-      meta:(r.descricao||'Pagamento')+(r.forma_pagamento?' · '+r.forma_pagamento:'')
+      id:'tdh_lucro:'+sv.id+':'+sv.finalizacoes, _origem:'tdh_lucro', _ref:sv.id+':'+sv.finalizacoes,
+      tipo:v>=0?'entrada':'saida', data:sv.finalizado_em, valor:Math.abs(v),
+      titulo:(v>=0?'Lucro — ':'Prejuízo — ')+nomeServ(sv.id),
+      meta:'Serviço finalizado'+(antes?` · descontado ${fmt(antes)} já importado antes`:'')
     });
   });
-  (rTdhRep.data||[]).forEach(p=>{
-    if(p.repasse_status!=='pago') return;
-    const pr=prests[String(p.prestador_id)]?.nome||'Prestador';
+  const CAT_TDH={material:'Material',combustivel:'Combustível',alimentacao:'Alimentação',ferramenta:'Ferramenta',anuncio:'Anúncio',imposto:'Imposto',taxa:'Taxa',outro:'Outro'};
+  (rTdhGasto.data||[]).forEach(g=>{
+    if(g.servico_id) return;   // gasto de obra já está dentro do lucro do serviço
     tdhItens.push({
-      id:'tdh_repasse:'+p.id, _origem:'tdh_repasse', _ref:String(p.id), tipo:'saida',
-      // Repasse marcado pago sem data: usa o dia em que o vínculo foi criado,
-      // para não cair num mês aleatório. Dá para corrigir no lançamento depois.
-      data:p.repassado_em||(p.created_at||'').split('T')[0]||new Date().toISOString().split('T')[0],
-      valor:parseFloat(p.valor_repasse||0),
-      titulo:'Repasse '+pr+' — '+nomeServ(p.servico_id),
-      meta:p.funcao||'Repasse ao prestador'
+      id:'tdh_gasto:'+g.id, _origem:'tdh_gasto', _ref:String(g.id), tipo:'saida',
+      data:g.data, valor:parseFloat(g.valor||0),
+      titulo:'Custo fixo — '+(CAT_TDH[g.categoria]||'Outro')+(g.descricao?' · '+g.descricao:''),
+      meta:g.conta==='pf'?'Pago da sua conta':'Pago pela conta PJ'
     });
   });
   importTdhData=tdhItens.filter(it=>{

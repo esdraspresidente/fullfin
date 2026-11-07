@@ -76,52 +76,99 @@
         },2000);
       }catch(e){}
     }
-    function init(){
-      try{
-        const raw=localStorage.getItem('supa_sess');
-        if(raw){const s=JSON.parse(raw);if(s?.access_token){
-          fetch(url+'/auth/v1/user',{headers:{'apikey':key,'Authorization':'Bearer '+s.access_token}})
-            .then(r=>{if(r.ok){_session=s;notify('SIGNED_IN',s);}else{localStorage.removeItem('supa_sess');notify('SIGNED_OUT',null);}})
-            .catch(()=>{localStorage.removeItem('supa_sess');notify('SIGNED_OUT',null);});
-          return;
-        }}
-      }catch(e){}
-      notify('SIGNED_OUT',null);
+    // ── LOGIN QUE NÃO CAI ───────────────────────────────────────────
+    // O passe do Supabase (access_token) vale 1 hora; junto vem uma chave
+    // de renovação (refresh_token) que vale até a pessoa sair da conta.
+    // ANTES: ao abrir, o app conferia o passe e, vencido, APAGAVA a sessão
+    // e pedia senha — por isso pedia login quase toda vez. Falha de
+    // internet na abertura também apagava.
+    // AGORA: renova sozinho ao abrir, ao voltar para a tela e 2 min antes
+    // de vencer. Só pede senha quando o Supabase RECUSA a renovação
+    // (saiu da conta, senha trocada). Sem internet, entra com o que tem.
+    //
+    // A chave 'supa_sess' é a MESMA no Fullfin e no Diligências (mesmo
+    // endereço, mesmo usuário): entrar em um vale para o outro. Por isso,
+    // antes de renovar, relê o que está guardado — se o outro app já
+    // renovou, usa a renovação dele. Renovar com uma chave já usada faz o
+    // Supabase derrubar a sessão dos dois.
+    const SESS_KEY='supa_sess';
+    let _renovando=null, _timerRenov=null;
+    function _expMs(s){
+      if(s?.expires_at) return s.expires_at*1000;
+      try{ return JSON.parse(atob(s.access_token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000; }catch(e){ return 0; }
+    }
+    function _lerGuardada(){ try{ return JSON.parse(localStorage.getItem(SESS_KEY)||'null'); }catch(e){ return null; } }
+    function _fresca(s){ return !!(s?.access_token && Date.now() < _expMs(s)-60000); }
+    function salvarSess(d){
+      if(d && !d.expires_at) d.expires_at=Math.floor(Date.now()/1000)+(d.expires_in||3600);
+      _session=d;
+      try{ d ? localStorage.setItem(SESS_KEY,JSON.stringify(d)) : localStorage.removeItem(SESS_KEY); }catch(e){}
+      _agendarRenov();
+    }
+    function _agendarRenov(espera){
+      clearTimeout(_timerRenov);
+      if(!_session) return;
+      const ms = espera ?? Math.max(_expMs(_session)-Date.now()-120000, 15000);
+      _timerRenov=setTimeout(()=>{ renovarSessao().then(x=>{ if(x==='rede') _agendarRenov(30000); }); }, ms);
+    }
+    // Devolve 'ok' | 'recusada' | 'rede'.
+    function renovarSessao(){
+      if(_renovando) return _renovando;
+      _renovando=(async()=>{
+        const g=_lerGuardada();
+        if(g?.refresh_token && g.refresh_token!==_session?.refresh_token && _fresca(g)){ _session=g; _agendarRenov(); return 'ok'; }
+        const base = (g?.refresh_token ? g : _session);
+        if(!base?.refresh_token) return 'recusada';
+        try{
+          const r=await fetch(url+'/auth/v1/token?grant_type=refresh_token',{
+            method:'POST',headers:{'Content-Type':'application/json','apikey':key},
+            body:JSON.stringify({refresh_token:base.refresh_token})
+          });
+          const d=await r.json().catch(()=>({}));
+          if(r.ok && d?.access_token){ salvarSess(d); return 'ok'; }
+          if(r.status===400||r.status===401||r.status===403){
+            // O outro app pode ter renovado no mesmo instante: confere antes de sair.
+            const g2=_lerGuardada();
+            if(g2?.refresh_token && g2.refresh_token!==base.refresh_token && _fresca(g2)){ _session=g2; _agendarRenov(); return 'ok'; }
+            salvarSess(null); notify('SIGNED_OUT',null); return 'recusada';
+          }
+          return 'rede';   // 429/5xx: servidor ocupado, tenta de novo depois
+        }catch(e){ return 'rede'; }
+      })().finally(()=>{ _renovando=null; });
+      return _renovando;
+    }
+    // Celular dormindo congela o relógio do app: ao voltar, confere na hora.
+    document.addEventListener('visibilitychange',()=>{
+      if(document.visibilityState==='visible' && _session && Date.now() > _expMs(_session)-120000) renovarSessao();
+    });
+    // Token válido para chamadas que exigem login (Storage, functions).
+    async function tokenValido(){
+      if(!_session?.access_token) return null;
+      if(_fresca(_session)) return _session.access_token;
+      await renovarSessao();
+      return _session?.access_token||null;
+    }
+    async function init(){
+      const s=_lerGuardada();
+      if(!s?.access_token){ notify('SIGNED_OUT',null); return; }
+      _session=s;
+      if(_fresca(s)){ _agendarRenov(); notify('SIGNED_IN',s); return; }
+      let res=await renovarSessao();
+      for(let i=0;i<2 && res==='rede';i++){ await new Promise(ok=>setTimeout(ok,2000)); res=await renovarSessao(); }
+      if(res==='ok') notify('SIGNED_IN',_session);
+      else if(res==='rede'){ _agendarRenov(15000); notify('SIGNED_IN',_session); }  // sem internet: entra e renova quando a rede voltar
+      // 'recusada': renovarSessao já avisou SIGNED_OUT
     }
     const auth={
       onAuthStateChange(fn){_listeners.push(fn);},
       async signInWithPassword({email,password}){
         const r=await fetch(url+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json','apikey':key},body:JSON.stringify({email,password})});
         const d=await r.json();if(!r.ok)return{error:d};
-        _session=d;localStorage.setItem('supa_sess',JSON.stringify(d));notify('SIGNED_IN',d);return{data:d,error:null};
+        salvarSess(d);notify('SIGNED_IN',_session);return{data:d,error:null};
       },
       async signOut(){try{await fetch(url+'/auth/v1/logout',{method:'POST',headers:hdrs()});}catch(e){}
-        _session=null;localStorage.removeItem('supa_sess');notify('SIGNED_OUT',null);}
+        salvarSess(null);notify('SIGNED_OUT',null);}
     };
-    // Devolve um access_token VÁLIDO, renovando pelo refresh_token quando o
-    // atual já venceu. Sem isso o token do login morre em ~1h e toda operação
-    // que depende dele (upload/download no Storage) passa a falhar calada —
-    // o app continua lendo as tabelas normalmente porque elas não exigem token,
-    // então o defeito não aparecia. Só é usado onde o token é obrigatório.
-    async function tokenValido(){
-      if(!_session?.access_token) return null;
-      const expMs = _session.expires_at ? _session.expires_at*1000 : 0;
-      // 60s de folga: evita o token vencer no meio do upload de um arquivo grande.
-      if(expMs && Date.now() < expMs-60000) return _session.access_token;
-      if(!_session.refresh_token) return _session.access_token;
-      try{
-        const r=await fetch(url+'/auth/v1/token?grant_type=refresh_token',{
-          method:'POST',headers:{'Content-Type':'application/json','apikey':key},
-          body:JSON.stringify({refresh_token:_session.refresh_token})
-        });
-        const d=await r.json();
-        if(r.ok && d?.access_token){
-          _session=d; localStorage.setItem('supa_sess',JSON.stringify(d));
-          return d.access_token;
-        }
-      }catch(e){}
-      return _session.access_token; // último recurso: tenta com o que tem
-    }
     function from(table){
       let _filters=[],_orderCol=null,_orderAsc=true,_limit=null;
       const q={
@@ -835,7 +882,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.93 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.94 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>

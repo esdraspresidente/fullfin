@@ -388,16 +388,38 @@
     /* ── COMANDO DE VOZ ──
        Botão próprio, menor e ao lado do "+", em vez de trocar o "+": o
        lançamento manual continua a um toque, e a voz é um atalho a mais. */
+    /* Verde de WhatsApp: a pessoa já associa essa cor a "mandar áudio". */
     #fab-voz{
-      position:fixed;z-index:101;width:46px;height:46px;border-radius:50%;
-      background:var(--brant,#2B2F4A);border:none;color:#fff;cursor:pointer;
+      position:fixed;z-index:101;width:58px;height:58px;border-radius:50%;
+      background:#25D366;border:none;color:#fff;cursor:pointer;
       display:flex;align-items:center;justify-content:center;
-      box-shadow:0 10px 22px -8px rgba(0,0,0,.45);transition:transform .12s;
-      bottom:36px;right:100px;
+      box-shadow:0 12px 26px -8px rgba(37,211,102,.75);transition:transform .12s;
+      bottom:32px;right:100px;
     }
+    #fab-voz .ic{width:28px;height:28px;}
     #fab-voz:active{transform:scale(.93);}
-    #fab-voz.gravando{background:#C0392B;animation:vozPulso 1.2s ease-in-out infinite;}
-    @keyframes vozPulso{0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,.55);}50%{box-shadow:0 0 0 12px rgba(192,57,43,0);}}
+    /* Tela de gravação: o botão de enviar (≈3x o botão verde) fica na parte
+       de BAIXO, perto de onde o dedo acabou de tocar — dá para encerrar com
+       o polegar, sem mirar e sem esticar a mão até o meio da tela. */
+    #voz-overlay{
+      position:fixed;inset:0;z-index:200;background:rgba(10,20,50,.72);
+      display:none;flex-direction:column;align-items:center;justify-content:flex-end;gap:18px;
+      padding-bottom:calc(env(safe-area-inset-bottom,0px) + 28px);
+      -webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);
+    }
+    #voz-overlay.aberto{display:flex;}
+    #voz-parar{
+      width:176px;height:176px;border-radius:50%;border:none;cursor:pointer;
+      background:#25D366;color:#fff;display:flex;align-items:center;justify-content:center;
+      animation:vozPulso 1.4s ease-in-out infinite;
+    }
+    #voz-parar .ic{width:64px;height:64px;}
+    #voz-parar:active{transform:scale(.95);}
+    #voz-tempo{color:#fff;font-size:30px;font-weight:800;letter-spacing:.02em;font-variant-numeric:tabular-nums;}
+    #voz-dica{color:rgba(255,255,255,.85);font-size:15px;font-weight:600;text-align:center;padding:0 24px;}
+    #voz-cancelar{background:rgba(255,255,255,.14);color:#fff;border:1px solid rgba(255,255,255,.35);
+      border-radius:999px;padding:10px 26px;font-size:14px;font-weight:700;cursor:pointer;}
+    @keyframes vozPulso{0%,100%{box-shadow:0 0 0 0 rgba(37,211,102,.6);}50%{box-shadow:0 0 0 26px rgba(37,211,102,0);}}
     #voz-painel{
       position:fixed;z-index:102;left:50%;transform:translateX(-50%);
       bottom:110px;background:#fff;border:1px solid var(--border);border-radius:14px;
@@ -408,7 +430,7 @@
     #voz-painel button{border:none;border-radius:8px;padding:7px 10px;font-weight:700;font-size:12px;cursor:pointer;}
     .voz-vazio{outline:2px solid #F5B800 !important;outline-offset:1px;}
     @media(max-width:767px){
-      #fab-voz{right:16px;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0) + 18px);}
+      #fab-voz{right:16px;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0) + 12px);}
       #voz-painel{bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0) + 80px);}
     }
 
@@ -813,7 +835,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.91 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.92 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1246,6 +1268,12 @@
   <!-- ⚠️ ELEMENTO CRÍTICO — NÃO REMOVER: comando de voz (fab-voz + voz-painel) -->
   <button id="fab-voz" onclick="vozToggle()" aria-label="Lançar por voz"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
   <div id="voz-painel"><span id="voz-status" style="flex:1"></span><span id="voz-botoes"></span></div>
+  <div id="voz-overlay" role="dialog" aria-label="Gravando comando de voz">
+    <div id="voz-tempo">0:00</div>
+    <div id="voz-dica">Fale o lançamento e toque no botão para enviar</div>
+    <button id="voz-parar" onclick="vozParar(false)" aria-label="Parar e enviar"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></button>
+    <button id="voz-cancelar" onclick="vozParar(true)">Cancelar</button>
+  </div>
   <button id="fab" onclick="openSheet()"><svg class="ic lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
 
 </div><!-- /app -->
@@ -7184,11 +7212,10 @@ async function vozToggle(){
   _voz.rec.ondataavailable=e=>{ if(e.data?.size) _voz.partes.push(e.data); };
   _voz.rec.onstop=()=>{ vozSoltarMic(); if(!_voz.cancelado) vozEnviar(); };
   _voz.rec.start();
-  $('fab-voz')?.classList.add('gravando');
+  $('voz-overlay')?.classList.add('aberto');
   const tick=()=>{
     const seg=Math.floor((Date.now()-_voz.t0)/1000);
-    vozPainel(`<b>Ouvindo…</b> 0:${String(seg).padStart(2,'0')} · toque no microfone para enviar`,
-      `<button onclick="vozParar(true)" style="background:#F1F2F6;color:var(--text)">Cancelar</button>`);
+    const t=$('voz-tempo'); if(t) t.textContent='0:'+String(seg).padStart(2,'0');
     if(seg>=VOZ_MAX_SEG) vozParar(false);
   };
   tick(); _voz.timer=setInterval(tick,500);
@@ -7197,7 +7224,7 @@ async function vozToggle(){
 function vozParar(cancelar){
   _voz.cancelado=!!cancelar;
   clearInterval(_voz.timer);
-  $('fab-voz')?.classList.remove('gravando');
+  $('voz-overlay')?.classList.remove('aberto');
   try{ if(_voz.rec?.state==='recording') _voz.rec.stop(); else vozSoltarMic(); }catch(e){ vozSoltarMic(); }
   if(cancelar) vozPainel('');
 }
@@ -7356,7 +7383,7 @@ const SELFCHECK_ELEMENTOS = [
   'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config','page-figurinhas',
   'page-documentos','doc-lista','doc-busca','doc-alerta-home','comp-modal','comp-body','comp-link',
   'fig-view-faltam','fig-view-repetidas','fig-view-relatorio','print-album',
-  'fab-voz','voz-painel','voz-status','voz-botoes'
+  'fab-voz','voz-painel','voz-status','voz-botoes','voz-overlay','voz-parar','voz-tempo'
 ];
 
 // Funções que precisam existir pro app funcionar.

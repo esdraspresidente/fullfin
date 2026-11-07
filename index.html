@@ -10,7 +10,7 @@
   <meta name="mobile-web-app-capable" content="yes"/>
   <meta name="theme-color" content="#0B1F5C"/>
   <title>Fullfin — Controle Financeiro</title>
-  <link rel="manifest" href="manifest.json?v=385"/>
+  <link rel="manifest" href="manifest.json?v=386"/>
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet"/>
@@ -835,7 +835,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.92 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.93 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1271,7 +1271,7 @@
   <div id="voz-overlay" role="dialog" aria-label="Gravando comando de voz">
     <div id="voz-tempo">0:00</div>
     <div id="voz-dica">Fale o lançamento e toque no botão para enviar</div>
-    <button id="voz-parar" onclick="vozParar(false)" aria-label="Parar e enviar"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></button>
+    <button id="voz-parar" onclick="vozBotaoGrande()" aria-label="Parar e enviar"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg></button>
     <button id="voz-cancelar" onclick="vozParar(true)">Cancelar</button>
   </div>
   <button id="fab" onclick="openSheet()"><svg class="ic lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
@@ -1497,6 +1497,7 @@ sb.auth.onAuthStateChange(async(event,session)=>{
     _sharePendente = false;
     await checkSharedFile();
     setTimeout(applyAllMoneyMasks, 100);
+    vozAtalho();   // aberto pelo atalho "Lançar por voz"? já começa a gravar
   } else {
     currentUser=null; $('app').classList.remove('visible');
     $('login-screen').classList.remove('hidden');
@@ -7192,15 +7193,54 @@ function vozPainel(texto,botoes){
   p.classList.toggle('aberto',!!texto);
 }
 
-async function vozToggle(){
+const VOZ_ICONE_ENVIAR='<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>';
+const VOZ_ICONE_MIC='<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
+
+// O botão grande faz duas coisas: grava (quando a tela está "pronta",
+// esperando um toque) ou envia (quando já está gravando).
+function vozBotaoGrande(){
+  if(_voz.rec && _voz.rec.state==='recording') vozParar(false); else vozToggle();
+}
+
+// Tela de gravação no modo "pronto": aberta, mas ainda sem gravar.
+// Usada quando o atalho abre o app e o navegador não libera o microfone
+// sem um toque na tela — aí o toque é no próprio botão grande.
+function vozMostrarPronto(){
+  $('voz-overlay')?.classList.add('aberto');
+  const t=$('voz-tempo'); if(t) t.textContent='';
+  const d=$('voz-dica'); if(d) d.textContent='Toque no botão e fale o lançamento';
+  const b=$('voz-parar'); if(b){ b.innerHTML=VOZ_ICONE_MIC; b.setAttribute('aria-label','Começar a gravar'); }
+}
+
+// ATALHO "Lançar por voz" (manifest.json → shortcuts, url ?voz=1).
+// Segurar o ícone do Fullfin mostra o atalho; arrastado para a tela
+// inicial vira um ícone próprio. Chamado só depois do login e do
+// loadAll: gravar antes disso daria resposta sem as listas carregadas.
+async function vozAtalho(){
+  const q=new URLSearchParams(location.search);
+  if(q.get('voz')!=='1') return;
+  // Tira o ?voz=1 da barra: senão um recarregar da página começaria a
+  // gravar de novo sem a pessoa pedir.
+  q.delete('voz');
+  history.replaceState(null,'',location.pathname+(q.toString()?'?'+q:'')+location.hash);
+  vozMostrarPronto();
+  await vozToggle(true);
+}
+
+async function vozToggle(automatico){
   if(_voz.ocupado) return;
   if(_voz.rec && _voz.rec.state==='recording'){ vozParar(false); return; }
   if(!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder==='undefined'){
+    $('voz-overlay')?.classList.remove('aberto');
     showToast('Este aparelho não permite gravar áudio aqui.','err'); return;
   }
   try{
     _voz.stream=await navigator.mediaDevices.getUserMedia({audio:true});
   }catch(e){
+    // Vindo do atalho, a falha costuma ser só "precisa de um toque":
+    // a tela fica no modo pronto esperando o toque no botão grande.
+    if(automatico===true) return;
+    $('voz-overlay')?.classList.remove('aberto');
     showToast('Libere o microfone para o Fullfin nas configurações do navegador.','err'); return;
   }
   // iPhone grava em mp4; Android/desktop em webm. A function aceita os dois.
@@ -7213,6 +7253,8 @@ async function vozToggle(){
   _voz.rec.onstop=()=>{ vozSoltarMic(); if(!_voz.cancelado) vozEnviar(); };
   _voz.rec.start();
   $('voz-overlay')?.classList.add('aberto');
+  const bG=$('voz-parar'); if(bG){ bG.innerHTML=VOZ_ICONE_ENVIAR; bG.setAttribute('aria-label','Parar e enviar'); }
+  const dG=$('voz-dica'); if(dG) dG.textContent='Fale o lançamento e toque no botão para enviar';
   const tick=()=>{
     const seg=Math.floor((Date.now()-_voz.t0)/1000);
     const t=$('voz-tempo'); if(t) t.textContent='0:'+String(seg).padStart(2,'0');
@@ -7400,7 +7442,7 @@ const SELFCHECK_FUNCOES = [
   'docSugereTitulo','salvarDocumento','verDocumento','baixarDocumento','excluirDocumento',
   'docUrlAssinada','docStatusValidade','abrirComprovante','fecharComp',
   'gravarPagamentoFatura','renderImportFatura','importarFaturaConfirmar',
-  'vozToggle','vozParar','vozAplicar','buildSheetForm','registrarPagamentoDivida','abrirConfirmPagamento'
+  'vozToggle','vozParar','vozAplicar','vozBotaoGrande','vozAtalho','buildSheetForm','registrarPagamentoDivida','abrirConfirmPagamento'
 ];
 
 // Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais

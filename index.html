@@ -385,6 +385,33 @@
     }
     #fab:active{transform:scale(.93);}
 
+    /* ── COMANDO DE VOZ ──
+       Botão próprio, menor e ao lado do "+", em vez de trocar o "+": o
+       lançamento manual continua a um toque, e a voz é um atalho a mais. */
+    #fab-voz{
+      position:fixed;z-index:101;width:46px;height:46px;border-radius:50%;
+      background:var(--brant,#2B2F4A);border:none;color:#fff;cursor:pointer;
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 10px 22px -8px rgba(0,0,0,.45);transition:transform .12s;
+      bottom:36px;right:100px;
+    }
+    #fab-voz:active{transform:scale(.93);}
+    #fab-voz.gravando{background:#C0392B;animation:vozPulso 1.2s ease-in-out infinite;}
+    @keyframes vozPulso{0%,100%{box-shadow:0 0 0 0 rgba(192,57,43,.55);}50%{box-shadow:0 0 0 12px rgba(192,57,43,0);}}
+    #voz-painel{
+      position:fixed;z-index:102;left:50%;transform:translateX(-50%);
+      bottom:110px;background:#fff;border:1px solid var(--border);border-radius:14px;
+      box-shadow:0 16px 40px -12px rgba(0,0,0,.35);padding:12px 14px;
+      display:none;align-items:center;gap:12px;min-width:260px;max-width:92vw;font-size:13px;color:var(--text);
+    }
+    #voz-painel.aberto{display:flex;}
+    #voz-painel button{border:none;border-radius:8px;padding:7px 10px;font-weight:700;font-size:12px;cursor:pointer;}
+    .voz-vazio{outline:2px solid #F5B800 !important;outline-offset:1px;}
+    @media(max-width:767px){
+      #fab-voz{right:16px;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0) + 18px);}
+      #voz-painel{bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0) + 80px);}
+    }
+
     /* ── PAGES ── */
     .page{display:none;animation:fadeUp .18s ease;min-width:0;max-width:100%;}
     .page.active{display:block;}
@@ -786,7 +813,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.90 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.91 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1216,6 +1243,9 @@
   </nav>
 
   <!-- FAB -->
+  <!-- ⚠️ ELEMENTO CRÍTICO — NÃO REMOVER: comando de voz (fab-voz + voz-painel) -->
+  <button id="fab-voz" onclick="vozToggle()" aria-label="Lançar por voz"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+  <div id="voz-painel"><span id="voz-status" style="flex:1"></span><span id="voz-botoes"></span></div>
   <button id="fab" onclick="openSheet()"><svg class="ic lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
 
 </div><!-- /app -->
@@ -7102,6 +7132,192 @@ if('serviceWorker' in navigator) window.addEventListener('load',()=>{
   }).catch(()=>{});
 });
 
+
+// ════════════════════════════════════════════════
+//  COMANDO DE VOZ
+//  Toque no microfone, fale ("saída de 46,80 na padaria, centro Casa,
+//  conta Nubank Esdras"), toque de novo. O áudio vai para a function
+//  fullfin-voz (previmater-ops), que transcreve e devolve os campos.
+//
+//  A voz NUNCA grava no banco. Ela só abre o formulário de sempre já
+//  preenchido; quem salva é o botão de sempre. Motivo: um só caminho de
+//  gravação (parcelas_pagas, e-mail ao credor, aviso à Naiarha continuam
+//  iguais) e todo erro de interpretação é visto antes de virar dado.
+//  Campo que a IA não teve certeza vem vazio e marcado em amarelo.
+// ════════════════════════════════════════════════
+const VOZ_URL='https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/fullfin-voz';
+// Teto de gravação: comando é curto. Passou disso, é gravação esquecida
+// ligada — para sozinho e envia o que tem.
+const VOZ_MAX_SEG=45;
+let _voz={rec:null,stream:null,partes:[],timer:null,t0:0,cancelado:false,ocupado:false};
+
+// Data LOCAL do aparelho. toISOString() devolve UTC e, depois das 21h em
+// Brasília, já seria o dia seguinte.
+function vozHojeLocal(){
+  const d=new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+function vozPainel(texto,botoes){
+  const p=$('voz-painel'); if(!p) return;
+  $('voz-status').innerHTML=texto; $('voz-botoes').innerHTML=botoes||'';
+  p.classList.toggle('aberto',!!texto);
+}
+
+async function vozToggle(){
+  if(_voz.ocupado) return;
+  if(_voz.rec && _voz.rec.state==='recording'){ vozParar(false); return; }
+  if(!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder==='undefined'){
+    showToast('Este aparelho não permite gravar áudio aqui.','err'); return;
+  }
+  try{
+    _voz.stream=await navigator.mediaDevices.getUserMedia({audio:true});
+  }catch(e){
+    showToast('Libere o microfone para o Fullfin nas configurações do navegador.','err'); return;
+  }
+  // iPhone grava em mp4; Android/desktop em webm. A function aceita os dois.
+  const tipos=['audio/webm;codecs=opus','audio/mp4','audio/webm','audio/ogg;codecs=opus'];
+  const mime=tipos.find(t=>{try{return MediaRecorder.isTypeSupported(t);}catch(e){return false;}})||'';
+  try{ _voz.rec=mime?new MediaRecorder(_voz.stream,{mimeType:mime}):new MediaRecorder(_voz.stream); }
+  catch(e){ vozSoltarMic(); showToast('Não consegui iniciar a gravação.','err'); return; }
+  _voz.partes=[]; _voz.cancelado=false; _voz.t0=Date.now();
+  _voz.rec.ondataavailable=e=>{ if(e.data?.size) _voz.partes.push(e.data); };
+  _voz.rec.onstop=()=>{ vozSoltarMic(); if(!_voz.cancelado) vozEnviar(); };
+  _voz.rec.start();
+  $('fab-voz')?.classList.add('gravando');
+  const tick=()=>{
+    const seg=Math.floor((Date.now()-_voz.t0)/1000);
+    vozPainel(`<b>Ouvindo…</b> 0:${String(seg).padStart(2,'0')} · toque no microfone para enviar`,
+      `<button onclick="vozParar(true)" style="background:#F1F2F6;color:var(--text)">Cancelar</button>`);
+    if(seg>=VOZ_MAX_SEG) vozParar(false);
+  };
+  tick(); _voz.timer=setInterval(tick,500);
+}
+
+function vozParar(cancelar){
+  _voz.cancelado=!!cancelar;
+  clearInterval(_voz.timer);
+  $('fab-voz')?.classList.remove('gravando');
+  try{ if(_voz.rec?.state==='recording') _voz.rec.stop(); else vozSoltarMic(); }catch(e){ vozSoltarMic(); }
+  if(cancelar) vozPainel('');
+}
+
+// Desliga o microfone de verdade: sem isso o iPhone deixa o ícone de
+// gravação aceso até fechar o app.
+function vozSoltarMic(){ try{ _voz.stream?.getTracks().forEach(t=>t.stop()); }catch(e){} _voz.stream=null; }
+
+async function vozEnviar(){
+  const tipo=_voz.rec?.mimeType||'audio/webm';
+  const blob=new Blob(_voz.partes,{type:tipo});
+  if(blob.size<1500){ vozPainel(''); showToast('Não deu para ouvir. Toque e fale de novo.','err'); return; }
+  _voz.ocupado=true;
+  vozPainel('<b>Entendendo…</b>');
+  try{
+    const tk=await sb.token();
+    if(!tk){ throw new Error('Entre de novo no app.'); }
+    const fd=new FormData();
+    fd.append('audio',blob,'comando.'+(tipo.includes('mp4')?'mp4':tipo.includes('ogg')?'ogg':'webm'));
+    fd.append('hoje',vozHojeLocal());
+    const r=await fetch(VOZ_URL,{method:'POST',headers:{'Authorization':'Bearer '+tk},body:fd});
+    const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida ('+r.status+')'}));
+    vozPainel('');
+    if(!j.ok){ vozNaoEntendi(j.transcricao,[j.erro||'Falhou.']); return; }
+    vozAplicar(j);
+  }catch(e){
+    vozPainel(''); showToast(e?.message||'Sem conexão.','err');
+  }finally{ _voz.ocupado=false; }
+}
+
+// Preenche um campo só se o valor existir nele (select sem a opção fica
+// como estava, em vez de mostrar um valor que não salva).
+function vozSet(id,v){
+  const el=$(id); if(!el || v===null || v===undefined || v==='') return false;
+  el.value=String(v);
+  return el.value===String(v);
+}
+function vozMarcarVazios(ids){
+  ids.forEach(id=>{
+    const el=$(id); if(!el || (el.value && el.value!=='0')) return;
+    el.classList.add('voz-vazio');
+    el.addEventListener('change',()=>el.classList.remove('voz-vazio'),{once:true});
+    el.addEventListener('input',()=>el.classList.remove('voz-vazio'),{once:true});
+  });
+}
+function vozEsc(t){ return String(t??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+// Faixa no topo do formulário: o que foi ouvido + o que ficou em aberto.
+// Mostrar a frase ouvida é o que deixa a pessoa perceber erro de
+// transcrição ("46,80" ouvido como "4.680").
+function vozBanner(j){
+  const d=(j.duvidas||[]).map(x=>`<li>${vozEsc(x)}</li>`).join('');
+  const html=`<div id="voz-banner" style="background:#FFF8E1;border:1px solid #F5D77A;border-radius:10px;padding:10px 12px;margin-bottom:14px;font-size:12px;color:#6B5200">
+    <div><b>Você disse:</b> “${vozEsc(j.transcricao)}”</div>
+    ${d?`<ul style="margin:6px 0 0 16px;padding:0">${d}</ul>`:''}
+    <div style="margin-top:6px;font-weight:700">Confira e toque em salvar.${d?' Campos em amarelo ficaram em branco.':''}</div></div>`;
+  const b=$('sheet-body'); if(b) b.insertAdjacentHTML('afterbegin',html);
+}
+
+function vozAplicar(j){
+  const c=j.campos||{};
+  if(j.acao==='novo_lancamento'){
+    const t=c.tipo_lancamento||'saida';
+    sheetLancTipo=t; sheetTipo=(t==='entrada'||t==='a_receber')?'entrada':'saida';
+    sheetStatus=(t==='saida'||t==='entrada')?'pago':'pendente'; sheetEditId=null;
+    $('sheet-title').textContent='Novo lançamento';
+    const conta=c.conta||'';
+    buildSheetForm(conta.startsWith('cartao:')?conta.slice(7):null);
+    openSheetRaw();   // agenda a máscara de dinheiro: os valores abaixo entram antes dela
+    vozSet('sh-lanc-tipo',t); aplicarDatasPorTipo();
+    if(conta && vozSet('sh-carteira-unif',conta)) onCarteiraChange();
+    vozSet('sh-valor',c.valor); vozSet('sh-desc',c.descricao); vozSet('sh-venc',c.data);
+    vozSet('sh-centro',c.centro_id); vozSet('sh-cat',c.categoria_id); vozSet('sh-forma',c.forma_pagamento);
+    vozMarcarVazios(['sh-valor','sh-desc','sh-carteira-unif','sh-centro']);
+    vozBanner(j); return;
+  }
+  if(j.acao==='pagar_parcela_divida'){
+    const d=dividas.find(x=>x.id===c.divida_id);
+    if(!d){ vozNaoEntendi(j.transcricao,j.duvidas); return; }
+    registrarPagamentoDivida(d.id);   // abre o formulário certo (parcelas ou livre)
+    if(d.tipo_controle==='livre'){
+      vozSet('dpag-livre-valor',c.valor); vozSet('dpag-livre-data',c.data);
+      vozSet('dpag-livre-carteira',c.carteira_id); vozSet('dpag-livre-forma',c.forma_pagamento);
+      vozMarcarVazios(['dpag-livre-valor','dpag-livre-carteira']);
+    }else{
+      // Sem parcela identificada, o select fica na primeira em aberto — que
+      // pode não ser a do mês. Por isso ele é marcado para conferência.
+      const achouParcela=vozSet('dpag-num',c.parcela_num);
+      if(c.valor){ vozSet('dpag-valor',c.valor); setTimeout(()=>{ try{ dpagCalcEconomia(d.id); }catch(e){} },80); }
+      vozSet('dpag-data',c.data); vozSet('dpag-carteira',c.carteira_id); vozSet('dpag-forma',c.forma_pagamento);
+      vozMarcarVazios(['dpag-carteira']);
+      if(!achouParcela) $('dpag-num')?.classList.add('voz-vazio');
+    }
+    vozBanner(j); return;
+  }
+  if(j.acao==='pagar_conta'){
+    const m=movimentacoes.find(x=>x.id===c.mov_id);
+    if(!m){ vozNaoEntendi(j.transcricao,j.duvidas); return; }
+    abrirConfirmPagamento(m.id,m.tipo||'saida');
+    if(c.valor) vozSet('cpag-valor',c.valor);
+    vozSet('cpag-data',c.data); vozSet('cpag-carteira',c.carteira_id); vozSet('cpag-forma',c.forma_pagamento);
+    vozMarcarVazios(['cpag-carteira']);
+    vozBanner(j); return;
+  }
+  vozNaoEntendi(j.transcricao,j.duvidas);
+}
+
+function vozNaoEntendi(transcricao,duvidas){
+  $('sheet-title').textContent='Não entendi o comando';
+  const d=(duvidas||[]).map(x=>`<li>${vozEsc(x)}</li>`).join('');
+  $('sheet-body').innerHTML=`
+    ${transcricao?`<div style="font-size:13px;margin-bottom:10px"><b>Você disse:</b> “${vozEsc(transcricao)}”</div>`:''}
+    ${d?`<ul style="margin:0 0 12px 16px;padding:0;font-size:12px;color:var(--gray)">${d}</ul>`:''}
+    <div style="font-size:12px;color:var(--gray);margin-bottom:14px">Exemplos: “saída de 46,80 na padaria, centro Casa, conta Nubank Esdras” · “paguei a parcela do C3 pela conta Itaú Naiarha” · “paguei a conta de luz”.</div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" style="flex:1" onclick="closeSheet();setTimeout(vozToggle,250)">Falar de novo</button>
+      <button class="btn btn-primary" style="flex:1" onclick="closeSheet();openSheet()">Lançar à mão</button>
+    </div>`;
+  openSheetRaw();
+}
+
 // Atualiza a etiqueta de versão no sidebar lendo direto do cache ativo do SW,
 // assim ela nunca mais fica desatualizada — segue automaticamente a versão do sw.js
 async function atualizaVersaoSidebar(){
@@ -7139,7 +7355,8 @@ const SELFCHECK_ELEMENTOS = [
   'page-home','page-lancamentos','page-calendario','page-relatorio','page-carteiras','page-cartoes',
   'page-dividas','page-recorrentes','page-dizimo','page-importar','page-config','page-figurinhas',
   'page-documentos','doc-lista','doc-busca','doc-alerta-home','comp-modal','comp-body','comp-link',
-  'fig-view-faltam','fig-view-repetidas','fig-view-relatorio','print-album'
+  'fig-view-faltam','fig-view-repetidas','fig-view-relatorio','print-album',
+  'fab-voz','voz-painel','voz-status','voz-botoes'
 ];
 
 // Funções que precisam existir pro app funcionar.
@@ -7155,7 +7372,8 @@ const SELFCHECK_FUNCOES = [
   'renderDocumentos','renderDocumentosLista','renderDocAlertaHome','openSheetDocumento',
   'docSugereTitulo','salvarDocumento','verDocumento','baixarDocumento','excluirDocumento',
   'docUrlAssinada','docStatusValidade','abrirComprovante','fecharComp',
-  'gravarPagamentoFatura','renderImportFatura','importarFaturaConfirmar'
+  'gravarPagamentoFatura','renderImportFatura','importarFaturaConfirmar',
+  'vozToggle','vozParar','vozAplicar','buildSheetForm','registrarPagamentoDivida','abrirConfirmPagamento'
 ];
 
 // Métodos/palavras legítimas que aparecem em on* mas NÃO são funções globais

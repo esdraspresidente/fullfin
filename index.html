@@ -882,7 +882,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.94 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.95 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -7263,15 +7263,39 @@ function vozMostrarPronto(){
 // Segurar o ícone do Fullfin mostra o atalho; arrastado para a tela
 // inicial vira um ícone próprio. Chamado só depois do login e do
 // loadAll: gravar antes disso daria resposta sem as listas carregadas.
+// ?voz_texto=... vem do CONCIERGE (app porteiro): ele já ouviu, transcreveu
+// e decidiu que a fala é do Fullfin. O texto vai para a fullfin-voz como se
+// tivesse sido falado aqui, e abre o mesmo formulário de confirmação. Não
+// grava nada sozinho.
 async function vozAtalho(){
   const q=new URLSearchParams(location.search);
-  if(q.get('voz')!=='1') return;
-  // Tira o ?voz=1 da barra: senão um recarregar da página começaria a
-  // gravar de novo sem a pessoa pedir.
-  q.delete('voz');
+  const vt=(q.get('voz_texto')||'').trim();
+  if(q.get('voz')!=='1' && !vt) return;
+  // Tira os parâmetros da barra: senão um recarregar da página repetiria
+  // o comando sem a pessoa pedir.
+  q.delete('voz'); q.delete('voz_texto');
   history.replaceState(null,'',location.pathname+(q.toString()?'?'+q:'')+location.hash);
+  if(vt) return vozDeTexto(vt.slice(0,500));
   vozMostrarPronto();
   await vozToggle(true);
+}
+async function vozDeTexto(texto){
+  if(_voz.ocupado) return;
+  _voz.ocupado=true;
+  vozPainel('<b>Entendendo…</b>');
+  try{
+    const tk=await sb.token();
+    if(!tk){ throw new Error('Entre de novo no app.'); }
+    const fd=new FormData();
+    fd.append('texto',texto); fd.append('hoje',vozHojeLocal());
+    const r=await fetch(VOZ_URL,{method:'POST',headers:{'Authorization':'Bearer '+tk},body:fd});
+    const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida ('+r.status+')'}));
+    vozPainel('');
+    if(!j.ok){ vozNaoEntendi(j.transcricao||texto,[j.erro||'Falhou.']); return; }
+    vozAplicar(j);
+  }catch(e){
+    vozPainel(''); showToast(e?.message||'Sem conexão.','err');
+  }finally{ _voz.ocupado=false; }
 }
 
 async function vozToggle(automatico){

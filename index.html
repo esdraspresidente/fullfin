@@ -476,6 +476,12 @@
     #voz-painel.aberto{display:flex;}
     #voz-painel button{border:none;border-radius:8px;padding:7px 10px;font-weight:700;font-size:12px;cursor:pointer;}
     .voz-vazio{outline:2px solid #F5B800 !important;outline-offset:1px;}
+    /* Assistente: conversa curta, resposta mais nova embaixo. */
+    .as-fio{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+    .as-p{align-self:flex-end;background:#0B1F5C;color:#fff;border-radius:14px 14px 4px 14px;padding:9px 12px;font-size:14px;max-width:88%}
+    .as-r{align-self:flex-start;background:#F4F6FB;border:1px solid #E1E5F0;border-radius:14px 14px 14px 4px;padding:10px 12px;font-size:14px;line-height:1.45;white-space:pre-wrap;max-width:94%}
+    .as-itens{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+    .as-itens button{text-align:left;background:#fff;border:1px solid #E1E5F0;border-radius:10px;padding:8px 10px;color:#0B1F5C;font-size:13px;font-weight:600;cursor:pointer}
     @media(max-width:767px){
       #fab-voz{right:16px;bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0) + 12px);}
       #voz-painel{bottom:calc(var(--nav-h) + env(safe-area-inset-bottom,0) + 80px);}
@@ -882,7 +888,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.95 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.96 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -911,6 +917,7 @@
           <div class="sb-uemail" id="sb-uemail"></div>
         </div>
       </div>
+      <button class="logout-btn" onclick="ffAssistAbrir()" style="margin-bottom:6px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L4 20.5 5.5 16A8 8 0 1 1 21 12z"/><path d="M9 10h6M9 14h4"/></svg> Assistente</button>
       <button class="logout-btn" id="sb-hide-btn" onclick="toggleValoresOcultos()" style="margin-bottom:6px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg> Ocultar valores</button>
       <button class="logout-btn" onclick="doLogout()"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg> Sair da conta</button>
     </div>
@@ -932,6 +939,7 @@
         <span class="mhdr-mlabel" id="mhdr-month">Jun 2026</span>
         <button class="mhdr-mbtn" onclick="mudaMes(1)">›</button>
       </div>
+      <button onclick="ffAssistAbrir()" title="Perguntar ao assistente" aria-label="Perguntar ao assistente" style="background:none;border:none;color:#fff;cursor:pointer;padding:2px 4px;line-height:1;display:flex"><svg class="ic lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.8 7L4 20.5 5.5 16A8 8 0 1 1 21 12z"/><path d="M9 10h6M9 14h4"/></svg></button>
       <button id="mhdr-hide-btn" onclick="toggleValoresOcultos()" title="Ocultar/mostrar valores" style="background:none;border:none;color:#fff;cursor:pointer;padding:2px 4px;line-height:1;display:flex"><svg class="ic lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
       <div class="mhdr-avatar" id="mhdr-avatar">?</div>
     </div>
@@ -7288,6 +7296,7 @@ async function vozDeTexto(texto){
     if(!tk){ throw new Error('Entre de novo no app.'); }
     const fd=new FormData();
     fd.append('texto',texto); fd.append('hoje',vozHojeLocal());
+    ffAnexarContexto(fd);
     const r=await fetch(VOZ_URL,{method:'POST',headers:{'Authorization':'Bearer '+tk},body:fd});
     const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida ('+r.status+')'}));
     vozPainel('');
@@ -7358,6 +7367,7 @@ async function vozEnviar(){
     const fd=new FormData();
     fd.append('audio',blob,'comando.'+(tipo.includes('mp4')?'mp4':tipo.includes('ogg')?'ogg':'webm'));
     fd.append('hoje',vozHojeLocal());
+    ffAnexarContexto(fd);
     const r=await fetch(VOZ_URL,{method:'POST',headers:{'Authorization':'Bearer '+tk},body:fd});
     const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida ('+r.status+')'}));
     vozPainel('');
@@ -7398,6 +7408,14 @@ function vozBanner(j){
 
 function vozAplicar(j){
   const c=j.campos||{};
+  if(j.acao==='consulta') return ffAssistResposta(j);
+  // Ordem dada dentro da conversa: não entendida fica explicada na própria
+  // conversa; entendida abre o formulário de sempre (que substitui a
+  // conversa na mesma folha) e a conversa guarda o registro.
+  if(_ffAs.aberto){
+    if(j.acao==='nao_entendi') return ffAssistResposta({...j, resposta:'Não consegui entender a ordem.'+((j.duvidas||[]).length?'\n• '+j.duvidas.join('\n• '):''), itens:[]});
+    _ffAs.fio.push({p:j.transcricao, r:'Abri o formulário para você confirmar.', itens:[]});
+  }
   if(j.acao==='novo_lancamento'){
     const t=c.tipo_lancamento||'saida';
     sheetLancTipo=t; sheetTipo=(t==='entrada'||t==='a_receber')?'entrada':'saida';
@@ -7456,6 +7474,197 @@ function vozNaoEntendi(transcricao,duvidas){
       <button class="btn btn-primary" style="flex:1" onclick="closeSheet();openSheet()">Lançar à mão</button>
     </div>`;
   openSheetRaw();
+}
+
+// ════════════════════════════════════════════════
+//  ASSISTENTE (perguntas)
+// ════════════════════════════════════════════════
+// "Teve lançamento hoje?", "o que vence esta semana?", "quanto gastei de
+// mercado?". Quem monta os fatos é ESTE código, chamando as mesmas funções
+// das telas (calcMes do card Saldo do mês, calcLucroReal, calcSaldoCarteira,
+// a regra do bloco Pendências). A IA (fullfin-voz, modo consulta) só recebe
+// esse resumo pronto e escreve a resposta: não lê o banco nem faz conta
+// própria — o número que ela fala é o número que a tela mostra.
+// Cada linha tem um código (L1, L2...). A IA devolve os que citou, e o app
+// transforma em botões que abrem o lançamento; ids não saem do aparelho.
+// Ordem dada na conversa abre o formulário de confirmação de sempre.
+let _ffAs={fio:[], mapa:{}, mapaFio:{}, aberto:false, fechaOrig:null};
+const FF_AS_MAX_FIO=3;   // trocas anteriores enviadas junto, para "e dessa?"
+
+function ffSituacao(){
+  const h=vozHojeLocal(), mesISO=h.slice(0,7), L=[], mapa={};
+  // Formatação própria: fmt() devolve "--" com valores ocultos, e a IA
+  // precisa dos números mesmo com a tela escondendo.
+  const brl=v=>(Number(v)||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+  const dt=x=>{ if(!x) return '—'; const [y,m,d]=String(x).split('T')[0].split('-'); return d+'/'+m+'/'+y; };
+  const somaDias=(iso,n)=>{ const d=new Date(iso+'T12:00:00'); d.setDate(d.getDate()+n); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+  const DIAS=['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+  const carteiraNome=id=>carteiras.find(c=>c.id===id)?.nome||'';
+  const cartaoNome=id=>cartoes.find(c=>c.id===id)?.nome||'';
+  let n=0; const reg=(rotulo,acao)=>{ const c='L'+(++n); mapa[c]={rotulo,acao}; return c; };
+
+  L.push(`HOJE: ${dt(h)} (${DIAS[new Date(h+'T12:00:00').getDay()]})`);
+
+  // Mês de hoje, todos os centros: a mesma conta do card do Início, sem
+  // mexer no mês e no centro que a tela está mostrando.
+  const mesTela=mesAtual, centroTela=centroAtual; let mes;
+  try{ mesAtual=new Date(); centroAtual='GERAL'; mes=calcMes(); } finally { mesAtual=mesTela; centroAtual=centroTela; }
+  const lr=calcLucroReal(mesISO);
+  L.push(`\nMÊS ATUAL (${MESES[Number(mesISO.slice(5))-1]} ${mesISO.slice(0,4)}), todos os centros — mesma conta do card "Saldo do mês" do Início:`);
+  L.push(`Entradas pagas ${brl(mes.ent)}; saídas pagas ${brl(mes.sai)}; saldo do mês ${brl(mes.saldo)}; a receber ${brl(mes.aRec)}; a pagar ${brl(mes.aPag)}`+(mes.cap>0?`; capital de empréstimo recebido ${brl(mes.cap)} (fora das entradas)`:''));
+  L.push('Saldo do mês por centro: '+lr.porCentro.map(c=>`${c.nome} ${brl(c.saldo)}`).join('; '));
+  L.push(`Dízimo sugerido do mês: ${brl(lr.dizimo)}`);
+
+  const ativas=carteiras.filter(c=>c.ativo!==false);
+  const saldos=ativas.map(c=>({nome:c.nome, v:calcSaldoCarteira(c.id)}));
+  L.push(`\nSALDO DAS CARTEIRAS (total ${brl(saldos.reduce((t,x)=>t+x.v,0))}):`, ...saldos.map(x=>`${x.nome}: ${brl(x.v)}`));
+
+  // Pendências: mesma regra do bloco "Pendências" do Início (tudo que não
+  // está pago, de qualquer mês, sem compra de cartão; faturas em aberto;
+  // custos fixos previstos do mês).
+  const cls=venc=>!venc?'a vencer':(venc<h?'ATRASADO':(venc===h?'VENCE HOJE':'a vencer'));
+  const itens=[];
+  movsVisiveis().filter(m=>m.status!=='pago'&&m.status!=='cancelado'&&!ehCompraCartao(m)).forEach(m=>{
+    const venc=(m.data_vencimento||m.data||'').split('T')[0];
+    itens.push({tipo:m.tipo, desc:m.descricao||getCatNome(m.categoria_id)||'—', valor:m.valor, venc, extra:[getCName(m.centro_id), getCatNome(m.categoria_id)].filter(Boolean).join(' · '), acao:['abreDetalhe',m.id]});
+  });
+  const mesesFat=new Set();
+  movsVisiveis().filter(m=>ehCompraCartao(m)&&m.data_vencimento).forEach(m=>mesesFat.add(m.data_vencimento.slice(0,7)));
+  mesesFat.forEach(mRef=>faturasEmAbertoDoMes(mRef,'GERAL').forEach(f=>{
+    itens.push({tipo:'saida', desc:`${f.descricao} · ${MESES_S[Number(mRef.slice(5))-1]}`, valor:f.valor, venc:f.data_vencimento, extra:'fatura de cartão', atrasada:f._statusKey==='atrasada', acao:['abrirPagarFatura',f._cartaoId,f._mRef]});
+  }));
+  custosFixosVirtuais(mesISO).forEach(cf=>{
+    itens.push({tipo:cf.tipo, desc:cf.descricao, valor:cf.valor, venc:cf.data_vencimento, extra:[getCName(cf.centro_id),'custo fixo previsto'].filter(Boolean).join(' · '), acao:['abrirPagarCustoFixo',cf._recorrenteId,cf._mRef]});
+  });
+  const ordem={'ATRASADO':0,'VENCE HOJE':1,'a vencer':2};
+  const st=i=>i.atrasada?'ATRASADO':cls(i.venc);
+  itens.sort((a,b)=>(ordem[st(a)]-ordem[st(b)])||String(a.venc||'').localeCompare(String(b.venc||'')));
+  // Futuro: só os próximos 45 dias, para o resumo não crescer sem limite.
+  const lim=somaDias(h,45);
+  const linhaPend=i=>{ const c=reg(i.desc+' · '+brl(i.valor), i.acao); return `${c} ${i.desc} — ${brl(i.valor)} — vence ${dt(i.venc)} (${st(i)})${i.extra?' — '+i.extra:''}`; };
+  ['entrada','saida'].forEach(tp=>{
+    const lista=itens.filter(i=>i.tipo===tp && (st(i)!=='a vencer' || !i.venc || i.venc<=lim));
+    const tot=lista.reduce((t,i)=>t+(Number(i.valor)||0),0);
+    L.push(`\n${tp==='entrada'?'A RECEBER':'A PAGAR'} (pendências do Início; atrasados, hoje e próximos 45 dias — ${lista.length} itens, ${brl(tot)}):`, ...lista.map(linhaPend));
+  });
+
+  // Lançamentos dos últimos 7 dias (pela data do pagamento; pendente pela
+  // data de vencimento), do mais novo para o mais velho.
+  const desde=somaDias(h,-7);
+  const recentes=movsVisiveis().filter(m=>{ const d=(m.data||m.data_vencimento||'').slice(0,10); return d>=desde && d<=h && m.status!=='cancelado'; })
+    .sort((a,b)=>String(b.data||b.data_vencimento).localeCompare(String(a.data||a.data_vencimento))).slice(0,90);
+  L.push(`\nLANÇAMENTOS DOS ÚLTIMOS 7 DIAS (${recentes.length}${recentes.length===90?', cortado em 90':''}):`);
+  recentes.forEach(m=>{
+    const c=reg((m.descricao||getCatNome(m.categoria_id)||'Lançamento')+' · '+brl(m.valor), ['abreDetalhe',m.id]);
+    const onde=m.cartao_id?'cartão '+cartaoNome(m.cartao_id):carteiraNome(m.carteira_id);
+    L.push(`${c} ${dt(m.data||m.data_vencimento)} — ${m.tipo==='entrada'?'entrada':'saída'} — ${m.descricao||'—'} — ${brl(m.valor)} — ${m.status==='pago'?'pago':'pendente'}`
+      +[getCName(m.centro_id), getCatNome(m.categoria_id), onde].filter(Boolean).map(x=>' — '+x).join('')
+      +(ehTransferencia(m)?' — transferência entre contas':''));
+  });
+
+  // Gasto do mês por categoria: saídas pagas + compras no cartão (pela data
+  // da compra). O pagamento da fatura fica de fora para não contar duas
+  // vezes, e transferência/capital de empréstimo não é gasto.
+  const porCat={};
+  movsVisiveis().filter(m=>m.tipo==='saida' && m.status!=='cancelado' && !foraDoResultado(m) && m.origem!=='fatura'
+      && (ehCompraCartao(m) || m.status==='pago') && String(m.data||m.data_vencimento||'').startsWith(mesISO))
+    .forEach(m=>{ const k=getCatNome(m.categoria_id)||'Sem categoria'; porCat[k]=(porCat[k]||0)+(Number(m.valor)||0); });
+  const cats=Object.entries(porCat).sort((a,b)=>b[1]-a[1]);
+  L.push(`\nGASTO DO MÊS POR CATEGORIA (saídas pagas + compras no cartão; sem pagamento de fatura):`, ...cats.slice(0,25).map(([k,v])=>`${k}: ${brl(v)}`));
+
+  L.push(`\nCENTROS: ${centros.map(c=>c.nome).join(', ')}`);
+  const divAt=dividas.filter(d=>d.ativo!==false);
+  if(divAt.length) L.push(`DÍVIDAS ATIVAS: ${divAt.map(d=>d.descricao).join(', ')}`);
+  return {texto:L.join('\n'), mapa};
+}
+
+// Vai junto em todo envio de voz: se a fala for pergunta, a function já tem
+// com o que responder. Com a conversa aberta, vão também as últimas trocas.
+function ffAnexarContexto(fd){
+  // Erro aqui não pode derrubar o lançamento por voz: sem situação, só a
+  // pergunta deixa de funcionar (a function avisa).
+  try{ const sit=ffSituacao(); _ffAs.mapa=sit.mapa; fd.append('situacao',sit.texto); }
+  catch(e){ console.error('situação',e); }
+  if(_ffAs.aberto){
+    fd.append('modo','consulta');
+    fd.append('historico',JSON.stringify(_ffAs.fio.slice(-FF_AS_MAX_FIO).map(x=>({p:x.p,r:x.r}))));
+  }
+}
+
+function ffAssistAbrir(){
+  // Fechar a folha encerra a conversa: o próximo toque no microfone volta a
+  // ser só lançamento. Embrulha o closeSheet uma vez e desembrulha ao fechar.
+  if(!_ffAs.fechaOrig){
+    _ffAs.fechaOrig=window.closeSheet;
+    window.closeSheet=function(){ _ffAs.aberto=false; const f=_ffAs.fechaOrig; _ffAs.fechaOrig=null; window.closeSheet=f; return f.apply(this,arguments); };
+  }
+  _ffAs.aberto=true;
+  $('sheet-title').textContent='Assistente';
+  $('sheet-body').innerHTML=`<div class="as-fio" id="as-fio">${ffAssistFioHtml()}</div>
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <textarea id="as-txt" rows="1" style="flex:1;min-height:44px;border:1px solid var(--border);border-radius:10px;padding:10px;font:inherit;font-size:15px;resize:none" placeholder="Pergunte… ex.: teve lançamento hoje?"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();ffAssistEnviarTexto()}"></textarea>
+      <button class="btn btn-primary" style="padding:11px 13px" onclick="ffAssistEnviarTexto()" aria-label="Enviar">${VOZ_ICONE_ENVIAR}</button>
+      <button class="btn" style="padding:11px 13px;background:#25D366;color:#fff;border:none" onclick="vozToggle()" aria-label="Perguntar falando">${VOZ_ICONE_MIC}</button>
+    </div>
+    ${_ffAs.fio.length?'':`<div style="font-size:12px;color:var(--gray);margin-top:10px">Exemplos: “teve lançamento hoje?” · “o que está atrasado?” · “o que vence esta semana?” · “quanto gastei de mercado este mês?” · “qual o saldo do Nubank?”</div>`}
+    <div style="font-size:11.5px;color:var(--gray);margin-top:8px">Pode dar ordem aqui também (“paguei a conta de luz”): abre o formulário para você confirmar. Nada é gravado sem o seu toque.</div>`;
+  openSheetRaw();
+  ffAssistRolar();
+}
+function ffAssistFioHtml(){
+  return _ffAs.fio.map((x,i)=>`<div class="as-p">${vozEsc(x.p)}</div><div class="as-r">${vozEsc(x.r)}${x.itens?.length?`<div class="as-itens">${x.itens.map(c=>
+    `<button onclick="ffAssistIr('${c}')">${vozEsc(_ffAs.mapaFio[c]?.rotulo||c)} ›</button>`).join('')}</div>`:''}
+    <div style="margin-top:6px"><button style="border:0;background:none;color:#2E6BE6;font-weight:700;cursor:pointer;padding:0;font-size:12.5px" onclick="ffAssistOuvir(${i})">Ouvir</button></div></div>`).join('');
+}
+function ffAssistRolar(){ const f=$('as-fio'); if(f) f.lastElementChild?.scrollIntoView({block:'end'}); }
+// Atalho de um item citado: fecha a conversa e abre o lançamento, a fatura
+// ou o custo fixo. A ação é [nome, argumentos] montada aqui, e só estas três
+// funções podem ser chamadas — nada que venha da IA vira código.
+const FF_AS_ACOES={ abreDetalhe:(...a)=>abreDetalhe(...a), abrirPagarFatura:(...a)=>abrirPagarFatura(...a), abrirPagarCustoFixo:(...a)=>abrirPagarCustoFixo(...a) };
+function ffAssistIr(cod){
+  const it=_ffAs.mapaFio[cod]; if(!it || !FF_AS_ACOES[it.acao?.[0]]) return;
+  closeSheet();
+  setTimeout(()=>{ try{ FF_AS_ACOES[it.acao[0]](...it.acao.slice(1)); }catch(e){ showToast('Não consegui abrir.','err'); } },250);
+}
+
+async function ffAssistEnviarTexto(){
+  const t=($('as-txt')?.value||'').trim(); if(!t || _voz.ocupado) return;
+  _voz.ocupado=true; vozPainel('<b>Pensando…</b>');
+  try{
+    const tk=await sb.token(); if(!tk) throw new Error('Entre de novo no app.');
+    const fd=new FormData(); fd.append('texto',t); fd.append('hoje',vozHojeLocal());
+    ffAnexarContexto(fd);
+    const r=await fetch(VOZ_URL,{method:'POST',headers:{'Authorization':'Bearer '+tk},body:fd});
+    const j=await r.json().catch(()=>({ok:false,erro:'resposta inválida ('+r.status+')'}));
+    vozPainel('');
+    if(!j.ok){ showToast(j.erro||'Falhou.','err'); return; }
+    if($('as-txt')) $('as-txt').value='';
+    vozAplicar(j);
+  }catch(e){ vozPainel(''); showToast(e?.message||'Sem conexão.','err'); }
+  finally{ _voz.ocupado=false; }
+}
+
+// Resposta chega por voz ou texto. Código citado só vira botão se existir
+// no mapa montado no aparelho.
+function ffAssistResposta(j){
+  const mapa=_ffAs.mapa||{};
+  Object.assign(_ffAs.mapaFio, mapa);
+  const itens=(j.itens||[]).filter(c=>mapa[c]).slice(0,8);
+  _ffAs.fio.push({p:j.transcricao, r:j.resposta||'Sem resposta.', itens});
+  if(_ffAs.fio.length>20) _ffAs.fio=_ffAs.fio.slice(-20);
+  if(_ffAs.aberto && $('as-fio')){ $('as-fio').innerHTML=ffAssistFioHtml(); ffAssistRolar(); }
+  else ffAssistAbrir();
+}
+
+// Lê em voz alta pelo próprio celular (sem custo). Só quando tocar.
+function ffAssistOuvir(i){
+  try{
+    if(speechSynthesis.speaking){ speechSynthesis.cancel(); return; }
+    const u=new SpeechSynthesisUtterance(_ffAs.fio[i]?.r||''); u.lang='pt-BR';
+    const v=speechSynthesis.getVoices().find(x=>/pt[-_]BR/i.test(x.lang)); if(v) u.voice=v;
+    speechSynthesis.speak(u);
+  }catch(e){ showToast('Este aparelho não lê em voz alta.','err'); }
 }
 
 // Atualiza a etiqueta de versão no sidebar lendo direto do cache ativo do SW,

@@ -22,6 +22,13 @@
     const url = 'https://ggyngtqknonwnohbzkyj.supabase.co';
     const key = 'sb_publishable_WJOo1uEpdSXTPoPDlErTJw_vPSe5x1S';
     let _session = null, _listeners = [];
+    // MODO INVISÍVEL (Concierge, 11/11/2026): o Concierge abre o Fullfin
+    // escondido (iframe, ?situacao=1) só para montar o resumo do assistente
+    // (ffSituacao). Nesse modo o cliente NÃO lê, não renova e não grava o
+    // login guardado (supa_sess): usa só o passe que o Concierge manda, em
+    // memória. Renovar a mesma chave aqui e no app aberto derrubaria o login
+    // dos dois (ver "LOGIN QUE NÃO CAI", abaixo).
+    const _MODO_SIT = (()=>{ try{ return window.parent!==window && new URLSearchParams(location.search).get('situacao')==='1'; }catch(e){ return false; } })();
     function hdrs(extra) {
       const h = {'Content-Type':'application/json','apikey':key,...(extra||{})};
       if(_session?.access_token) h['Authorization']='Bearer '+_session.access_token;
@@ -100,6 +107,7 @@
     function _lerGuardada(){ try{ return JSON.parse(localStorage.getItem(SESS_KEY)||'null'); }catch(e){ return null; } }
     function _fresca(s){ return !!(s?.access_token && Date.now() < _expMs(s)-60000); }
     function salvarSess(d){
+      if(_MODO_SIT){ _session=d; return; }   // só memória (ver _MODO_SIT)
       if(d && !d.expires_at) d.expires_at=Math.floor(Date.now()/1000)+(d.expires_in||3600);
       _session=d;
       try{ d ? localStorage.setItem(SESS_KEY,JSON.stringify(d)) : localStorage.removeItem(SESS_KEY); }catch(e){}
@@ -113,6 +121,8 @@
     }
     // Devolve 'ok' | 'recusada' | 'rede'.
     function renovarSessao(){
+      // Modo invisível nunca renova: quem renova é o Concierge, com a chave dele.
+      if(_MODO_SIT) return Promise.resolve('recusada');
       if(_renovando) return _renovando;
       _renovando=(async()=>{
         const g=_lerGuardada();
@@ -149,6 +159,9 @@
       return _session?.access_token||null;
     }
     async function init(){
+      // Modo invisível: sem login guardado e sem SIGNED_IN (que desenharia o
+      // app e rodaria o atalho de voz). O passe chega por sitPasse().
+      if(_MODO_SIT) return;
       const s=_lerGuardada();
       if(!s?.access_token){ notify('SIGNED_OUT',null); return; }
       _session=s;
@@ -166,7 +179,8 @@
         const d=await r.json();if(!r.ok)return{error:d};
         salvarSess(d);notify('SIGNED_IN',_session);return{data:d,error:null};
       },
-      async signOut(){try{await fetch(url+'/auth/v1/logout',{method:'POST',headers:hdrs()});}catch(e){}
+      async signOut(){if(_MODO_SIT) return;   // sairia do login do Concierge
+        try{await fetch(url+'/auth/v1/logout',{method:'POST',headers:hdrs()});}catch(e){}
         salvarSess(null);notify('SIGNED_OUT',null);}
     };
     function from(table){
@@ -283,7 +297,9 @@
       };return q;
     }
     if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else setTimeout(init,0);
-    return{auth,from,token:tokenValido};
+    // Passe vindo do Concierge (só no modo invisível; fora dele não faz nada).
+    function sitPasse(token,expira,user_id){ if(_MODO_SIT) _session={access_token:token,expires_at:expira,user:{id:user_id}}; }
+    return{auth,from,token:tokenValido,modoSit:_MODO_SIT,sitPasse};
   })();
   </script>
 
@@ -6389,6 +6405,9 @@ async function debugShare(){
 }
 
 async function checkSharedFile() {
+  // Modo invisível (Concierge) não pode pegar o comprovante compartilhado:
+  // ele sumiria do cache sem o app de verdade mostrar.
+  if (sb.modoSit) return;
   if (_checkingShare) return;
   _checkingShare = true;
   try {
@@ -7991,6 +8010,41 @@ window.addEventListener('load', ()=>{
   };
   setTimeout(tentar, 400);
 });
+
+// ════════════════════════════════════════════════
+//  MODO INVISÍVEL — conversa com o Concierge (11/11/2026)
+//  O Concierge abre o Fullfin escondido para responder pergunta falada
+//  ("o que tenho para pagar essa semana?") sem abrir o app. Aqui só se
+//  carregam os dados (loadAll) e se devolve o MESMO resumo do assistente
+//  (ffSituacao), com as mesmas contas das telas. Não desenha tela e não
+//  grava nada. Mensagens só da janela de cima, do mesmo endereço.
+//  Dados com mais de 60 s são recarregados antes de responder.
+// ════════════════════════════════════════════════
+if(sb.modoSit){
+  let _sitCarregado=0, _sitCarregando=null;
+  const avisa=m=>parent.postMessage({cc:1,app:'fullfin',...m},location.origin);
+  const carregar=()=>_sitCarregando||(_sitCarregando=(async()=>{
+    await loadAll();
+    // loadAll engole erro de leitura (deixa a lista como estava). Sem
+    // nenhuma carteira, o resumo sairia zerado: melhor avisar que falhou.
+    if(!carteiras.length && !movimentacoes.length) throw new Error('Não consegui ler o Fullfin. Abra o app e entre de novo.');
+    _sitCarregado=Date.now();
+  })().finally(()=>{_sitCarregando=null;}));
+  window.addEventListener('message',async e=>{
+    if(e.source!==parent || e.origin!==location.origin || !e.data?.cc) return;
+    const d=e.data;
+    try{
+      if(d.token) sb.sitPasse(d.token,d.expira,d.user_id);
+      if(d.tipo==='token'){ await carregar(); avisa({tipo:'pronto'}); }
+      else if(d.tipo==='contexto'){
+        if(Date.now()-_sitCarregado>60000) await carregar();
+        const sit=ffSituacao();
+        avisa({tipo:'contexto',id:d.id,situacao:sit.texto,mapa:sit.mapa});
+      }
+    }catch(err){ avisa({tipo:'erro',id:d.id,erro:err?.message||'falha ao carregar'}); }
+  });
+  avisa({tipo:'aberto'});
+}
 </script>
 </body>
 </html>

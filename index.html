@@ -888,7 +888,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.96 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.97 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -1738,9 +1738,17 @@ const ehTransferencia = m => m.origem === 'transferencia';
 // Por isso fica fora de toda soma de resultado e aparece separado no Início.
 const ehCapitalDivida = m => m.origem === 'divida_capital';
 
+// Ajuste de saldo ("Quebra de caixa"): diferença entre o saldo que o app
+// calcula e o saldo real da conta/bolso, lançada pelo botão "Ajustar saldo".
+// Corrige o saldo da carteira, mas fica FORA do resultado por decisão do
+// Esdras (nov/26): o primeiro acerto cobre meses de esquecimento e cairia
+// inteiro num único mês, inventando lucro/prejuízo e mexendo na base do
+// dízimo. A quebra aparece à parte no Relatório, para acompanhar se diminui.
+const ehAjuste = m => m.origem === 'ajuste';
+
 // Movimento que mexe no saldo da carteira mas não é receita nem despesa.
 // Ponto único: se surgir outro caso parecido, entra aqui e vale para todas as telas.
-const foraDoResultado = m => ehTransferencia(m) || ehCapitalDivida(m);
+const foraDoResultado = m => ehTransferencia(m) || ehCapitalDivida(m) || ehAjuste(m);
 
 // ── FATURAS DE CARTÃO ──────────────────────────────
 // Total já pago de uma fatura (soma dos pagamentos parciais registrados)
@@ -2399,7 +2407,7 @@ function buildSheetFormEdicao(m){
     <div class="form-grid-2">
       <div class="field"><label>Conta</label><select id="sh-carteira"><option value="">Sem vínculo</option>${wOpts}</select></div>
       <div class="field"><label>Forma de pagamento</label>
-        <select id="sh-forma">
+        <select id="sh-forma" onchange="formaDinheiroAuto('sh-forma','sh-carteira','')">
           <option value="">Selecione…</option>
           ${formaOpts}
         </select>
@@ -2449,7 +2457,7 @@ function abrirConfirmPagamento(mid, tipo){
         <select id="cpag-carteira"><option value="">Sem vínculo</option>${wOpts}</select>
       </div>
       <div class="field"><label>Forma de pagamento</label>
-        <select id="cpag-forma">
+        <select id="cpag-forma" onchange="formaDinheiroAuto('cpag-forma','cpag-carteira','')">
           <option value="">Selecione…</option>
           ${formaOpts}
         </select>
@@ -2473,6 +2481,10 @@ async function confirmarPagamento(mid){
   const valor=getMaskValue($('cpag-valor'));
   const data=$('cpag-data')?.value;
   if(!data){showToast('Informe a data.','err');return;}
+  // Pago sem carteira não entra no saldo de conta nenhuma — foi assim que
+  // nasceram os buracos de nov/26. Compra de cartão é a exceção (vai pra fatura).
+  const mConf=movimentacoes.find(x=>x.id===mid);
+  if(!mConf?.cartao_id && !$('cpag-carteira')?.value){showToast(MSG_SEM_CARTEIRA,'err');return;}
   const btn=document.querySelector('[onclick*="confirmarPagamento"]');
   if(btn){btn.textContent='Salvando…';btn.disabled=true;}
   let comprovanteUrl=null;
@@ -2499,6 +2511,9 @@ async function salvarEdicaoMov(mid){
   if(!valor||isNaN(valor)){showToast('Informe o valor.','err');return;}
   if(!desc){showToast('Informe a descrição.','err');return;}
   if(!data&&!venc){showToast('Informe ao menos a data de vencimento.','err');return;}
+  // Mesma regra do novo lançamento: pago e fora do cartão precisa de carteira.
+  const mEd=movimentacoes.find(x=>x.id===mid);
+  if(mEd && mEd.status==='pago' && !mEd.cartao_id && !$('sh-carteira')?.value){showToast(MSG_SEM_CARTEIRA,'err');return;}
   const btn=document.querySelector('.salvar-btn')||document.querySelector('[onclick*="salvarEdicaoMov"]');
   if(btn){btn.textContent='Salvando…';btn.disabled=true;}
   const{error}=await sb.from('fin_movimentacoes').update({
@@ -2619,6 +2634,7 @@ function lancamentoFaltantes(m){
   if(m._fatura || m._custoFixo) return [];            // linhas virtuais, não são lançamentos reais
   if(ehTransferencia(m)) return [];                   // transferência tem lógica própria
   if(ehCapitalDivida(m)) return [];                   // capital de empréstimo: não tem categoria de receita nem forma de pagamento — é crédito do banco/credor
+  if(ehAjuste(m)) return [];                          // quebra de caixa: não tem categoria nem forma — é só acerto de saldo
   if(m.tipo==='a_pagar' || m.tipo==='a_receber') return []; // sem carteira/forma por definição
   const faltando=[];
   if(!m.categoria_id)     faltando.push('Categoria');
@@ -3367,6 +3383,20 @@ function renderRelatorio(){
   movs.filter(m=>m.tipo==='saida' ).forEach(m=>{const n=getCatNome(m.categoria_id)||'<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/></svg> Sem categoria';catSai[n]=(catSai[n]||0)+parseFloat(m.valor||0);});
   movs.filter(m=>m.tipo==='entrada').forEach(m=>{const n=getCatNome(m.categoria_id)||'<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.3"/></svg> Sem categoria';catEnt[n]=(catEnt[n]||0)+parseFloat(m.valor||0);});
   const nCartao=movs.filter(m=>ehCompraCartao(m)).length;
+  // Quebra de caixa do mês (ajustes de saldo). Fica fora de Entradas/Saídas
+  // acima de propósito (ver ehAjuste) e aparece aqui sozinha, pelo dia do
+  // acerto, para dar pra ver se o esquecimento está diminuindo.
+  const quebras=movsVisiveis().filter(m=>ehAjuste(m)&&m.status==='pago'&&String(m.data||'').startsWith(mesISO)&&(relCentro==='GERAL'||m.centro_id===relCentro));
+  const qSai=quebras.filter(m=>m.tipo==='saida').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const qEnt=quebras.filter(m=>m.tipo==='entrada').reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  const qLiq=qEnt-qSai;
+  const quebraHtml=quebras.length?`<div class="card pad" style="margin-bottom:12px">
+      <div class="section-label">Quebra de caixa no mês</div>
+      <div class="rel-row"><div class="rel-row-label">Faltou (saídas não lançadas)</div><div class="rel-row-value" style="color:var(--red)">${fmt(qSai)}</div></div>
+      <div class="rel-row"><div class="rel-row-label">Sobrou (entradas não lançadas)</div><div class="rel-row-value" style="color:var(--accent)">${fmt(qEnt)}</div></div>
+      <div class="rel-row"><div class="rel-row-label"><b>Líquido</b> · ${quebras.length} ajuste(s)</div><div class="rel-row-value" style="color:${qLiq<0?'var(--red)':'var(--accent)'}">${fmt(qLiq)}</div></div>
+      <div style="font-size:11px;color:var(--gray);margin-top:6px;line-height:1.5">Não entra nos totais acima nem no Lucro Real.</div>
+    </div>`:'';
   const barRows=(obj,total,cor)=>Object.entries(obj).sort((a,b)=>b[1]-a[1]).map(([n,v])=>{
     const pct=total?(v/total*100).toFixed(0):0;
     return`<div class="rel-row"><div class="rel-row-label">${n}</div><div class="rel-row-value" style="color:${cor}">${fmt(v)}</div></div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${cor}"></div></div>`;
@@ -3384,6 +3414,7 @@ function renderRelatorio(){
       e a fatura consolidada não é somada, para não contar duas vezes.
       Por isso o total de Saídas aqui <b>não bate com a tela de Lançamentos</b>, que segue o caixa. Os dois estão certos; respondem perguntas diferentes.
     </div>
+    ${quebraHtml}
     ${Object.keys(catEnt).length?`<div class="card pad" style="margin-bottom:12px"><div class="section-label">▲ Entradas por categoria</div>${barRows(catEnt,ent,'var(--accent)')}</div>`:''}
     ${Object.keys(catSai).length?`<div class="card pad"><div class="section-label">▼ Saídas por categoria</div>${barRows(catSai,sai,'var(--red)')}</div>`:''}
     ${!movs.length?'<div class="empty"><div class="empty-icon"><svg class="ic xl" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></div><div class="empty-title">Sem dados neste período</div></div>':''}
@@ -3393,12 +3424,46 @@ function renderRelatorio(){
 // ════════════════════════════════════════════════
 //  CARTEIRAS
 // ════════════════════════════════════════════════
+// Mensagem única para quando falta carteira num lançamento pago.
+const MSG_SEM_CARTEIRA='Escolha a carteira: de onde saiu ou onde entrou o dinheiro. Pagou em espécie? Use a carteira Dinheiro.';
+
+// Carteira de dinheiro em espécie. Achada pelo tipo (não pelo nome) para
+// continuar funcionando se alguém renomear para "Bolso", "Caixa" etc.
+function carteiraDinheiro(){ return carteiras.find(c=>c.ativo!==false && c.tipo==='dinheiro') || null; }
+
+// Escolheu forma "Dinheiro" → marca a carteira Dinheiro sozinho, para o
+// pagamento em espécie não ficar sem conta. Só preenche se a carteira estiver
+// vazia: se a pessoa já escolheu outra, respeita a escolha dela.
+// prefixo: o seletor unificado do novo lançamento usa valores "conta:<id>".
+function formaDinheiroAuto(formaId, carteiraSelId, prefixo){
+  const f=$(formaId), s=$(carteiraSelId);
+  if(!f || !s || f.value!=='Dinheiro' || s.value) return;
+  const cd=carteiraDinheiro(); if(!cd) return;
+  s.value=(prefixo||'')+cd.id;
+  if(carteiraSelId==='sh-carteira-unif') onCarteiraChange();
+}
+
+// Lançamentos já pagos que não estão em carteira nenhuma (e não são compra de
+// cartão nem transferência/ajuste). Eles contam no resultado mas não mexem
+// em saldo nenhum — por isso as contas ficam com diferença.
+function movsSemCarteira(){
+  return movsVisiveis().filter(m=>m.status==='pago' && !m.carteira_id && !m.cartao_id && !foraDoResultado(m))
+    .sort((a,b)=>String(b.data||'').localeCompare(String(a.data||'')));
+}
+
 function renderCarteiras(){
   const el=$('carteiras-list'); if(!el) return;
+  // Aviso de lançamentos sem carteira vem ANTES de qualquer ajuste: se a pessoa
+  // ajustar o saldo com eles pendentes, a diferença vira quebra falsa.
+  const semCart=movsSemCarteira();
+  const avisoSemCart=semCart.length?`<div class="card pad-sm" style="margin-bottom:12px;background:#FFF8E1;border:1px solid #F5D77A;display:flex;justify-content:space-between;align-items:center;gap:10px">
+      <div style="font-size:12px;color:#8A6A00;line-height:1.5"><b>${semCart.length} lançamento(s) pago(s) sem carteira</b><br>Eles não entram no saldo de nenhuma conta. Acerte antes de ajustar saldo.</div>
+      <button class="btn btn-secondary" style="padding:6px 12px;font-size:12px;white-space:nowrap" onclick="openSheetSemCarteira()">Revisar</button>
+    </div>`:'';
   if(!carteiras.length){
-    el.innerHTML=`<div class="empty"><div class="empty-icon"><svg class="ic xl" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10l9-6 9 6M4 10v9M20 10v9M8 13v6M12 13v6M16 13v6M2 20h20"/></svg></div><div class="empty-title">Nenhuma carteira</div><div class="empty-sub">Adicione sua primeira conta acima</div></div>`;return;
+    el.innerHTML=avisoSemCart+`<div class="empty"><div class="empty-icon"><svg class="ic xl" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10l9-6 9 6M4 10v9M20 10v9M8 13v6M12 13v6M16 13v6M2 20h20"/></svg></div><div class="empty-title">Nenhuma carteira</div><div class="empty-sub">Adicione sua primeira conta acima</div></div>`;return;
   }
-  el.innerHTML=carteiras.map(c=>{
+  el.innerHTML=avisoSemCart+carteiras.map(c=>{
     const s=calcSaldoCarteira(c.id); const cor=s<0?'var(--red)':'var(--accent)';
     const centro=centros.find(x=>x.id===c.centro_id);
     return`<div class="card pad-sm" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px">
@@ -3410,7 +3475,8 @@ function renderCarteiras(){
       </div>
       <div style="text-align:right">
         <div style="font-size:17px;font-weight:800;color:${cor}">${fmt(s)}</div>
-        <div style="display:flex;gap:6px;margin-top:4px">
+        <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;justify-content:flex-end">
+          <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="openSheetAjuste('${c.id}')">Ajustar saldo</button>
           <button class="btn btn-secondary" style="padding:4px 10px;font-size:11px" onclick="openSheetCarteira('${c.id}')">Editar</button>
           <button class="btn btn-danger" style="padding:4px 10px;font-size:11px" onclick="deleteCarteira('${c.id}')">Desativar</button>
         </div>
@@ -3459,6 +3525,100 @@ async function salvarCarteira(cid){
   else{({error}=await sb.from('fin_carteiras').insert([payload]));}
   if(error){showToast('Erro ao salvar.','err');return;}
   await loadAll(); renderCarteiras(); closeSheet(); showToast(cid?'Carteira atualizada!':'Carteira adicionada!');
+}
+
+// ── AJUSTE DE SALDO (QUEBRA DE CAIXA) ───────────────
+// A pessoa informa quanto tem DE VERDADE na conta/bolso; o app lança a
+// diferença como "Quebra de caixa" (origem 'ajuste'). Assim o saldo volta a
+// bater sem esconder o problema: a quebra fica registrada e aparece no
+// Relatório, mas não entra em Entradas/Saídas/Lucro (ver ehAjuste).
+function openSheetAjuste(cid){
+  const c=carteiras.find(x=>x.id===cid); if(!c) return;
+  const s=calcSaldoCarteira(cid);
+  $('sheet-title').textContent='Ajustar saldo · '+c.nome;
+  $('sheet-body').innerHTML=`
+    <div style="background:var(--accent-bg);border-radius:10px;padding:12px;margin-bottom:14px">
+      <div style="font-size:12px;color:var(--gray)">Saldo no app</div>
+      <div style="font-size:20px;font-weight:800;color:${s<0?'var(--red)':'var(--accent)'}">${fmt(s)}</div>
+    </div>
+    <div class="form-mb field"><label>Quanto tem de verdade hoje (R$) *</label>
+      <input type="text" data-money="1" id="aj-real" placeholder="0,00" inputmode="decimal" oninput="previewAjuste('${cid}')"/>
+    </div>
+    <div class="form-mb field"><label>Data do acerto</label><input type="date" id="aj-data" value="${calHojeISO()}"/></div>
+    <div id="aj-preview" style="font-size:13px;font-weight:700;margin-bottom:12px;min-height:18px"></div>
+    <div style="background:#E6E9F6;border:1px solid #C5CCEB;border-radius:10px;padding:10px 12px;font-size:11px;color:#4F5FA8;margin-bottom:14px;line-height:1.6">
+      A diferença é lançada como <b>Quebra de caixa</b>. Ela corrige o saldo, mas não entra no Lucro Real nem no dízimo.<br>
+      Carteira nova que nunca teve o saldo certo? Corrija o <b>Saldo inicial</b> em Editar. Isso não é quebra.
+    </div>
+    <button class="salvar-btn entrada" onclick="salvarAjuste('${cid}')">Lançar ajuste</button>
+  `;
+  openSheetRaw();
+}
+
+function previewAjuste(cid){
+  const el=$('aj-preview'); if(!el) return;
+  const real=getMaskValue($('aj-real'));
+  if(real===null||real===undefined||isNaN(real)||$('aj-real').value===''){el.textContent='';return;}
+  const dif=Math.round((real-calcSaldoCarteira(cid))*100)/100;
+  if(Math.abs(dif)<0.01){el.style.color='var(--accent)';el.textContent='O saldo já bate. Nada a ajustar.';return;}
+  el.style.color=dif<0?'var(--red)':'var(--accent)';
+  el.textContent=dif<0?`Faltam ${fmt(-dif)}: vai lançar uma saída de quebra.`:`Sobram ${fmt(dif)}: vai lançar uma entrada de quebra.`;
+}
+
+async function salvarAjuste(cid){
+  const c=carteiras.find(x=>x.id===cid); if(!c) return;
+  const campo=$('aj-real');
+  const real=getMaskValue(campo);
+  if(!campo?.value || real===null || isNaN(real)){showToast('Informe quanto tem de verdade.','err');return;}
+  const data=$('aj-data')?.value||calHojeISO();
+  const saldoApp=calcSaldoCarteira(cid);
+  // Centavos inteiros: evita lançar 0,0000001 por arredondamento de float.
+  const dif=Math.round((real-saldoApp)*100)/100;
+  if(Math.abs(dif)<0.01){showToast('O saldo já bate. Nada a ajustar.','info');return;}
+  const btn=document.querySelector('[onclick*="salvarAjuste"]'); if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+  const{error}=await sb.from('fin_movimentacoes').insert([{
+    descricao:'Quebra de caixa — ajuste de saldo',
+    valor:Math.abs(dif), tipo:dif>0?'entrada':'saida',
+    data, data_vencimento:data, status:'pago',
+    carteira_id:cid, centro_id:c.centro_id||null,
+    origem:'ajuste',
+    observacao:`Saldo no app ${fmt(saldoApp)} → saldo real ${fmt(real)}`
+  }]);
+  if(error){ if(btn){btn.textContent='Lançar ajuste';btn.disabled=false;} showToast(error.message?('Erro: '+error.message):'Erro ao salvar.','err'); return; }
+  await loadAll(); renderAll(); renderCarteiras(); closeSheet();
+  showToast(`Saldo de ${c.nome} ajustado (${dif<0?'−':'+'}${fmt(Math.abs(dif))} de quebra).`);
+}
+
+// ── REVISAR LANÇAMENTOS SEM CARTEIRA ────────────────
+// Lista os pagos sem conta e deixa escolher a carteira de cada um. Só a
+// pessoa sabe em que banco caiu cada Pix, então não há preenchimento automático.
+function openSheetSemCarteira(){
+  const lista=movsSemCarteira();
+  $('sheet-title').textContent='Lançamentos sem carteira';
+  if(!lista.length){ $('sheet-body').innerHTML='<div class="empty"><div class="empty-title">Tudo certo</div><div class="empty-sub">Nenhum lançamento pago sem carteira.</div></div>'; openSheetRaw(); return; }
+  const opts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}">${w.icone||''} ${w.nome}</option>`).join('');
+  $('sheet-body').innerHTML=`
+    <div style="font-size:12px;color:var(--gray);margin-bottom:12px;line-height:1.5">Escolha a conta de cada um. Os que ficarem em branco continuam como estão.</div>
+    ${lista.map(m=>`<div class="card pad-sm" style="margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:6px">
+        <div style="font-size:12px;font-weight:700;color:var(--text)">${m.descricao||'—'}<div style="font-size:11px;font-weight:400;color:var(--gray)">${fmtDate(m.data)}${m.forma_pagamento?' · '+m.forma_pagamento:''}${getCName(m.centro_id)?' · '+getCName(m.centro_id):''}</div></div>
+        <div style="font-size:13px;font-weight:800;white-space:nowrap;color:${m.tipo==='entrada'?'var(--accent)':'var(--red)'}">${m.tipo==='entrada'?'+':'−'}${fmt(m.valor)}</div>
+      </div>
+      <select data-semcart="${m.id}" style="width:100%"><option value="">Escolher carteira…</option>${opts}</select>
+    </div>`).join('')}
+    <button class="salvar-btn entrada" style="margin-top:8px" onclick="salvarSemCarteira()">Salvar carteiras escolhidas</button>
+  `;
+  openSheetRaw();
+}
+
+async function salvarSemCarteira(){
+  const escolhas=[...document.querySelectorAll('[data-semcart]')].filter(s=>s.value).map(s=>({id:s.dataset.semcart,carteira_id:s.value}));
+  if(!escolhas.length){showToast('Escolha a carteira de pelo menos um.','err');return;}
+  const btn=document.querySelector('[onclick*="salvarSemCarteira"]'); if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+  const res=await Promise.all(escolhas.map(e=>sb.from('fin_movimentacoes').update({carteira_id:e.carteira_id}).eq('id',e.id)));
+  const erros=res.filter(r=>r.error).length;
+  await loadAll(); renderAll(); renderCarteiras(); closeSheet();
+  showToast(erros?`${escolhas.length-erros} salvo(s), ${erros} com erro. Tente de novo.`:`${escolhas.length} lançamento(s) com carteira definida.`, erros?'err':'ok');
 }
 
 // ════════════════════════════════════════════════
@@ -3531,7 +3691,7 @@ function buildSheetForm(preCartaoId){
     </div>
     <div id="sh-forma-wrap" class="form-mb field">
       <label>Forma de pagamento</label>
-      <select id="sh-forma">
+      <select id="sh-forma" onchange="formaDinheiroAuto('sh-forma','sh-carteira-unif','conta:')">
         <option value="">Selecione…</option>
         <option value="Pix">Pix</option>
         <option value="Boleto">Boleto</option>
@@ -3794,6 +3954,10 @@ async function salvarLancamento(){
   const isCartao=unifVal.startsWith('cartao:');
   const carteiraId=unifVal.startsWith('conta:')?unifVal.replace('conta:',''):null;
   const cartaoId=isCartao?unifVal.replace('cartao:',''):null;
+  // Saída/entrada já paga precisa dizer de qual carteira saiu ou em qual entrou.
+  // Sem isso o lançamento conta no resultado mas não mexe em saldo nenhum, e a
+  // diferença vira "quebra" falsa. A pagar/receber escolhe a conta ao confirmar.
+  if(!isCartao && (sheetLancTipo==='saida'||sheetLancTipo==='entrada') && !carteiraId){showToast(MSG_SEM_CARTEIRA,'err');return;}
 
   // ── Define data / data_vencimento / status conforme o tipo escolhido ──
   // Cartão: dataPrincipal = data da COMPRA; vencimento = calculado da fatura; sempre pendente.
@@ -7428,6 +7592,8 @@ function vozAplicar(j){
     if(conta && vozSet('sh-carteira-unif',conta)) onCarteiraChange();
     vozSet('sh-valor',c.valor); vozSet('sh-desc',c.descricao); vozSet('sh-venc',c.data);
     vozSet('sh-centro',c.centro_id); vozSet('sh-cat',c.categoria_id); vozSet('sh-forma',c.forma_pagamento);
+    // "paguei em dinheiro" sem dizer a conta: cai na carteira Dinheiro.
+    if(!conta) formaDinheiroAuto('sh-forma','sh-carteira-unif','conta:');
     vozMarcarVazios(['sh-valor','sh-desc','sh-carteira-unif','sh-centro']);
     vozBanner(j); return;
   }
@@ -7559,7 +7725,8 @@ function ffSituacao(){
     const onde=m.cartao_id?'cartão '+cartaoNome(m.cartao_id):carteiraNome(m.carteira_id);
     L.push(`${c} ${dt(m.data||m.data_vencimento)} — ${m.tipo==='entrada'?'entrada':'saída'} — ${m.descricao||'—'} — ${brl(m.valor)} — ${m.status==='pago'?'pago':'pendente'}`
       +[getCName(m.centro_id), getCatNome(m.categoria_id), onde].filter(Boolean).map(x=>' — '+x).join('')
-      +(ehTransferencia(m)?' — transferência entre contas':''));
+      +(ehTransferencia(m)?' — transferência entre contas':'')
+      +(ehAjuste(m)?' — ajuste de saldo (quebra de caixa), fora do resultado':''));
   });
 
   // Gasto do mês por categoria: saídas pagas + compras no cartão (pela data

@@ -4090,6 +4090,16 @@ let importDiligData=[], importPreviData=[], importTdhData=[];
 // (origem + id) recusaria o mesmo id. O app do TdH avisa para apagar o
 // lançamento antigo aqui.
 const TDH_CENTRO_NOME='Trabalho de Homem';
+// DESDE 14/11/2026 (decisão do Esdras, "opção A"): tudo que ele lança no TdH
+// entra aqui item a item — recebimento, gasto (de obra também), repasse e
+// transferência — já na conta escolhida lá (carteira_id). Assim o saldo de
+// cada conta bate com o banco sem quebra de caixa. Antes desta data só vale
+// o modelo de 07/11 (lucro na finalização + custo fixo): o que já aconteceu
+// até aqui foi acertado na conciliação de 14/11 e não pode entrar de novo.
+// O lucro da obra continua aparecendo, mas só a parte que ainda não entrou
+// item a item (jaNet abaixo); obra toda lançada depois desta data dá zero e
+// some da lista. Nada conta duas vezes.
+const TDH_ITEM_A_ITEM_DESDE='2026-11-14';
 // Escapa texto digitado no app do Trabalho de Homem (descrição, nome de
 // cliente) antes de ir para o innerHTML: um "<" num nome quebraria a lista.
 const esc=s=>String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -4118,7 +4128,7 @@ async function initImportar(){
   );
 
   // Busca dados externos + a lista de itens marcados como "já tratados"
-  const [rDilig,rParc,rIgnorados,rTdhReceb,rTdhRep,rTdhServ,rTdhCli,rTdhPrest,rTdhGasto]=await Promise.all([
+  const [rDilig,rParc,rIgnorados,rTdhReceb,rTdhRep,rTdhServ,rTdhCli,rTdhPrest,rTdhGasto,rTdhTransf]=await Promise.all([
     sb.from('demandas').select('*'),
     sb.from('pm_parcelas').select('*'),
     sb.from('fin_import_ignorados').select('*'),
@@ -4128,6 +4138,7 @@ async function initImportar(){
     sb.from('tdh_clientes').select('*'),
     sb.from('tdh_prestadores').select('*'),
     sb.from('tdh_gastos').select('*'),
+    sb.from('tdh_transferencias').select('*'),
   ]);
 
   // Itens marcados manualmente como já tratados (não devem reaparecer)
@@ -4165,11 +4176,17 @@ async function initImportar(){
   // Recebimentos e repasses importados ANTES de 07/11/2026 (modelo antigo)
   // já estão aqui como receita/despesa. O lucro desses serviços desconta o
   // que já entrou, senão o mesmo dinheiro contaria duas vezes.
-  const recebPorId=porId(rTdhReceb.data), repPorId=porId(rTdhRep.data), jaNet={};
+  // Desde 14/11 entra também o gasto de obra (origem tdh_gasto com servico_id).
+  const recebPorId=porId(rTdhReceb.data), repPorId=porId(rTdhRep.data), gastoPorId=porId(rTdhGasto.data), jaNet={};
   movimentacoes.forEach(m=>{
     if(m.origem==='tdh_receb'){ const r=recebPorId[String(m.diligencia_id)]; if(r) jaNet[r.servico_id]=(jaNet[r.servico_id]||0)+parseFloat(m.valor||0); }
     if(m.origem==='tdh_repasse'){ const p=repPorId[String(m.diligencia_id)]; if(p) jaNet[p.servico_id]=(jaNet[p.servico_id]||0)-parseFloat(m.valor||0); }
+    if(m.origem==='tdh_gasto'){ const g=gastoPorId[String(m.diligencia_id)]; if(g?.servico_id) jaNet[g.servico_id]=(jaNet[g.servico_id]||0)-parseFloat(m.valor||0); }
   });
+  const nomeCart=id=>carteiras.find(c=>c.id===id)?.nome||'';
+  const ondeTxt=(cid,conta)=>cid&&nomeCart(cid)?nomeCart(cid):(conta==='pf'?'Pago da sua conta':'Conta PJ')+' · conta padrão';
+  const nomePrest=pid=>prests[String(pid)]?.nome||'Prestador';
+  const novo=d=>(d||'')>=TDH_ITEM_A_ITEM_DESDE;
   (rTdhServ.data||[]).forEach(sv=>{
     if(!sv.finalizado_em) return;
     const antes=jaNet[sv.id]||0;
@@ -4184,12 +4201,47 @@ async function initImportar(){
   });
   const CAT_TDH={material:'Material',combustivel:'Combustível',alimentacao:'Alimentação',ferramenta:'Ferramenta',anuncio:'Anúncio',imposto:'Imposto',taxa:'Taxa',outro:'Outro'};
   (rTdhGasto.data||[]).forEach(g=>{
-    if(g.servico_id) return;   // gasto de obra já está dentro do lucro do serviço
+    // Gasto de obra antes de 14/11 já está dentro do lucro do serviço.
+    if(g.servico_id && !novo(g.data)) return;
+    // No caixa só sai o que foi pago; a parte paga com crédito de loja não saiu de conta nenhuma.
+    const v=Math.round((parseFloat(g.valor||0)-parseFloat(g.credito_valor||0))*100)/100;
+    if(v<0.005) return;
     tdhItens.push({
       id:'tdh_gasto:'+g.id, _origem:'tdh_gasto', _ref:String(g.id), tipo:'saida',
-      data:g.data, valor:parseFloat(g.valor||0),
-      titulo:'Custo fixo — '+(CAT_TDH[g.categoria]||'Outro')+(g.descricao?' · '+g.descricao:''),
-      meta:g.conta==='pf'?'Pago da sua conta':'Pago pela conta PJ'
+      data:g.data, valor:v, carteira_id:g.carteira_id||null,
+      titulo:(g.servico_id?'Gasto de obra — ':'Custo fixo — ')+(CAT_TDH[g.categoria]||'Outro')+(g.descricao?' · '+g.descricao:'')+(g.servico_id?' · '+nomeServ(g.servico_id):''),
+      meta:ondeTxt(g.carteira_id,g.conta)
+    });
+  });
+  (rTdhReceb.data||[]).forEach(r=>{
+    if(!r.recebido_em || !novo(r.recebido_em) || !servs[String(r.servico_id)]) return;
+    tdhItens.push({
+      id:'tdh_receb:'+r.id, _origem:'tdh_receb', _ref:String(r.id), tipo:'entrada',
+      data:r.recebido_em, valor:parseFloat(r.valor||0), carteira_id:r.carteira_id||null,
+      titulo:'Recebimento — '+(r.descricao?r.descricao+' · ':'')+nomeServ(r.servico_id),
+      meta:ondeTxt(r.carteira_id,r.conta)
+    });
+  });
+  (rTdhRep.data||[]).forEach(p=>{
+    if(p.repasse_status!=='pago' || !novo(p.repassado_em) || !(parseFloat(p.valor_repasse||0)>0)) return;
+    tdhItens.push({
+      id:'tdh_repasse:'+p.id, _origem:'tdh_repasse', _ref:String(p.id), tipo:'saida',
+      data:p.repassado_em, valor:parseFloat(p.valor_repasse||0), carteira_id:p.carteira_id||null,
+      titulo:'Repasse — '+nomePrest(p.prestador_id)+' · '+nomeServ(p.servico_id),
+      meta:ondeTxt(p.carteira_id,p.conta)
+    });
+  });
+  // Transferência PJ ↔ você: entra como transferência (fora de receita e
+  // despesa, ver ehTransferencia), um lançamento em cada conta. Lado que o
+  // TdH não sabe usa a conta padrão desta tela.
+  (rTdhTransf.data||[]).forEach(t=>{
+    if(!novo(t.data)) return;
+    const para=t.sentido==='para_voce';
+    tdhItens.push({
+      id:'transferencia:tdh:'+t.id, _origem:'transferencia', _ref:'tdh:'+t.id, tipo:'transferencia',
+      data:t.data, valor:parseFloat(t.valor||0), carteira_origem:t.carteira_origem||null, carteira_destino:t.carteira_destino||null,
+      titulo:(para?'Transferência PJ → você':'Transferência você → PJ')+(t.descricao?' · '+t.descricao:''),
+      meta:(nomeCart(t.carteira_origem)||'conta padrão')+' → '+(nomeCart(t.carteira_destino)||'conta padrão')
     });
   });
   importTdhData=tdhItens.filter(it=>{
@@ -4252,14 +4304,14 @@ function renderImportList(){
         <div class="import-item-value">+${fmt(item.valor)}</div>
       </div>`;
     } else if(importTab==='tdh'){
-      const ent=item.tipo==='entrada';
+      const ent=item.tipo==='entrada', trf=item.tipo==='transferencia';
       return`<div class="import-item${sel?' selected':''}" data-import-id="${sid}" onclick="toggleImportItem('${sid}')">
         <div class="import-checkbox">${sel?'✓':''}</div>
         <div class="import-item-body">
           <div class="import-item-title">${esc(item.titulo)}</div>
-          <div class="import-item-meta">${ent?'Receita':'Despesa'} · ${fmtDate(item.data)} · ${esc(item.meta)}</div>
+          <div class="import-item-meta">${trf?'Transferência':ent?'Receita':'Despesa'} · ${fmtDate(item.data)} · ${esc(item.meta)}</div>
         </div>
-        <div class="import-item-value" style="${ent?'':'color:var(--red)'}">${ent?'+':'−'}${fmt(item.valor)}</div>
+        <div class="import-item-value" style="${ent||trf?'':'color:var(--red)'}">${trf?'⇄ ':ent?'+':'−'}${fmt(item.valor)}</div>
       </div>`;
     } else {
       return`<div class="import-item${sel?' selected':''}" data-import-id="${sid}" onclick="toggleImportItem('${sid}')">
@@ -4334,14 +4386,27 @@ async function marcarComoTratado(){
 async function executarImport(){
   const wid=$('imp-carteira-default').value;
   const cid=$('imp-centro-default').value;
-  if(!wid){showToast('Selecione a carteira padrão antes de importar.','err');return;}
+  const selecionados=importItems.filter(i=>importSelected.has(String(i.id)));
+  // Item do TdH que já traz a conta não precisa da carteira padrão.
+  const precisaPadrao=selecionados.some(i=>importTab!=='tdh' || (i.tipo==='transferencia' ? !(i.carteira_origem&&i.carteira_destino) : !i.carteira_id));
+  if(precisaPadrao && !wid){showToast('Selecione a carteira padrão antes de importar.','err');return;}
 
   const btn=$('imp-btn'); btn.textContent='Importando…'; btn.disabled=true;
   let erros=0, count=0;
 
-  const selecionados=importItems.filter(i=>importSelected.has(String(i.id)));
   for(const item of selecionados){
     let payload;
+    if(importTab==='tdh' && item.tipo==='transferencia'){
+      // Um lançamento em cada conta, ligados pelo grupo, igual à transferência feita aqui.
+      const de=item.carteira_origem||wid, para=item.carteira_destino||wid;
+      if(de===para){ erros++; continue; }
+      const nDe=carteiras.find(c=>c.id===de)?.nome||'', nPara=carteiras.find(c=>c.id===para)?.nome||'';
+      const base={descricao:`Transferência ${nDe} → ${nPara}`,valor:item.valor,data:item.data,data_vencimento:item.data,status:'pago',
+        grupo_parcelas:crypto.randomUUID(),origem:'transferencia',diligencia_id:item._ref,observacao:`Importado de Trabalho de Homem · ${item.titulo}`};
+      const{error}=await sb.from('fin_movimentacoes').insertMany([{...base,tipo:'saida',carteira_id:de},{...base,tipo:'entrada',carteira_id:para}]);
+      if(error) erros++; else count++;
+      continue;
+    }
     if(importTab==='diligencias'){
       payload={
         descricao: item.descricao||'Diligência',
@@ -4356,7 +4421,7 @@ async function executarImport(){
       // assim). O nome ficou da época em que só existiam diligências.
       payload={
         descricao:item.titulo, valor:item.valor, tipo:item.tipo, data:item.data,
-        status:'pago', carteira_id:wid, centro_id:cid||null,
+        status:'pago', carteira_id:item.carteira_id||wid, centro_id:cid||null,
         observacao:`Importado de Trabalho de Homem · ${item.meta}`,
         origem:item._origem, diligencia_id:item._ref
       };

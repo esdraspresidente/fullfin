@@ -4170,7 +4170,9 @@ async function initImportar(){
   const nomeServ=sid=>{
     const s=servs[String(sid)]||{};
     const cli=clis[String(s.cliente_id)]?.nome;
-    return (s.descricao||'Serviço')+(cli?' · '+cli:'');
+    const d=s.descricao||'Serviço';
+    // O título do orçamento já costuma trazer o cliente: não repete.
+    return d+(cli&&!d.toUpperCase().includes(cli.toUpperCase())?' · '+cli:'');
   };
   const tdhItens=[];
   // Recebimentos e repasses importados ANTES de 07/11/2026 (modelo antigo)
@@ -4184,11 +4186,16 @@ async function initImportar(){
     if(m.origem==='tdh_gasto'){ const g=gastoPorId[String(m.diligencia_id)]; if(g?.servico_id) jaNet[g.servico_id]=(jaNet[g.servico_id]||0)-parseFloat(m.valor||0); }
   });
   const nomeCart=id=>carteiras.find(c=>c.id===id)?.nome||'';
-  const ondeTxt=(cid,conta)=>cid&&nomeCart(cid)?nomeCart(cid):(conta==='pf'?'Pago da sua conta':'Conta PJ')+' · conta padrão';
+  const ondeTxt=(cid,conta)=>cid&&nomeCart(cid)?nomeCart(cid):'⚠ sem conta no TDH ('+(conta==='pf'?'PF':'PJ')+') — vai para a carteira padrão';
   const nomePrest=pid=>prests[String(pid)]?.nome||'Prestador';
   const novo=d=>(d||'')>=TDH_ITEM_A_ITEM_DESDE;
   (rTdhServ.data||[]).forEach(sv=>{
     if(!sv.finalizado_em) return;
+    // Finalizado desde 14/11: NÃO vira lançamento. O dinheiro dessa obra já
+    // está nas contas — o de antes de 14/11 no saldo de abertura das contas
+    // da PJ e nas quebras da conciliação da PF, o de depois item a item.
+    // Lançar o lucro somaria tudo de novo (Olívio: R$ 12.617,82 a mais).
+    if(novo(sv.finalizado_em)) return;
     const antes=jaNet[sv.id]||0;
     const v=Math.round((parseFloat(sv.lucro_final||0)-antes)*100)/100;
     if(Math.abs(v)<0.005) return;

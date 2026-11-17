@@ -904,7 +904,7 @@
       <div class="sb-icon logo-mark"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#0B1F5C"/><circle cx="41" cy="23" r="9" fill="#F5B800"/><path d="M20 50V24a8 8 0 0 1 8-8h4" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round"/><path d="M14 36h14" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg></div>
       <div>
         <div class="sb-name"><span class="wm">fullf<span class="i">i</span>n</span></div>
-        <div class="sb-version" id="sb-version">v3.98 · Naiarha</div>
+        <div class="sb-version" id="sb-version">v3.99 · Naiarha</div>
       </div>
     </div>
     <div class="sb-section">Principal</div>
@@ -2378,7 +2378,7 @@ function renderMovs(containerId, list, compact=false){
       </div>
       <div class="mov-right">
         <div class="mov-value ${m.tipo}">${m.tipo==='entrada'?'+':m.tipo==='saida'?'-':''}${fmt(m.valor)}</div>
-        ${stBadge} ${getOrigBadge(m.origem)}
+        ${stBadge} ${getOrigBadge(m.origem)}${(m.status!=='pago'&&pagoParcialDe(m.id)>0)?`<div style="font-size:10px;color:#3F6530;font-weight:700">já pago ${fmt(pagoParcialDe(m.id))}</div>`:''}
         ${m.comprovante_url?`<button onclick="event.stopPropagation();abrirComprovante('${m.comprovante_url}')" style="background:none;border:none;cursor:pointer;font-size:13px;color:var(--accent);padding:0" title="Ver comprovante"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l9-9a3.3 3.3 0 0 1 4.7 4.7l-9 9a1.6 1.6 0 0 1-2.3-2.3l8-8"/></svg></button>`:''}
       </div>
     </div>`;
@@ -2447,6 +2447,57 @@ function setSheetTipoEd(t,mid){
   if(m) buildSheetFormEdicao({...m,tipo:t});
 }
 
+// ════════════════════════════════════════════════
+//  PAGAMENTO PARCIAL (v3.99)
+// ════════════════════════════════════════════════
+// Por que dividir em duas linhas em vez de guardar "quanto já foi pago" na
+// própria conta: saldo das contas, Relatório, calendário e Excel somam
+// fin_movimentacoes por status. Com UMA linha paga (o que saiu hoje) + a
+// original em aberto com o RESTANTE, todas essas somas continuam certas sem
+// mexer em nenhuma delas. A coluna parcial_de liga o pagamento à conta de
+// origem; um gatilho no banco (trg_fin_devolver_parcial) devolve o valor à
+// origem se o parcial for apagado — vale para qualquer caminho de exclusão.
+function pagoParcialDe(mid){
+  if(!mid) return 0;
+  return movimentacoes.filter(x=>x.parcial_de===mid&&x.status==='pago')
+    .reduce((s,x)=>s+(parseFloat(x.valor)||0),0);
+}
+// Bloco "Integral / Quitação" x "Parcial". Padrão = integral, que é o
+// comportamento de sempre: ninguém precisa mudar o jeito de pagar o dia a dia.
+// prefixo = prefixo dos ids do formulário (cpag, dpag, pcf): o campo de valor
+// é sempre <prefixo>-valor. O total em aberto fica em data-total, para a
+// dívida poder trocá-lo quando o usuário escolhe outra parcela.
+function htmlModoPagamento(prefixo, total){
+  const op=(v,txt,chk)=>`<label style="flex:1;display:flex;align-items:center;gap:6px;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;background:#fff">
+      <input type="radio" name="${prefixo}-modo" value="${v}"${chk?' checked':''} onchange="atualizarModoPagamento('${prefixo}')"/> ${txt}</label>`;
+  return `<div class="form-mb field" id="${prefixo}-modo-wrap" data-total="${total}">
+    <label>Tipo de pagamento</label>
+    <div style="display:flex;gap:8px">${op('integral','Integral / Quitação',true)}${op('parcial','Parcial',false)}</div>
+    <div id="${prefixo}-modo-info" style="display:none;margin-top:8px;background:#E6E9F6;border-radius:8px;padding:10px;font-size:12px;color:#3B4A8C"></div>
+  </div>`;
+}
+function modoPagamento(prefixo){
+  return document.querySelector(`input[name="${prefixo}-modo"]:checked`)?.value||'integral';
+}
+function atualizarModoPagamento(prefixo){
+  const wrap=$(prefixo+'-modo-wrap'), info=$(prefixo+'-modo-info');
+  if(!wrap||!info) return;
+  if(modoPagamento(prefixo)!=='parcial'){ info.style.display='none'; return; }
+  const total=parseFloat(wrap.dataset.total)||0;
+  const pago=getMaskValue($(prefixo+'-valor'));
+  const resto=Math.round((total-pago)*100)/100;
+  info.style.display='block';
+  info.innerHTML=(pago>0&&resto>0)
+    ? `Você paga <b>${fmt(pago)}</b> agora e fica faltando <b>${fmt(resto)}</b>, em aberto com o mesmo vencimento.`
+    : `<span style="color:#8B2635;font-weight:700">No parcial, o valor pago precisa ser maior que zero e menor que ${fmt(total)}.</span>`;
+}
+// Mesma regra para os três formulários: parcial só faz sentido entre 0 e o total.
+function validaParcial(valor,total){
+  if(!(valor>0)){ showToast('Informe o valor pago.','err'); return false; }
+  if(valor>=total-0.004){ showToast(`No parcial o valor precisa ser menor que ${fmt(total)}. Para pagar tudo, use Integral.`,'err'); return false; }
+  return true;
+}
+
 function abrirConfirmPagamento(mid, tipo){
   const m=movimentacoes.find(x=>x.id===mid); if(!m) return;
   const wOpts=carteiras.filter(w=>w.ativo!==false).map(w=>`<option value="${w.id}"${m.carteira_id===w.id?' selected':''}>${w.nome}</option>`).join('');
@@ -2459,10 +2510,12 @@ function abrirConfirmPagamento(mid, tipo){
     <div style="background:#E7F0DF;border:1px solid #C9DAB0;border-radius:10px;padding:12px;margin-bottom:14px">
       <div style="font-size:13px;font-weight:700;color:#3F6530">${m.descricao}</div>
       <div style="font-size:20px;font-weight:800;color:var(--accent);margin-top:4px">${fmt(m.valor)}</div>
+      ${pagoParcialDe(m.id)>0?`<div style="font-size:11px;color:#3F6530;margin-top:3px">Já pago antes: ${fmt(pagoParcialDe(m.id))} · este é o restante</div>`:''}
     </div>
+    ${(m.cartao_id||m.origem==='fatura')?'':htmlModoPagamento('cpag',parseFloat(m.valor)||0)}
     <div class="form-grid-2" style="margin-bottom:12px">
       <div class="field"><label>Valor ${labelAcao==='Recebimento'?'recebido':'pago'} (R$)</label>
-        <input type="text" data-money="1" id="cpag-valor" value="${m.valor}" inputmode="decimal"/>
+        <input type="text" data-money="1" id="cpag-valor" value="${m.valor}" inputmode="decimal" oninput="atualizarModoPagamento('cpag')"/>
       </div>
       <div class="field"><label>Data do ${labelAcao}</label>
         <input type="date" id="cpag-data" value="${hoje}"/>
@@ -2503,9 +2556,27 @@ async function confirmarPagamento(mid){
   if(!mConf?.cartao_id && !$('cpag-carteira')?.value){showToast(MSG_SEM_CARTEIRA,'err');return;}
   const btn=document.querySelector('[onclick*="confirmarPagamento"]');
   if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+  // Compra de cartão e fatura não têm o bloco (pagam pela fatura), então lá é sempre integral.
+  const parcial=!!$('cpag-modo-wrap') && modoPagamento('cpag')==='parcial';
+  const totalAberto=parseFloat(mConf?.valor)||0;
+  if(parcial && !validaParcial(valor,totalAberto)){ if(btn){btn.textContent='Confirmar';btn.disabled=false;} return; }
   let comprovanteUrl=null;
   const cpagFile=$('cpag-comprovante');
   if(cpagFile?.files?.length) comprovanteUrl=await uploadComprovante(cpagFile.files[0],'lanc-'+mid+'-'+Date.now());
+  if(parcial){
+    const resto=Math.round((totalAberto-valor)*100)/100;
+    const r=await registrarParcialMov(mConf,{
+      valor, data, resto,
+      carteira_id:$('cpag-carteira')?.value||null,
+      forma_pagamento:$('cpag-forma')?.value||null,
+      observacao:$('cpag-obs')?.value||null,
+      comprovante_url:comprovanteUrl
+    });
+    if(!r.ok){ showToast('Erro ao salvar: '+(r.msg||''),'err'); if(btn){btn.textContent='Confirmar';btn.disabled=false;} return; }
+    await loadAll(); renderAll(); closeSheet();
+    showToast(`Parcial de ${fmt(valor)} registrado. Falta ${fmt(resto)} em "${mConf.descricao}".`,'ok');
+    return;
+  }
   const{error}=await sb.from('fin_movimentacoes').update({
     status:'pago',
     valor: valor||undefined,
@@ -2517,6 +2588,36 @@ async function confirmarPagamento(mid){
   }).eq('id',mid);
   if(error){showToast('Erro ao salvar.','err');if(btn){btn.textContent='Confirmar';btn.disabled=false;}return;}
   await loadAll(); renderAll(); closeSheet(); showToast('Registrado com sucesso! ','ok');
+}
+
+// Divide uma conta em aberto: a ORIGEM fica com o restante (mesmo vencimento,
+// status, parcela e grupo) e nasce uma linha PAGA com o valor de hoje.
+// Ordem proposital: primeiro reduz a origem, depois cria o pago. Se criar o
+// pago falhar, a origem volta ao valor de antes. No sentido inverso, desfazer
+// seria apagar o pago — e o gatilho do banco somaria o valor de novo na origem.
+// O pago NÃO herda grupo_parcelas/parcela_atual/total_parcelas: senão entraria
+// na numeração do parcelamento e a dívida contaria a parcela como quitada.
+// Herda origem, diligencia_id e divida_id para as somas por origem e por
+// dívida continuarem iguais (o total das duas linhas = o valor de antes).
+async function registrarParcialMov(orig, dados){
+  const valorAntes=parseFloat(orig.valor)||0;
+  const{error:e1}=await sb.from('fin_movimentacoes').update({valor:dados.resto}).eq('id',orig.id);
+  if(e1) return {ok:false,msg:e1.message||''};
+  const{error:e2}=await sb.from('fin_movimentacoes').insert([{
+    descricao:`${orig.descricao} (parcial)`,
+    valor:dados.valor, tipo:orig.tipo||'saida',
+    data:dados.data, data_vencimento:dados.data, status:'pago',
+    carteira_id:dados.carteira_id, forma_pagamento:dados.forma_pagamento,
+    observacao:dados.observacao, comprovante_url:dados.comprovante_url||null,
+    categoria_id:orig.categoria_id||null, centro_id:orig.centro_id||null,
+    origem:orig.origem||null, diligencia_id:orig.diligencia_id||null,
+    divida_id:orig.divida_id||null, parcial_de:orig.id
+  }]);
+  if(e2){
+    await sb.from('fin_movimentacoes').update({valor:valorAntes}).eq('id',orig.id);
+    return {ok:false,msg:e2.message||''};
+  }
+  return {ok:true};
 }
 
 async function salvarEdicaoMov(mid){
@@ -2559,11 +2660,15 @@ function pedirRemocaoMov(mid){
       : [];
 
     if(!grupo || !subsequentes.length){
-      // Não tem grupo ou é o último — delete simples
-      openConfirm('Remover lançamento?','Esta ação não pode ser desfeita.',async()=>{
+      // Não tem grupo ou é o último — delete simples.
+      // Se for um pagamento parcial, o gatilho do banco devolve o valor à
+      // conta de origem (se ela ainda estiver em aberto) — o aviso diz isso.
+      const origParcial=m.parcial_de?movimentacoes.find(x=>x.id===m.parcial_de):null;
+      const devolve=origParcial&&origParcial.status!=='pago';
+      openConfirm('Remover lançamento?',devolve?`É um pagamento parcial: ${fmt(m.valor)} volta para "${origParcial.descricao}", que continua em aberto.`:'Esta ação não pode ser desfeita.',async()=>{
         const{error}=await sb.from('fin_movimentacoes').delete().eq('id',mid);
         if(error){showToast('Erro: '+(error.message||error.code||JSON.stringify(error)),'err');}
-        else{await loadAll();renderAll();showToast('Removido.','info');}
+        else{await loadAll();renderAll();showToast(devolve?`Removido. "${origParcial.descricao}" voltou a ${fmt((parseFloat(origParcial.valor)||0)+(parseFloat(m.valor)||0))} em aberto.`:'Removido.','info');}
       },'<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg> Remover');
       return;
     }
@@ -2840,6 +2945,7 @@ function renderLancamentosLista(){
       </div>
       <div style="text-align:right;flex-shrink:0">
         <div style="font-size:14px;font-weight:800;color:${isPendente?'#8A6A00':corValor}">${m.tipo==='entrada'?'+':'-'}${fmt(m.valor)}</div>
+        ${(isPendente&&!m._custoFixo&&pagoParcialDe(m.id)>0)?`<div style="font-size:10px;color:#3F6530;font-weight:700">já pago ${fmt(pagoParcialDe(m.id))}</div>`:''}
         <div style="display:flex;gap:4px;margin-top:4px;justify-content:flex-end">
           ${m.comprovante_url?`<button onclick="abrirComprovante('${m.comprovante_url}')" style="width:28px;height:28px;border-radius:7px;background:#E6E9F6;color:var(--accent);border:1px solid #DDD6FE;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center" title="Ver comprovante"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 11.5l-8.5 8.5a5 5 0 0 1-7-7l9-9a3.3 3.3 0 0 1 4.7 4.7l-9 9a1.6 1.6 0 0 1-2.3-2.3l8-8"/></svg></button>`:''}
           ${isPendente?`<button onclick="abrirConfirmPagamento('${m.id}','${m.tipo}')" style="width:28px;height:28px;border-radius:7px;background:#4E7A3A;color:#fff;border:none;cursor:pointer;font-size:13px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg></button>`:''}
@@ -4916,7 +5022,15 @@ function totalPagoDivida(dividaId){
   const numsViaTabela=new Set(viaTabela.map(p=>p.num_parcela));
   const totalTabela=viaTabela.reduce((s,p)=>s+parseFloat(p.valor_pago||0),0);
   const totalMovs=movimentacoes.filter(m=>m.divida_id===dividaId&&m.status==='pago'&&m.parcela_atual!=null&&!numsViaTabela.has(m.parcela_atual)).reduce((s,m)=>s+parseFloat(m.valor||0),0);
-  return totalTabela+totalMovs;
+  // Parciais (v3.99): dinheiro que já saiu por conta de uma parcela ainda não
+  // fechada. Quando a parcela fecha pelo "Registrar Pagamento", o registro em
+  // fin_divida_parcelas já inclui os parciais no valor_pago — por isso ficam de
+  // fora aqui nesse caso, senão contariam 2x.
+  const totalParciais=movimentacoes.filter(m=>m.divida_id===dividaId&&m.status==='pago'&&m.parcial_de).filter(m=>{
+    const o=movimentacoes.find(x=>x.id===m.parcial_de);
+    return !(o&&o.parcela_atual!=null&&numsViaTabela.has(o.parcela_atual));
+  }).reduce((s,m)=>s+parseFloat(m.valor||0),0);
+  return totalTabela+totalMovs+totalParciais;
 }
 function renderResumoMensalDividas(){
   const el=$('dividas-resumo-mensal'); if(!el) return;
@@ -5042,7 +5156,7 @@ function renderDividas(){
       let pagaViaMov=false;
       if(!p&&numsPagos.has(n)){
         const mv=movimentacoes.find(m=>m.divida_id===d.id&&m.parcela_atual===n&&m.status==='pago');
-        if(mv){ p={valor_pago:mv.valor,valor_original:mv.valor,data_pagamento:mv.data}; pagaViaMov=true; }
+        if(mv){ const tot=(parseFloat(mv.valor)||0)+pagoParcialDe(mv.id); p={valor_pago:tot,valor_original:tot,data_pagamento:mv.data}; pagaViaMov=true; }
       }
       const dtPrevista=new Date(d.data_inicio+'T12:00:00'); dtPrevista.setMonth(dtPrevista.getMonth()+(n-1));
       const vencISOgrid=dtPrevista.toISOString().split('T')[0];
@@ -5055,6 +5169,14 @@ function renderDividas(){
       } else if(atrasada){
         cor='#F7E3E6'; textCor='#8B2635';
         title=`Parcela ${n}: atrasada — venceu em ${fmtDate(vencISOgrid)}`;
+      }
+      if(!p){
+        const mvAb=movimentacoes.find(m=>m.divida_id===d.id&&m.parcela_atual===n&&m.status!=='pago');
+        const jaParc=mvAb?pagoParcialDe(mvAb.id):0;
+        if(jaParc>0){
+          if(!atrasada){ cor='#E6E9F6'; textCor='#3B4A8C'; }
+          title=`Parcela ${n}: pago parcial ${fmt(jaParc)}, falta ${fmt(mvAb.valor)}`+(atrasada?' (atrasada)':'');
+        }
       }
       return`<div onclick="verParcela('${d.id}',${n})" title="${title}" style="width:28px;height:28px;border-radius:6px;background:${cor};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:${textCor};cursor:pointer;flex-shrink:0">${n}</div>`;
     }).join('');
@@ -5363,7 +5485,11 @@ async function registrarPagamentoDivida(did){
   const numsPagos=numsPagosDivida(did);
   const pendentes=Array.from({length:d.n_parcelas},(_,i)=>i+1).filter(n=>!numsPagos.has(n));
   const wOpts=carteiras.map(c=>`<option value="${c.id}">${c.icone||''} ${c.nome}</option>`).join('');
-  const parOpts=pendentes.map(n=>`<option value="${n}">Parcela ${n} de ${d.n_parcelas}</option>`).join('');
+  const parOpts=pendentes.map(n=>{
+    const ja=dpagJaParcial(did,n);
+    return `<option value="${n}">Parcela ${n} de ${d.n_parcelas}${ja>0?` · falta ${fmt(dpagEmAberto(did,n))}`:''}</option>`;
+  }).join('');
+  const abertoIni=pendentes.length?dpagEmAberto(did,pendentes[0]):(parseFloat(d.valor_parcela)||0);
 
   $('sheet-title').textContent='Registrar Pagamento';
   $('sheet-body').innerHTML=`
@@ -5373,11 +5499,12 @@ async function registrarPagamentoDivida(did){
     </div>
     <div class="form-mb field">
       <label>Qual parcela está pagando? *</label>
-      <select id="dpag-num">${parOpts}</select>
+      <select id="dpag-num" onchange="dpagTrocouParcela('${d.id}')">${parOpts}</select>
     </div>
+    ${htmlModoPagamento('dpag',abertoIni)}
     <div class="form-grid-2">
-      <div class="field"><label>Valor pago (R$) *</label><input type="text" data-money="1" id="dpag-valor" value="${d.valor_parcela}" oninput="dpagCalcEconomia('${d.id}')"/></div>
-      <div class="field"><label>Valor original</label><input type="number" id="dpag-original" value="${d.valor_parcela}" step="0.01" readonly style="background:#EAECF4;font-weight:700"/></div>
+      <div class="field"><label>Valor pago (R$) *</label><input type="text" data-money="1" id="dpag-valor" value="${abertoIni}" oninput="dpagCalcEconomia('${d.id}')"/></div>
+      <div class="field"><label>Em aberto</label><input type="number" id="dpag-original" value="${abertoIni}" step="0.01" readonly style="background:#EAECF4;font-weight:700"/></div>
     </div>
     <div id="dpag-economia-wrap" style="display:none;background:#E7F0DF;border-radius:8px;padding:10px;margin-bottom:10px;font-size:12px;color:#3F6530;font-weight:700"></div>
     <div class="form-mb field"><label>Data do pagamento *</label><input type="date" id="dpag-data" value="${new Date().toISOString().split('T')[0]}"/></div>
@@ -5513,11 +5640,39 @@ async function removerConfirmacao(cid){
   },'<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg> Remover');
 }
 
+// Linha de Lançamentos ainda em aberto daquela parcela (dívidas criadas após
+// a integração têm uma por parcela; dívidas antigas, não).
+function dpagMovAberta(did,n){
+  return movimentacoes.find(m=>m.divida_id===did&&m.parcela_atual===n&&m.status!=='pago')||null;
+}
+function dpagJaParcial(did,n){ const mv=dpagMovAberta(did,n); return mv?pagoParcialDe(mv.id):0; }
+// Quanto falta naquela parcela: a linha aberta já guarda o restante; sem ela,
+// a parcela inteira.
+function dpagEmAberto(did,n){
+  const mv=dpagMovAberta(did,n);
+  if(mv) return parseFloat(mv.valor)||0;
+  const d=dividas.find(x=>x.id===did);
+  return parseFloat(d?.valor_parcela)||0;
+}
+function dpagTrocouParcela(did){
+  const n=parseInt($('dpag-num')?.value); if(!n) return;
+  const ab=dpagEmAberto(did,n);
+  if($('dpag-original')) $('dpag-original').value=ab;
+  if($('dpag-valor')) $('dpag-valor').value=_fmtCentavos(Math.round(ab*100));
+  if($('dpag-modo-wrap')) $('dpag-modo-wrap').dataset.total=ab;
+  dpagCalcEconomia(did);
+}
+
 function dpagCalcEconomia(did){
+  // Antes lia "d.valor_parcela" sem ter "d" definido: dava erro a cada tecla
+  // e o aviso de economia nunca aparecia. Agora compara com o que está em
+  // aberto na parcela escolhida (que já desconta parciais).
+  atualizarModoPagamento('dpag');
   const pago=getMaskValue($('dpag-valor'))||0;
-  const original=parseFloat(d.valor_parcela)||0;
+  const original=parseFloat($('dpag-original')?.value)||0;
   const economia=original-pago;
   const wrap=$('dpag-economia-wrap'); if(!wrap) return;
+  if(modoPagamento('dpag')==='parcial'){ wrap.style.display='none'; return; }
   if(economia>0){wrap.style.display='block';wrap.style.background='#E7F0DF';wrap.style.color='#3F6530';wrap.innerHTML=`<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg> Amortização! Você economizou <b>${fmt(economia)}</b>.`;}
   else if(economia<0){wrap.style.display='block';wrap.style.background='#FFF8E1';wrap.style.color='#8A6A00';wrap.innerHTML=`<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg> Pagamento acima do valor original (+${fmt(Math.abs(economia))})`;}
   else{wrap.style.display='none';}
@@ -5527,10 +5682,15 @@ async function confirmarPagamentoDivida(did){
   const d=dividas.find(x=>x.id===did); if(!d) return;
   const numParcela=parseInt($('dpag-num')?.value);
   const valorPago=getMaskValue($('dpag-valor'))||0;
+  // valor_original continua sendo a parcela cheia (base da "economia").
   const valorOriginal=parseFloat(d.valor_parcela)||0;
   const data=$('dpag-data')?.value||new Date().toISOString().split('T')[0];
   if(!numParcela){showToast('Selecione a parcela.','err');return;}
   if(!valorPago){showToast('Informe o valor pago.','err');return;}
+  const emAberto=dpagEmAberto(did,numParcela);
+  const jaParcial=dpagJaParcial(did,numParcela);
+  const parcial=modoPagamento('dpag')==='parcial';
+  if(parcial && !validaParcial(valorPago,emAberto)) return;
 
   // Upload comprovante
   let comprovanteUrl=null;
@@ -5539,10 +5699,48 @@ async function confirmarPagamentoDivida(did){
     comprovanteUrl=await uploadComprovante(fileInput.files[0],did+'-parc'+numParcela+'-'+Date.now());
   }
 
-  // Salva na tabela de parcelas
+  // ── PARCIAL: a parcela NÃO é dada como paga. Só divide a linha de
+  // Lançamentos (o restante fica agendado no mesmo vencimento). Nada vai para
+  // fin_divida_parcelas — esse registro é o fechamento da parcela.
+  if(parcial){
+    let orig=dpagMovAberta(did,numParcela);
+    if(!orig){
+      // Dívida antiga, sem linha pré-gerada: cria agora a linha da parcela
+      // (cheia) para ter onde guardar o restante. id gerado aqui porque o
+      // mini-client não devolve o registro inserido.
+      const dt=new Date((d.data_inicio||data)+'T12:00:00'); dt.setMonth(dt.getMonth()+(numParcela-1));
+      orig={
+        id:crypto.randomUUID(),
+        descricao:`${d.descricao} — Parcela ${numParcela}/${d.n_parcelas}`,
+        valor:emAberto, tipo:'saida', status:'agendado',
+        data_vencimento:dt.toISOString().split('T')[0],
+        centro_id:d.centro_id||null, categoria_id:d.categoria_id||null,
+        parcela_atual:numParcela, total_parcelas:d.n_parcelas,
+        divida_id:did, origem:'divida'
+      };
+      const{error:eO}=await sb.from('fin_movimentacoes').insert([orig]);
+      if(eO){showToast('Erro ao registrar: '+(eO.message||''),'err');return;}
+    }
+    const resto=Math.round((emAberto-valorPago)*100)/100;
+    const r=await registrarParcialMov(orig,{
+      valor:valorPago, data, resto,
+      carteira_id:$('dpag-carteira')?.value||null,
+      forma_pagamento:$('dpag-forma')?.value||null,
+      observacao:$('dpag-obs')?.value||null,
+      comprovante_url:comprovanteUrl
+    });
+    if(!r.ok){showToast('Erro ao registrar: '+(r.msg||''),'err');return;}
+    const avisou=await dpagAvisarCredor(d,did,valorPago,data);
+    if(!avisou) showToast(`Parcial de ${fmt(valorPago)} na parcela ${numParcela}. Falta ${fmt(resto)}.`);
+    await loadAll(); renderDividas(); closeSheet();
+    return;
+  }
+
+  // Salva na tabela de parcelas. valor_pago = o que sai agora + parciais já
+  // pagos, para "pago x original" (e a economia) refletirem a parcela inteira.
   const{error:e1}=await sb.from('fin_divida_parcelas').insert([{
     divida_id:did, num_parcela:numParcela,
-    valor_original:valorOriginal, valor_pago:valorPago,
+    valor_original:valorOriginal, valor_pago:Math.round((valorPago+jaParcial)*100)/100,
     data_pagamento:data,
     carteira_id:$('dpag-carteira')?.value||null,
     forma_pagamento:$('dpag-forma')?.value||null,
@@ -5589,39 +5787,48 @@ async function confirmarPagamentoDivida(did){
   await sb.from('fin_dividas').update({parcelas_pagas:novasPagas,ativo:novasPagas<d.n_parcelas}).eq('id',did);
 
   // Se dívida tem confirmação bilateral, dispara email para o credor
-  if(d.envia_confirmacao && d.credor_email) {
-    const totalPagoAnterior=totalPagoDivida(did);
-    const saldoOriginal=parseFloat(d.valor_total||0)||(d.n_parcelas*parseFloat(d.valor_parcela||0));
-    const saldoAnterior=saldoOriginal-totalPagoAnterior;
-    const saldoNovo=Math.max(0,saldoAnterior-valorPago);
-    try {
-      const resp = await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
-        method:'POST',
-        headers:{
-          'Content-Type':'application/json',
-          'Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')
-        },
-        body:JSON.stringify({
-          divida_id:did,
-          valor_pago:valorPago,
-          saldo_anterior:saldoAnterior,
-          saldo_novo:saldoNovo,
-          data_pagamento:data,
-          descricao_divida:d.descricao,
-          credor_email:d.credor_email
-        })
-      });
-      if(resp.ok) showToast('Pago! Email enviado para confirmação ');
-      else showToast('Pago! (falha ao enviar email)','info');
-    } catch(e) {
-      showToast('Pago! (email não enviado)','info');
-    }
-  } else {
-    const economia=valorOriginal-valorPago;
+  const avisou=await dpagAvisarCredor(d,did,valorPago,data);
+  if(!avisou){
+    const economia=valorOriginal-(valorPago+jaParcial);
     showToast(economia>0?`Pago! Você economizou ${fmt(economia)}`:'Pagamento registrado!');
   }
 
   await loadAll(); renderDividas(); closeSheet();
+}
+
+// E-mail de confirmação bilateral ao credor (quando a dívida pede).
+// Devolve true se a dívida usa confirmação (o toast já foi mostrado aqui).
+// Usado pelo pagamento integral e pelo parcial: parcial também é dinheiro
+// que saiu e o credor precisa confirmar.
+async function dpagAvisarCredor(d,did,valorPago,data){
+  if(!(d.envia_confirmacao && d.credor_email)) return false;
+  const totalPagoAnterior=totalPagoDivida(did);
+  const saldoOriginal=parseFloat(d.valor_total||0)||(d.n_parcelas*parseFloat(d.valor_parcela||0));
+  const saldoAnterior=saldoOriginal-totalPagoAnterior;
+  const saldoNovo=Math.max(0,saldoAnterior-valorPago);
+  try {
+    const resp = await fetch('https://ggyngtqknonwnohbzkyj.supabase.co/functions/v1/confirmar-pagamento',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'Authorization':'Bearer '+(JSON.parse(localStorage.getItem('supa_sess')||'{}')?.access_token||'')
+      },
+      body:JSON.stringify({
+        divida_id:did,
+        valor_pago:valorPago,
+        saldo_anterior:saldoAnterior,
+        saldo_novo:saldoNovo,
+        data_pagamento:data,
+        descricao_divida:d.descricao,
+        credor_email:d.credor_email
+      })
+    });
+    if(resp.ok) showToast('Pago! Email enviado para confirmação ');
+    else showToast('Pago! (falha ao enviar email)','info');
+  } catch(e) {
+    showToast('Pago! (email não enviado)','info');
+  }
+  return true;
 }
 
 async function deleteDivida(did){
@@ -6053,7 +6260,7 @@ function abrirPagarCustoFixo(recorrenteId, mesISO){
   const ultimoDia=new Date(Number(y),Number(m),0).getDate();
   const dia=Math.min(parseInt(r.dia_vencimento)||1,ultimoDia);
   const dataSugerida=`${y}-${m}-${String(dia).padStart(2,'0')}`;
-  pagCustoFixoCtx={recorrenteId, mesISO};
+  pagCustoFixoCtx={recorrenteId, mesISO, vencISO:dataSugerida};
 
   const wOpts=carteiras.filter(w=>w.ativo!==false)
     .map(w=>`<option value="${w.id}"${w.id===r.carteira_id?' selected':''}>${w.icone||''} ${w.nome}</option>`).join('');
@@ -6065,8 +6272,9 @@ function abrirPagarCustoFixo(recorrenteId, mesISO){
     <div style="background:#FFF8E1;border:1px solid #F5D77A;border-radius:10px;padding:14px;margin-bottom:14px">
       <div style="font-size:13px;font-weight:700"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/></svg> ${r.descricao}</div>
     </div>
+    ${htmlModoPagamento('pcf',parseFloat(r.valor)||0)}
     <div class="form-mb field"><label><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h13v4"/><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M16 13.5h5"/><circle cx="16" cy="13.5" r=".8"/></svg> Valor *</label>
-      <input type="text" data-money="1" id="pcf-valor" inputmode="numeric" value="${_fmtCentavos(Math.round((parseFloat(r.valor)||0)*100))}"/>
+      <input type="text" data-money="1" id="pcf-valor" inputmode="numeric" value="${_fmtCentavos(Math.round((parseFloat(r.valor)||0)*100))}" oninput="atualizarModoPagamento('pcf')"/>
     </div>
     <div class="form-mb field"><label><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg> Data do pagamento *</label>
       <input type="date" id="pcf-data" value="${dataSugerida}"/>
@@ -6098,7 +6306,37 @@ async function confirmarPagamentoCustoFixo(){
   if(!carteiraId){showToast('Selecione a carteira.','err');return;}
   if(!forma){showToast('Selecione a forma de pagamento.','err');return;}
 
+  const parcial=modoPagamento('pcf')==='parcial';
+  const totalCF=parseFloat(r.valor)||0;
+  if(parcial && !validaParcial(valor,totalCF)) return;
+
   const btn=document.querySelector('.salvar-btn'); if(btn){btn.textContent='Salvando…';btn.disabled=true;}
+
+  if(parcial){
+    // Custo fixo é só molde (não existe linha no banco). Para sobrar o
+    // restante, cria a linha do mês em aberto com o valor CHEIO e a mesma
+    // descrição/centro do molde — é isso que custosFixosVirtuais() usa para
+    // não mostrar a previsão de novo — e então divide como qualquer conta.
+    const orig={
+      id:crypto.randomUUID(),
+      descricao:r.descricao, valor:totalCF, tipo:r.tipo||'saida',
+      data_vencimento:pagCustoFixoCtx.vencISO, status:'pendente',
+      carteira_id:carteiraId, categoria_id:r.categoria_id||null,
+      centro_id:r.centro_id||null, forma_pagamento:forma, origem:'recorrente'
+    };
+    const{error:eO}=await sb.from('fin_movimentacoes').insert([orig]);
+    let res=eO?{ok:false,msg:eO.message}:null;
+    if(!res){
+      res=await registrarParcialMov(orig,{valor,data,resto:Math.round((totalCF-valor)*100)/100,
+        carteira_id:carteiraId, forma_pagamento:forma, observacao:null, comprovante_url:null});
+      // Se o pago falhou, a linha cheia recém-criada não deve ficar sozinha.
+      if(!res.ok) await sb.from('fin_movimentacoes').delete().eq('id',orig.id);
+    }
+    if(!res.ok){showToast('Erro: '+(res.msg||''),'err');if(btn){btn.textContent='Confirmar pagamento';btn.disabled=false;}return;}
+    await loadAll(); renderLancamentosLista(); closeSheet();
+    showToast(`Parcial de ${fmt(valor)} lançado. Falta ${fmt(totalCF-valor)} de "${r.descricao}".`);
+    return;
+  }
 
   const{error}=await sb.from('fin_movimentacoes').insert([{
     descricao:r.descricao, valor, tipo:r.tipo||'saida',

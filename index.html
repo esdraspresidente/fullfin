@@ -4128,7 +4128,7 @@ async function initImportar(){
   );
 
   // Busca dados externos + a lista de itens marcados como "já tratados"
-  const [rDilig,rParc,rIgnorados,rTdhReceb,rTdhRep,rTdhServ,rTdhCli,rTdhPrest,rTdhGasto,rTdhTransf]=await Promise.all([
+  const [rDilig,rParc,rIgnorados,rTdhReceb,rTdhRep,rTdhServ,rTdhCli,rTdhPrest,rTdhGasto,rTdhTransf,rTdhResg]=await Promise.all([
     sb.from('demandas').select('*'),
     sb.from('pm_parcelas').select('*'),
     sb.from('fin_import_ignorados').select('*'),
@@ -4139,6 +4139,7 @@ async function initImportar(){
     sb.from('tdh_prestadores').select('*'),
     sb.from('tdh_gastos').select('*'),
     sb.from('tdh_transferencias').select('*'),
+    sb.from('tdh_creditos_resgates').select('*'),
   ]);
 
   // Itens marcados manualmente como já tratados (não devem reaparecer)
@@ -4236,6 +4237,20 @@ async function initImportar(){
       data:p.repassado_em, valor:parseFloat(p.valor_repasse||0), carteira_id:p.carteira_id||null,
       titulo:'Repasse — '+nomePrest(p.prestador_id)+' · '+nomeServ(p.servico_id),
       meta:ondeTxt(p.carteira_id,p.conta)
+    });
+  });
+  // Crédito de loja trocado por dinheiro (16/11/2026): entrada na conta onde
+  // o dinheiro caiu. Só o "recebido" — se o crédito foi vendido com desconto,
+  // a diferença nunca passou pela conta. Não toca o lucro de obra (jaNet):
+  // a devolução que gerou o crédito já tinha baixado o gasto daquela obra.
+  (rTdhResg?.data||[]).forEach(x=>{
+    const v=Math.round(parseFloat(x.recebido||0)*100)/100;
+    if(!novo(x.data) || v<0.005) return;
+    tdhItens.push({
+      id:'tdh_resgate:'+x.id, _origem:'tdh_resgate', _ref:String(x.id), tipo:'entrada',
+      data:x.data, valor:v, carteira_id:x.carteira_id||null,
+      titulo:'Crédito de loja vendido — '+x.loja+(x.descricao?' · '+x.descricao:''),
+      meta:ondeTxt(x.carteira_id,x.conta)
     });
   });
   // Transferência PJ ↔ você: entra como transferência (fora de receita e

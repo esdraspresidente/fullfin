@@ -994,7 +994,7 @@
           <div class="lucro-value" id="lucro-value">R$ 0,00</div>
           <div class="lucro-breakdown" id="lucro-breakdown"></div>
           <div class="dizimo-row">
-            <div class="dizimo-label"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 5a1.5 1.5 0 0 1 3 0v7M14 6.5a1.5 1.5 0 0 1 3 0V12M17 9a1.5 1.5 0 0 1 3 0v6a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.6L4 14a1.6 1.6 0 0 1 2.6-1.9L8 14"/></svg> Dízimo sugerido (10%)<b id="dizimo-sug">R$ 0,00</b></div>
+            <div class="dizimo-label"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 5a1.5 1.5 0 0 1 3 0v7M14 6.5a1.5 1.5 0 0 1 3 0V12M17 9a1.5 1.5 0 0 1 3 0v6a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.6L4 14a1.6 1.6 0 0 1 2.6-1.9L8 14"/></svg> <span id="dizimo-lbl">Dízimo sugerido (10%)</span><b id="dizimo-sug">R$ 0,00</b></div>
             <button class="dizimo-btn" onclick="goPage('dizimo')">Registrar</button>
           </div>
         </div>
@@ -1963,6 +1963,24 @@ function calcLucroReal(mesISO){
   return{receita,custos,lucro,prolabore,centroCasaNome,dizimo:prolabore*0.1,porCentro};
 }
 
+// Soma o dízimo já pago num mês de referência, somando TODOS os registros
+// daquele mês. Por quê: o dízimo costuma ser pago em parcelas (um culto, depois
+// outro), e cada parcela vira uma linha em fin_dizimos. Antes o app comparava
+// cada linha sozinha com o sugerido cheio — aí 2 pagamentos que fechavam o mês
+// apareciam os dois como "Faltou", e o card do Início nunca descontava nada.
+function dizimoPagoNoMes(mesISO){
+  const m=(mesISO||'').slice(0,7);
+  return dizimos.filter(d=>(d.periodo_referencia||'').slice(0,7)===m)
+    .reduce((s,d)=>s+parseFloat(d.valor_dizimo_pago||0),0);
+}
+// Situação do dízimo no mês: sugerido de AGORA (base recalculada com os
+// lançamentos atuais, não a foto do dia do registro) menos o total já pago.
+function situacaoDizimo(mesISO){
+  const sug=calcLucroReal(mesISO).dizimo;
+  const pago=dizimoPagoNoMes(mesISO);
+  return{sug,pago,falta:Math.max(0,sug-pago),excesso:Math.max(0,pago-sug)};
+}
+
 function calcSaldoCarteira(cid){
   const crt=carteiras.find(c=>c.id===cid); if(!crt) return 0;
   const movs=movsVisiveis().filter(m=>m.carteira_id===cid&&m.status==='pago');
@@ -1990,7 +2008,20 @@ function renderHome(){
   const lr=calcLucroReal(mesISO);
   $('lucro-value').textContent=fmt(lr.lucro);
   $('lucro-breakdown').innerHTML=lr.porCentro.map(c=>`<span class="lucro-item">${c.icone} ${c.nome}: <b>${fmt(c.saldo)}</b></span>`).join('');
-  $('dizimo-sug').textContent=fmt(lr.dizimo);
+  // Card do Início mostra o que FALTA pagar no mês, não o sugerido cheio —
+  // senão parece que nada foi registrado mesmo depois de pagar.
+  const sd=situacaoDizimo(mesISO);
+  const lblEl=$('dizimo-lbl');
+  if(sd.pago<=0.01){
+    if(lblEl) lblEl.textContent='Dízimo sugerido (10%)';
+    $('dizimo-sug').textContent=fmt(sd.sug);
+  } else if(sd.falta>0.01){
+    if(lblEl) lblEl.textContent='Falta de dízimo · pago '+fmt(sd.pago)+' de '+fmt(sd.sug);
+    $('dizimo-sug').textContent=fmt(sd.falta);
+  } else {
+    if(lblEl) lblEl.textContent='Dízimo do mês ✓ em dia (sugerido '+fmt(sd.sug)+')';
+    $('dizimo-sug').textContent='Pago '+fmt(sd.pago);
+  }
   // Carteiras scroll
   const scr=$('carteiras-scroll');
   scr.innerHTML=carteiras.filter(c=>c.ativo!==false).map(c=>{
@@ -4836,7 +4867,10 @@ function renderLucroReal(){
   const mes=$('lr-mes')?.value||mesAtualISO();
   const lr=calcLucroReal(mes);
   $('lr-lucro').textContent=fmt(lr.prolabore);
-  $('lr-dizimo-sug').textContent=fmt(lr.dizimo);
+  // Mostra junto do sugerido quanto já foi pago no mês e quanto falta, pra
+  // ninguém registrar de novo um valor que já foi dado.
+  const sd=situacaoDizimo(mes);
+  $('lr-dizimo-sug').textContent=fmt(lr.dizimo)+(sd.pago>0.01?(sd.falta>0.01?' · falta '+fmt(sd.falta):' · ✓ em dia'):'');
   $('lr-details').innerHTML=`
     <div class="lr-detail-item" style="border-bottom:1px solid rgba(255,255,255,.15);padding-bottom:8px;margin-bottom:8px">
       <div class="lr-detail-label">▲ Receitas totais</div><div class="lr-detail-value">${fmt(lr.receita)}</div>
@@ -4940,16 +4974,26 @@ function renderDizimoHistorico(){
   ).sort((a,b)=>(b.data||'').localeCompare(a.data||''));
 
   // Histórico formal (fin_dizimos)
+  // Status (Faltou / Em dia) é calculado pelo TOTAL pago no mês contra o
+  // sugerido atual do mês, e aparece só na primeira linha de cada mês. As
+  // demais linhas do mesmo mês mostram só o valor daquele pagamento.
+  const _mesVisto=new Set();
   const formalHtml = dizimos.length ? dizimos.map(d=>{
     const[y,m]=d.periodo_referencia.split('-');
     const nome=MESES[parseInt(m)-1]+' '+y;
     const total=parseFloat(d.valor_dizimo_pago||0)+parseFloat(d.valor_oferta_pago||0);
-    const diff=parseFloat(d.valor_dizimo_sugerido||0)-parseFloat(d.valor_dizimo_pago||0);
+    const chave=(d.periodo_referencia||'').slice(0,7);
+    const primeiraDoMes=!_mesVisto.has(chave); _mesVisto.add(chave);
+    const sd=situacaoDizimo(chave);
+    // Se a base atual vier zerada (mês sem lançamentos carregados), usa o
+    // maior sugerido gravado nos registros daquele mês como referência.
+    const sugMes=sd.sug>0.01?sd.sug:Math.max(...dizimos.filter(x=>(x.periodo_referencia||'').slice(0,7)===chave).map(x=>parseFloat(x.valor_dizimo_sugerido||0)));
+    const diff=primeiraDoMes?(sugMes-sd.pago):0;
     return`<div class="dizimo-hist-item">
       <div>
         <div style="font-size:13px;font-weight:700;color:var(--text)">${nome}</div>
-        <div style="font-size:11px;color:var(--gray);margin-top:2px">Lucro: ${fmt(d.lucro_real)} · Sug: ${fmt(d.valor_dizimo_sugerido)}</div>
-        ${diff>0.01?`<div style="font-size:11px;color:var(--red);margin-top:2px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 17H2z"/><path d="M12 10v4M12 17.5h.01"/></svg> Faltou ${fmt(diff)}</div>`:`<div style="font-size:11px;color:var(--accent);margin-top:2px">✓ Em dia</div>`}
+        <div style="font-size:11px;color:var(--gray);margin-top:2px">${primeiraDoMes?`Sugerido do mês: ${fmt(sugMes)} · Pago no mês: ${fmt(sd.pago)}`:`Pagamento parcial do mês`}</div>
+        ${!primeiraDoMes?'':diff>0.01?`<div style="font-size:11px;color:var(--red);margin-top:2px"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l10 17H2z"/><path d="M12 10v4M12 17.5h.01"/></svg> Faltou ${fmt(diff)}</div>`:`<div style="font-size:11px;color:var(--accent);margin-top:2px">✓ Em dia${diff<-0.01?` · pago ${fmt(-diff)} a mais`:''}</div>`}
         ${d.observacao?`<div style="font-size:11px;color:var(--gray);margin-top:2px;font-style:italic">${d.observacao}</div>`:''}
       </div>
       <div style="text-align:right">

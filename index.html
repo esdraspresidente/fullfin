@@ -2793,7 +2793,9 @@ function lancamentoFaltantes(m){
   if(!m.centro_id)        faltando.push('Centro de custo');
   if(!(m.descricao||'').trim()) faltando.push('Descrição');
   if(!m.forma_pagamento)  faltando.push('Forma de pagamento');
-  if(!m.carteira_id)      faltando.push('Carteira');
+  // Compra no cartão não tem carteira: quem paga é a fatura. O cartão faz
+  // o papel da carteira (sem isto toda compra no cartão ficava incompleta).
+  if(!m.carteira_id && !m.cartao_id) faltando.push('Carteira');
   return faltando;
 }
 function lancamentoIncompleto(m){ return lancamentoFaltantes(m).length>0; }
@@ -4241,6 +4243,24 @@ const TDH_ITEM_A_ITEM_DESDE='2026-11-14';
 // cliente) antes de ir para o innerHTML: um "<" num nome quebraria a lista.
 const esc=s=>String(s??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const centroTdh=()=>centros.find(c=>(c.nome||'').trim().toLowerCase()===TDH_CENTRO_NOME.toLowerCase());
+// DESDE 28/11/2026: item do TdH chega COMPLETO (categoria, centro, forma,
+// conta e descrição — ver lancamentoFaltantes). Antes chegava sem categoria
+// e sem forma, e todo lançamento do TdH ficava "incompleto" para editar à mão.
+// Categoria é achada pelo NOME, não pelo id: se ele renomear ou recriar a
+// categoria no Fullfin, ajusta só o texto aqui. Nome que não existir chega
+// sem categoria (aparece como incompleto, não quebra a importação).
+const TDH_CAT_GASTO={material:'Material de obra',combustivel:'Combustível',alimentacao:'Alimentação',ferramenta:'Ferramentas',
+  anuncio:'Tráfego Pago',imposto:'Impostos / Taxas',taxa:'Impostos / Taxas',outro:'Outros'};
+const TDH_CAT={receb:'Serviços TDH',repasse:'Repasse a Terceiro',resgate:'Outros recebimentos',lucro:'Serviços TDH',prejuizo:'Outros'};
+const _normNome=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();
+const catTdh=nome=>categorias.find(c=>_normNome(c.nome)===_normNome(nome))?.id||null;
+// Forma do TdH → opção do Fullfin. PIX é a mesma forma; aqui se escreve
+// "Pix" porque é o texto da opção no Fullfin (outro texto deixaria o campo
+// em branco ao editar). "Cartão" é de antes de 28/11, quando o TdH não
+// separava: vira Débito. Sem forma (gasto/repasse antigos, resgate, que o
+// TdH não pergunta) vai Pix, o jeito como ele paga quase tudo.
+const TDH_FORMA={'PIX':'Pix','Dinheiro':'Dinheiro','Débito':'Débito','Crédito':'Cartão de Crédito','Cartão':'Débito','Transferência':'Transferência','Boleto':'Boleto'};
+const formaTdh=f=>TDH_FORMA[f]||'Pix';
 
 async function initImportar(){
   // Preenche selects de configuração padrão
@@ -4340,6 +4360,7 @@ async function initImportar(){
     tdhItens.push({
       id:'tdh_lucro:'+sv.id+':'+sv.finalizacoes, _origem:'tdh_lucro', _ref:sv.id+':'+sv.finalizacoes,
       tipo:v>=0?'entrada':'saida', data:sv.finalizado_em, valor:Math.abs(v),
+      categoria_id:catTdh(v>=0?TDH_CAT.lucro:TDH_CAT.prejuizo), forma_pagamento:'Pix',
       titulo:(v>=0?'Lucro — ':'Prejuízo — ')+nomeServ(sv.id),
       meta:'Serviço finalizado'+(antes?` · descontado ${fmt(antes)} já importado antes`:'')
     });
@@ -4353,9 +4374,12 @@ async function initImportar(){
     if(v<0.005) return;
     tdhItens.push({
       id:'tdh_gasto:'+g.id, _origem:'tdh_gasto', _ref:String(g.id), tipo:'saida',
-      data:g.data, valor:v, carteira_id:g.carteira_id||null,
+      // Compra no cartão de crédito da PJ (28/11/2026): vai para a fatura
+      // do cartão, sem carteira — o dinheiro só sai quando pagar a fatura.
+      data:g.data, valor:v, carteira_id:g.cartao_id?null:(g.carteira_id||null), cartao_id:g.cartao_id||null,
+      categoria_id:catTdh(TDH_CAT_GASTO[g.categoria]||'Outros'), forma_pagamento:g.cartao_id?'Cartão de Crédito':formaTdh(g.forma_pagamento),
       titulo:(g.servico_id?'Gasto de obra — ':'Custo fixo — ')+(CAT_TDH[g.categoria]||'Outro')+(g.descricao?' · '+g.descricao:'')+(g.servico_id?' · '+nomeServ(g.servico_id):''),
-      meta:ondeTxt(g.carteira_id,g.conta)
+      meta:g.cartao_id?'cartão '+(cartoes.find(c=>c.id===g.cartao_id)?.nome||'')+' (fatura)':ondeTxt(g.carteira_id,g.conta)
     });
   });
   (rTdhReceb.data||[]).forEach(r=>{
@@ -4363,6 +4387,7 @@ async function initImportar(){
     tdhItens.push({
       id:'tdh_receb:'+r.id, _origem:'tdh_receb', _ref:String(r.id), tipo:'entrada',
       data:r.recebido_em, valor:parseFloat(r.valor||0), carteira_id:r.carteira_id||null,
+      categoria_id:catTdh(TDH_CAT.receb), forma_pagamento:formaTdh(r.forma_pagamento),
       titulo:'Recebimento — '+(r.descricao?r.descricao+' · ':'')+nomeServ(r.servico_id),
       meta:ondeTxt(r.carteira_id,r.conta)
     });
@@ -4372,6 +4397,7 @@ async function initImportar(){
     tdhItens.push({
       id:'tdh_repasse:'+p.id, _origem:'tdh_repasse', _ref:String(p.id), tipo:'saida',
       data:p.repassado_em, valor:parseFloat(p.valor_repasse||0), carteira_id:p.carteira_id||null,
+      categoria_id:catTdh(TDH_CAT.repasse), forma_pagamento:formaTdh(p.forma_pagamento),
       titulo:'Repasse — '+nomePrest(p.prestador_id)+' · '+nomeServ(p.servico_id),
       meta:ondeTxt(p.carteira_id,p.conta)
     });
@@ -4386,6 +4412,7 @@ async function initImportar(){
     tdhItens.push({
       id:'tdh_resgate:'+x.id, _origem:'tdh_resgate', _ref:String(x.id), tipo:'entrada',
       data:x.data, valor:v, carteira_id:x.carteira_id||null,
+      categoria_id:catTdh(TDH_CAT.resgate), forma_pagamento:'Pix',
       titulo:'Crédito de loja vendido — '+x.loja+(x.descricao?' · '+x.descricao:''),
       meta:ondeTxt(x.carteira_id,x.conta)
     });
@@ -4547,7 +4574,7 @@ async function executarImport(){
   const cid=$('imp-centro-default').value;
   const selecionados=importItems.filter(i=>importSelected.has(String(i.id)));
   // Item do TdH que já traz a conta não precisa da carteira padrão.
-  const precisaPadrao=selecionados.some(i=>importTab!=='tdh' || (i.tipo==='transferencia' ? !(i.carteira_origem&&i.carteira_destino) : !i.carteira_id));
+  const precisaPadrao=selecionados.some(i=>importTab!=='tdh' || (i.tipo==='transferencia' ? !(i.carteira_origem&&i.carteira_destino) : !(i.carteira_id||i.cartao_id)));
   if(precisaPadrao && !wid){showToast('Selecione a carteira padrão antes de importar.','err');return;}
 
   const btn=$('imp-btn'); btn.textContent='Importando…'; btn.disabled=true;
@@ -4580,10 +4607,20 @@ async function executarImport(){
       // assim). O nome ficou da época em que só existiam diligências.
       payload={
         descricao:item.titulo, valor:item.valor, tipo:item.tipo, data:item.data,
-        status:'pago', carteira_id:item.carteira_id||wid, centro_id:cid||null,
+        // Centro sempre Trabalho de Homem: não depende do "centro padrão"
+        // da tela, que pode ter ficado em outro centro da aba anterior.
+        status:'pago', carteira_id:item.carteira_id||wid, centro_id:centroTdh()?.id||cid||null,
+        categoria_id:item.categoria_id||null, forma_pagamento:item.forma_pagamento||null,
         observacao:`Importado de Trabalho de Homem · ${item.meta}`,
         origem:item._origem, diligencia_id:item._ref
       };
+      // Compra no cartão: igual a lançar no cartão aqui (salvar do formulário):
+      // pendente, data = compra, vencimento = o da fatura em que ela cai.
+      if(item.cartao_id){
+        const cartao=cartoes.find(c=>c.id===item.cartao_id);
+        Object.assign(payload,{carteira_id:null, cartao_id:item.cartao_id, status:'pendente',
+          data_vencimento:calcVencFaturaISO(item.data, cartao)});
+      }
     } else {
       payload={
         descricao:`${item.cliente_nome||'Cliente'} — Parc. ${item.num_parcela}/${item.total_parcelas}`,
